@@ -98,6 +98,17 @@ impl App {
         let contexts = self.active_keymap_contexts();
         let was_pending = self.key_chord_matcher.is_pending();
         if !was_pending
+            && contexts.is_warnings()
+            && !crate::key_hint::is_plain_text_key_event(key_event)
+            && self
+                .keymap
+                .list
+                .action_for(key_event)
+                .is_some_and(|action| action != crate::keymap::ListAction::Accept)
+        {
+            return Some(key_event);
+        }
+        if !was_pending
             && contexts.contains(crate::keymap::KeymapContext::Agents)
             && self
                 .agents_overview
@@ -218,6 +229,10 @@ impl App {
     }
 
     pub(super) async fn launch_external_editor(&mut self, tui: &mut tui::Tui) {
+        self.chat_widget
+            .empty_state_animation
+            .borrow_mut()
+            .pause_clock();
         let editor_cmd = match external_editor::resolve_editor_command() {
             Ok(cmd) => cmd,
             Err(external_editor::EditorError::MissingEditor) => {
@@ -273,6 +288,10 @@ impl App {
     }
 
     pub(super) fn request_external_editor_launch(&mut self, tui: &mut tui::Tui) {
+        self.chat_widget
+            .empty_state_animation
+            .borrow_mut()
+            .pause_clock();
         self.chat_widget
             .set_external_editor_state(ExternalEditorState::Requested);
         self.chat_widget.set_footer_hint_override(Some(vec![(
@@ -602,6 +621,10 @@ impl App {
         app_server: &mut AppServerSession,
         key_event: KeyEvent,
     ) -> bool {
+        if self.keymap.app.open_warnings.is_pressed(key_event) {
+            self.chat_widget.open_warnings(&self.transcript_cells);
+            return true;
+        }
         let side_toggle_bindings = &self.keymap.app.toggle_side_conversation;
         if side_toggle_bindings.is_pressed(key_event)
             || side_toggle_bindings.contains(&crate::key_hint::ctrl(KeyCode::Char('/')))

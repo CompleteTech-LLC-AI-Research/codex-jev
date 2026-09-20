@@ -22,6 +22,9 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 30);
 const FOCUS_INPUT_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 5);
 const FOCUS_PROBE_INPUT: &str = "focus-palette-24527";
 
+#[path = "tui_mode_picker_tests.rs"]
+mod tui_mode_picker;
+
 #[test]
 fn focus_gained_with_unanswered_palette_queries_preserves_immediate_input() -> Result<()> {
     let repo_root = codex_utils_cargo_bin::repo_root()?;
@@ -161,12 +164,7 @@ fn owned_screen_entry_paints_before_sync_ends_and_exit_clears_inline_draft() -> 
     let mut terminal = PtyCodex::start(
         &repo_root,
         codex_home,
-        &[
-            "-c",
-            "tui.alternate_screen=\"always\"",
-            "-c",
-            "features.transcript_v2=true",
-        ],
+        &["-c", "tui.fullscreen_transcript=true"],
     )?;
     terminal.wait_for_startup()?;
     let deadline = Instant::now() + STARTUP_TIMEOUT;
@@ -180,6 +178,10 @@ fn owned_screen_entry_paints_before_sync_ends_and_exit_clears_inline_draft() -> 
         "owned screen did not open"
     );
     terminal.wait_for_screen("GPT-5.6-Terra")?;
+    ensure!(
+        terminal.parser.screen().alternate_screen(),
+        "fullscreen did not survive application startup"
+    );
     let enter_alt = b"\x1b[?1049h";
     let begin_sync = b"\x1b[?2026h";
     let end_sync = b"\x1b[?2026l";
@@ -248,6 +250,24 @@ fn owned_screen_entry_paints_before_sync_ends_and_exit_clears_inline_draft() -> 
             .screen_contents()
             .contains("Ask Codex to do anything"),
         "owned-screen exit left the inline composer visible"
+    );
+    Ok(())
+}
+
+#[test]
+fn fullscreen_transcript_defaults_to_terminal_scrollback() -> Result<()> {
+    let repo_root = codex_utils_cargo_bin::repo_root()?;
+    let codex_home = tempfile::tempdir()?;
+    write_test_config(codex_home.path(), &repo_root)?;
+    let mut terminal = PtyCodex::start(&repo_root, codex_home, &[])?;
+    terminal.wait_for_startup()?;
+    terminal.wait_for_screen("GPT-5.6-Terra")?;
+    ensure!(
+        !terminal
+            .output
+            .windows(b"\x1b[?1049h".len())
+            .any(|bytes| bytes == b"\x1b[?1049h"),
+        "default launch entered the alternate screen"
     );
     Ok(())
 }

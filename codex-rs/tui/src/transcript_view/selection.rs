@@ -6,6 +6,7 @@ use ratatui::layout::Position as ScreenPosition;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::*;
+use crate::text_selection::SelectionUnit;
 
 pub(super) struct Selection {
     pub(super) snapshot: ViewSnapshot,
@@ -15,26 +16,10 @@ pub(super) struct Selection {
     pub(super) moved: bool,
     pub(super) resume_on_empty: bool,
     pub(super) pointer: Option<ScreenPosition>,
+    pub(super) pressed_link: Option<String>,
     origin: (Anchor, Anchor),
     unit: SelectionUnit,
     preferred_column: Option<u16>,
-}
-
-#[derive(Clone, Copy)]
-enum SelectionUnit {
-    Character,
-    Word,
-    Line,
-}
-
-impl SelectionUnit {
-    fn range(self, layout: &TextLayout, offset: usize) -> std::ops::Range<usize> {
-        match self {
-            Self::Character => offset..offset,
-            Self::Word => layout.word_range(offset),
-            Self::Line => layout.line_range(offset),
-        }
-    }
 }
 
 impl TranscriptView {
@@ -49,12 +34,8 @@ impl TranscriptView {
             return;
         };
         self.cancel_beginning();
-        let unit = match clicks {
-            2 => SelectionUnit::Word,
-            3 => SelectionUnit::Line,
-            _ => SelectionUnit::Character,
-        };
-        let range = unit.range(&layout, anchor.offset);
+        let unit = SelectionUnit::from_clicks(clicks);
+        let range = unit.range(layout.text(), anchor.offset);
         let snapshot = self.capture_snapshot(cells);
         self.held_reading = None;
         let start = Anchor {
@@ -77,6 +58,7 @@ impl TranscriptView {
             moved: false,
             resume_on_empty: was_following,
             pointer: Some(ScreenPosition::new(column, row)),
+            pressed_link: None,
         });
         if was_following {
             self.hold_position();
@@ -130,7 +112,7 @@ impl TranscriptView {
             return;
         };
         let cells = Arc::clone(&selection.snapshot.cells);
-        let range = selection.unit.range(&layout, end.offset);
+        let range = selection.unit.range(layout.text(), end.offset);
         let origin = selection.origin;
         let backwards = (self.resolve(&cells, end), end.offset)
             < (self.resolve(&cells, origin.0), origin.0.offset);

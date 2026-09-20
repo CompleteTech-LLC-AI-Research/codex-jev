@@ -21,6 +21,14 @@ impl ChatWidget {
             return;
         }
         let was_replaying_turn_completion = self.thread_usage.replaying_turn_completion;
+        if replay_kind.is_some()
+            || matches!(
+                &notification,
+                ServerNotification::TurnStarted(_) | ServerNotification::ItemStarted(_)
+            )
+        {
+            self.empty_state_animation.borrow_mut().dismiss();
+        }
         self.thread_usage.replaying_turn_completion = replay_kind.is_some();
         let from_replay = replay_kind.is_some();
         let is_resume_initial_replay =
@@ -222,7 +230,22 @@ impl ChatWidget {
                     vec!["✓ ".green(), notification.message.into()].into(),
                 ]);
             }
-            ServerNotification::Warning(notification) => self.on_warning(notification.message),
+            ServerNotification::Warning(notification) => {
+                if self.warning_display_state.startup_complete {
+                    self.on_warning(notification.message);
+                } else if self
+                    .warning_display_state
+                    .should_display(&notification.message)
+                {
+                    // Unstable-feature and skill-budget notices arrive as ordinary warnings.
+                    // Coalesce initialization diagnostics by lifecycle, not message wording.
+                    // Both startup and runtime warnings retain details in the transcript.
+                    self.add_to_history(history_cell::StartupWarningsCell::new(vec![
+                        notification.message,
+                    ]));
+                    self.request_redraw();
+                }
+            }
             ServerNotification::GuardianWarning(notification) => {
                 if !notification
                     .message

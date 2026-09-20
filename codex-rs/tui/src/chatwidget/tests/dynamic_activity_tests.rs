@@ -37,10 +37,7 @@ async fn terminal_dynamic_activity_retains_calls_across_both_fallbacks() {
         [(false, AltScreenMode::Always), (true, AltScreenMode::Never)]
     {
         let (mut chat, mut rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
-        chat.config
-            .features
-            .set_enabled(Feature::TranscriptV2, owned_enabled)
-            .expect("configure transcript feature");
+        chat.config.tui_fullscreen_transcript = owned_enabled;
         chat.config.tui_alternate_screen = alternate_screen;
         chat.local_settings = LocalSettings::from(&chat.config);
         assert_eq!(
@@ -74,8 +71,13 @@ async fn terminal_dynamic_activity_retains_calls_across_both_fallbacks() {
     }
     assert_eq!(outputs[0], outputs[1]);
     insta::assert_snapshot!(
-        "terminal_dynamic_activity",
-        lines_to_single_string(&outputs[0])
+        lines_to_single_string(&outputs[0]),
+        @"
+        • Failed test.lookup · 25ms
+          └ Result for call-1
+        • Called test.lookup · 25ms
+          └ Result for call-2
+        "
     );
 }
 
@@ -84,10 +86,7 @@ async fn owned_dynamic_activity_updates_the_retained_row_after_config_refresh() 
     let (mut chat, mut rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.local_settings.transcript_mode = TranscriptMode::Owned;
     // A thread/config refresh cannot change ownership after the terminal starts.
-    chat.config
-        .features
-        .disable(Feature::TranscriptV2)
-        .expect("disable transcript feature in refreshed config");
+    chat.config.tui_fullscreen_transcript = false;
     drain_insert_history(&mut rx);
     chat.on_dynamic_tool_item(dynamic_item("call-1", DynamicToolCallStatus::InProgress));
     let retained = std::iter::from_fn(|| rx.try_recv().ok())
@@ -115,6 +114,21 @@ async fn owned_dynamic_activity_updates_the_retained_row_after_config_refresh() 
 async fn turn_finalization_drains_lifecycle_queue_before_interrupting_remaining_calls() {
     let (mut chat, mut events, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
     drain_insert_history(&mut events);
+    chat.interrupts.push_user_input(ToolRequestUserInputParams {
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        item_id: "question-1".to_string(),
+        questions: vec![ToolRequestUserInputQuestion {
+            id: "scope".to_string(),
+            header: "Scope".to_string(),
+            question: "Which change should I review?".to_string(),
+            is_other: false,
+            is_secret: false,
+            options: None,
+        }],
+        is_blocking: true,
+        auto_resolution_ms: None,
+    });
     chat.interrupts
         .push_item_started(dynamic_item("completed", DynamicToolCallStatus::InProgress));
     chat.interrupts
@@ -124,6 +138,8 @@ async fn turn_finalization_drains_lifecycle_queue_before_interrupting_remaining_
         DynamicToolCallStatus::InProgress,
     ));
     chat.finalize_turn();
+    assert!(chat.interrupts.has_pending_prompt());
+    assert!(!chat.bottom_pane.has_active_view());
     let cells = std::iter::from_fn(|| events.try_recv().ok())
         .filter_map(|event| match event {
             AppEvent::InsertHistoryCell(cell)

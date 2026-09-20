@@ -72,7 +72,7 @@ impl ChatWidget {
         self.transcript.active_cell = Some(Box::new(history_cell::new_active_web_search_call(
             call_id,
             String::new(),
-            self.local_settings.tui.animations,
+            self.local_settings.tui.animations && self.local_settings.tui.effects.progress,
         )));
         self.bump_active_cell_revision();
         self.request_redraw();
@@ -143,6 +143,21 @@ impl ChatWidget {
     }
 
     pub(super) fn on_sub_agent_activity(&mut self, item: ThreadItem) {
+        // Background agents can finish while the parent answer is still streaming.
+        // Keep that stream intact until its authoritative message completion.
+        // After the turn stops, leftover prompts must not hold up late activity.
+        if !self.turn_lifecycle.agent_turn_running && self.stream_controller.is_none() {
+            self.handle_sub_agent_activity_now(item);
+        } else {
+            self.defer_or_handle(
+                item,
+                InterruptManager::push_item_completed,
+                Self::handle_sub_agent_activity_now,
+            );
+        }
+    }
+
+    fn handle_sub_agent_activity_now(&mut self, item: ThreadItem) {
         if let Some(cell) = multi_agents::sub_agent_activity_history_cell(&item) {
             self.on_collab_event(cell);
         }
@@ -180,7 +195,7 @@ impl ChatWidget {
             let call = history_cell::new_active_mcp_tool_call(
                 id,
                 invocation,
-                self.local_settings.tui.animations,
+                self.local_settings.tui.animations && self.local_settings.tui.effects.progress,
             );
             self.update_computer_activity(|cell| cell.start(call));
             self.bump_active_cell_revision();
@@ -191,7 +206,7 @@ impl ChatWidget {
         self.transcript.active_cell = Some(Box::new(history_cell::new_active_mcp_tool_call(
             id,
             invocation,
-            self.local_settings.tui.animations,
+            self.local_settings.tui.animations && self.local_settings.tui.effects.progress,
         )));
         self.bump_active_cell_revision();
         self.request_redraw();
@@ -214,7 +229,7 @@ impl ChatWidget {
             let call = history_cell::new_active_mcp_tool_call(
                 id,
                 invocation,
-                self.local_settings.tui.animations,
+                self.local_settings.tui.animations && self.local_settings.tui.effects.progress,
             );
             self.update_computer_activity(|cell| cell.complete(call, duration, result));
             self.bump_active_cell_revision();
@@ -234,7 +249,7 @@ impl ChatWidget {
                 let mut cell = history_cell::new_active_mcp_tool_call(
                     id,
                     invocation,
-                    self.local_settings.tui.animations,
+                    self.local_settings.tui.animations && self.local_settings.tui.effects.progress,
                 );
                 cell.complete(duration, result);
                 self.transcript.active_cell = Some(Box::new(cell));
@@ -300,6 +315,7 @@ impl ChatWidget {
             item @ ThreadItem::FileChange { .. } => self.handle_file_change_completed_now(item),
             item @ ThreadItem::McpToolCall { .. } => self.handle_mcp_tool_call_completed_now(item),
             item @ ThreadItem::DynamicToolCall { .. } => self.handle_dynamic_tool_item_now(item),
+            item @ ThreadItem::SubAgentActivity { .. } => self.handle_sub_agent_activity_now(item),
             _ => {}
         }
     }

@@ -154,29 +154,32 @@ async fn analytics_menu_reopen_preserves_navigation_and_explicit_view_selects_su
             }
         })
         .await??;
-        let screen = buffer_text(crate::custom_terminal::test_support::last_rendered_buffer(
-            &tui.terminal,
-        ));
-        screens.push(screen);
+        let buffer = crate::custom_terminal::test_support::last_rendered_buffer(&tui.terminal);
+        if explicit.is_none() {
+            let plugins = buffer
+                .content()
+                .windows("Plugins".len())
+                .find(|cells| {
+                    cells
+                        .iter()
+                        .map(ratatui::buffer::Cell::symbol)
+                        .collect::<String>()
+                        == "Plugins"
+                })
+                .expect("Plugins tab is visible");
+            let active = crate::bottom_pane::active_tab_style();
+            assert_eq!(
+                (plugins[0].fg, plugins[0].bg),
+                (active.fg.unwrap(), active.bg.unwrap()),
+                "the initial and reopened report must select Plugins"
+            );
+        }
+        screens.push(buffer_text(buffer));
         press_key(&mut app, &mut tui, &mut app_server, KeyCode::Char('q')).await?;
     }
     assert_eq!(screens[0], screens[1]);
-    assert!(screens[1].contains("[4 Plugins called]"));
-    assert!(screens[2].contains("[1 Summary]"));
+    assert!(screens[2].contains("Lifetime tokens"));
     assert!(screens[2].contains("Weekly"));
-    let snapshot = screens.join("\n\n");
-    let snapshot = snapshot
-        .lines()
-        .map(|line| {
-            if line.starts_with("  [7d]  30d  · ") {
-                "  [7d]  30d  · [date range]"
-            } else {
-                line
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    insta::assert_snapshot!(snapshot);
     Ok(())
 }
 

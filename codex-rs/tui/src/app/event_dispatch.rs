@@ -35,6 +35,8 @@ impl App {
             && !matches!(
                 &event,
                 AppEvent::OpenDaemonMenu
+                    | AppEvent::OpenWarnings
+                    | AppEvent::CopyWarning(_)
                     | AppEvent::ConfirmDaemonUpdate(_)
                     | AppEvent::RunDaemonUpdate(_)
                     | AppEvent::InsertHistoryCell(_)
@@ -299,18 +301,19 @@ impl App {
                     .await
                 {
                     app_server.cancel_older_history_page(thread_id, &cursor);
-                    if tui.is_owned_screen() && self.chat_widget.thread_id() == Some(thread_id) {
+                    if self.chat_widget.thread_id() == Some(thread_id) {
                         self.transcript_view.history = TranscriptHistoryState::Failed;
-                        tui.frame_requester().schedule_frame();
-                    }
-                    if self.chat_widget.thread_id() == Some(thread_id)
-                        && let Some(Overlay::Transcript(overlay)) = self.overlay.as_mut()
-                    {
-                        overlay.set_history_state(TranscriptHistoryState::Failed);
+                        if let Some(Overlay::Transcript(overlay)) = self.overlay.as_mut() {
+                            overlay.set_history_state(TranscriptHistoryState::Failed);
+                        }
                         tui.frame_requester().schedule_frame();
                     }
                     tracing::warn!(%thread_id, error = %err, "failed to load older transcript history");
                 }
+            }
+            AppEvent::OpenWarnings => self.chat_widget.open_warnings(&self.transcript_cells),
+            AppEvent::CopyWarning(text) => {
+                let _ = self.chat_widget.copy_transcript_selection(&text);
             }
             AppEvent::OpenTranscriptExportFilePrompt => {
                 self.chat_widget.show_transcript_export_file_prompt();
@@ -721,14 +724,15 @@ impl App {
                 if self.chat_widget.thread_id() == Some(thread_id) {
                     if let Some(index) = crate::app_backtrack::nth_user_position(&self.transcript_cells, nth_user_message) {
                         self.transcript_cells.truncate(index);
-                        self.native_history.retain(&self.transcript_cells);
-                        self.transcript_view = crate::transcript_view::TranscriptView::default();
+                self.native_history.retain(&self.transcript_cells);
                     }
+                    self.transcript_view = Default::default();
+                    self.scrollback_has_older_history = app_server.has_older_history(thread_id);
                     self.deferred_history_lines.clear();
                     self.last_rendered_history_tail = None;
                     self.last_thread_usage_status_cell = None;
                     self.pending_thread_usage_history_refresh = false;
-                    self.backtrack_render_pending = true;
+                    self.backtrack_render_pending = !tui.is_owned_screen();
                     self.chat_widget.set_queue_autosend_suppressed(/*suppressed*/ false);
                     self.chat_widget.emit_prompt_edit_thread_event();
                     tui.frame_requester().schedule_frame();
@@ -748,6 +752,10 @@ impl App {
                 for cell in self.chat_widget.take_realtime_transcript_history() {
                     self.insert_history_cell(tui, cell);
                 }
+            }
+            AppEvent::FollowTranscript => {
+                self.transcript_view.jump_to_latest();
+                tui.frame_requester().schedule_frame();
             }
             AppEvent::InsertHistoryCell(cell) => {
                 self.insert_history_cell(tui, cell);
@@ -2480,8 +2488,9 @@ impl App {
                     ));
                 }
             }
-            AppEvent::OpenAgentsOverview => {
-                self.open_agents_overview(app_server);
+            AppEvent::OpenAgentsOverview => self.open_agents_overview(app_server),
+            AppEvent::NewAgentsOverviewSession { cwd } => {
+                return Box::pin(self.new_agents_overview_session(tui, app_server, cwd)).await;
             }
             AppEvent::AgentsOverviewThreadsLoaded { request_id, result } => {
                 self.apply_agents_overview_thread_refresh(app_server, request_id, result);
@@ -2499,9 +2508,6 @@ impl App {
                     AppRunControl::Continue => {}
                     AppRunControl::Exit(reason) => return Ok(AppRunControl::Exit(reason)),
                 }
-            }
-            AppEvent::NewAgentsOverviewSession { cwd } => {
-                return Box::pin(self.new_agents_overview_session(tui, app_server, cwd)).await;
             }
             AppEvent::NewAgentsOverviewWorktree { cwd } => {
                 Box::pin(self.new_agents_overview_worktree(tui, app_server, cwd)).await;
@@ -2530,8 +2536,9 @@ impl App {
                     Err(error) => {
                         if let Ok(mut state) = self.agents_overview.view_state.lock() {
                             state.input = name;
-                            state.renaming = true;
+                            state.rename_target = Some(thread_id);
                         }
+                        self.repaint_agents_overview();
                         self.add_agents_overview_error(format!("Failed to rename task: {error}"));
                     }
                 }
@@ -2864,6 +2871,9 @@ impl App {
                     ));
                 }
             },
+            AppEvent::FullscreenTranscriptSelected { enabled } => {
+                self.save_fullscreen_transcript(enabled).await;
+            }
             AppEvent::StatusLineSetup {
                 items,
                 use_theme_colors,

@@ -96,6 +96,7 @@ impl HistoryCell for UpdateAvailableHistoryCell {
 pub(crate) fn new_warning_event(message: String) -> WarningHistoryCell {
     let style = crate::style::status_style(crate::style::StatusTone::Attention);
     WarningHistoryCell {
+        server_version_notice: false,
         key: message.clone(),
         diagnostic: message.clone(),
         details: PrefixedWrappedHistoryCell::new(
@@ -121,6 +122,7 @@ pub(crate) fn new_server_version_warning(
         ));
     }
     WarningHistoryCell {
+        server_version_notice: true,
         key,
         diagnostic: lines
             .iter()
@@ -269,11 +271,11 @@ impl HistoryCell for DeprecationNoticeCell {
     }
 
     fn live_raw_lines(&self) -> Vec<Line<'static>> {
-        self.raw_lines()
+        Vec::new()
     }
 
-    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        self.transcript_lines(width)
+    fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
+        Vec::new()
     }
 
     fn warning_keys(&self) -> Vec<WarningKey<'_>> {

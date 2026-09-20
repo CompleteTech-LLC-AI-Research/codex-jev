@@ -97,6 +97,7 @@ impl ChatWidget {
             pet_http_client.clone(),
         );
         let mut widget = Self {
+            empty_state_animation: Default::default(),
             cyber_policy_notice: Default::default(),
             app_event_tx: app_event_tx.clone(),
             frame_requester: frame_requester.clone(),
@@ -109,6 +110,7 @@ impl ChatWidget {
                 placeholder_text: placeholder.clone(),
                 disable_paste_burst: local_settings.tui.disable_paste_burst.unwrap_or(false),
                 animations_enabled: local_settings.tui.animations,
+                effects: local_settings.tui.effects,
                 skills: None,
             }),
             transcript: TranscriptState::new(active_cell),

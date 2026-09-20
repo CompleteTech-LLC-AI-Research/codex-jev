@@ -42,7 +42,7 @@ See the Codex keymap documentation for supported actions and examples."
 fn new_agents_defaults_preserve_existing_custom_bindings() {
     for (action, alias) in [
         ("archive", "a"),
-        ("delete", "delete"),
+        ("delete", "backspace"),
         ("hide", "h"),
         ("new_worktree", "w"),
     ] {
@@ -54,14 +54,17 @@ fn new_agents_defaults_preserve_existing_custom_bindings() {
             ("list", "move_down", " f12"),
         ] {
             // Plain keys are allowed in the dashboard, but global actions and list
-            // chord prefixes still share text-entry surfaces.
-            if alias != "delete" && (context == "global" || context == "list" && !suffix.is_empty())
+            // chord prefixes still share text-entry surfaces. Backspace is reserved
+            // for editing task input except when bound to task deletion.
+            if (alias == "backspace" && context == "agents")
+                || (alias != "backspace"
+                    && (context == "global" || context == "list" && !suffix.is_empty()))
             {
                 continue;
             }
             let keymap: TuiKeymap = serde_json::from_value(
                 json!({context: {existing: format!("{alias}{suffix}")}, "approval": {"open_fullscreen": "f12", "approve_for_session": []},
-                    "editor": {"move_line_start": [], "move_line_end": [], "delete_backward_word": [], "delete_forward": []}}),
+                    "editor": {"move_line_start": [], "move_line_end": [], "delete_backward": [], "delete_backward_word": [], "delete_forward": []}}),
             )
             .unwrap();
             let runtime =
@@ -115,6 +118,11 @@ fn explicit_activity_remapping_and_unbinding_replace_all_defaults() {
             vec![key_hint::plain(KeyCode::F(12))],
             Some("f12"),
         ),
+        (
+            json!("page-up"),
+            vec![key_hint::plain(KeyCode::PageUp)],
+            Some("pgup"),
+        ),
         (json!([]), Vec::new(), None),
         (json!("ctrl-x t"), Vec::new(), Some("ctrl+x t")),
     ] {
@@ -132,23 +140,13 @@ fn explicit_activity_remapping_and_unbinding_replace_all_defaults() {
 }
 
 #[test]
-fn explicit_activity_bindings_cannot_shadow_list_navigation() {
-    for (focus, movement) in [
-        ("f12", "f12"),
-        ("f12 t", "f12"),
-        ("f12", "f12 t"),
-        ("f12 t", "f12 t"),
-    ] {
+fn warnings_defaults_preserve_custom_keys_and_chord_prefixes() {
+    for binding in ["f2", "f2 f12"] {
         let keymap: TuiKeymap = serde_json::from_value(json!({
-            "global": {"focus_activity": focus},
-            "list": {"move_up": movement},
+            "editor": {"move_left": binding}
         }))
         .unwrap();
-        let error = RuntimeKeymap::from_config(&keymap)
-            .expect_err("activity focus shares list navigation while inspecting groups");
-        assert!(
-            error.contains("focus_activity") && error.contains("move_up"),
-            "{error}"
-        );
+        let runtime = RuntimeKeymap::from_config(&keymap).expect("existing binding remains valid");
+        assert!(runtime.app.open_warnings.is_empty());
     }
 }

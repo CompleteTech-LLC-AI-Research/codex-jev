@@ -5,6 +5,22 @@ use crate::bottom_pane::BottomPaneView;
 use crate::clipboard_copy::CopyFormat;
 
 impl ChatWidget {
+    pub(crate) fn end_composer_drag(&mut self) {
+        self.bottom_pane.end_composer_drag();
+    }
+
+    pub(crate) fn composer_selection_for_copy(&mut self, key: KeyEvent) -> Option<String> {
+        self.bottom_pane.composer_selection_for_copy(key)
+    }
+
+    pub(crate) fn handle_composer_mouse(&mut self, event: crossterm::event::MouseEvent) -> bool {
+        self.bottom_pane.handle_composer_mouse(event)
+    }
+
+    pub(crate) fn prepare_composer_mouse(&mut self, event: crossterm::event::MouseEvent) -> bool {
+        self.bottom_pane.prepare_composer_mouse(event)
+    }
+
     pub(crate) fn set_agents_navigation_enabled(&mut self, enabled: bool) {
         self.bottom_pane.set_agents_navigation_enabled(enabled);
     }
@@ -14,6 +30,9 @@ impl ChatWidget {
     }
 
     pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) {
+        if self.handle_startup_submission_key(key_event) {
+            return;
+        }
         if self.handle_question_key(key_event) {
             return;
         }
@@ -27,8 +46,9 @@ impl ChatWidget {
                     ..
                 } if modifiers.contains(KeyModifiers::CONTROL) && c.eq_ignore_ascii_case(&'c')
             )
-            && !key_hint::ctrl(KeyCode::Char('r')).is_press(key_event)
-            && !key_hint::ctrl(KeyCode::Char('u')).is_press(key_event)
+            && (self.bottom_pane.warnings_active()
+                || (!key_hint::ctrl(KeyCode::Char('r')).is_press(key_event)
+                    && !key_hint::ctrl(KeyCode::Char('u')).is_press(key_event)))
         {
             let should_pause_active_goal = self
                 .bottom_pane
@@ -40,6 +60,11 @@ impl ChatWidget {
             if self.bottom_pane.no_modal_or_popup_active() {
                 self.on_modal_or_popup_closed();
             }
+            return;
+        }
+
+        if self.shortcut_overlay_visible() && key_hint::plain(KeyCode::Esc).is_press(key_event) {
+            self.bottom_pane.handle_key_event(key_event);
             return;
         }
 
@@ -155,6 +180,7 @@ impl ChatWidget {
         {
             if let Some(composer) = self.pop_latest_queued_composer_state() {
                 self.restore_composer_state(composer);
+                self.refresh_startup_recovery();
                 self.refresh_pending_input_preview();
                 self.request_redraw();
             } else {
@@ -216,6 +242,13 @@ impl ChatWidget {
                 let should_pause_active_goal =
                     self.bottom_pane.should_interrupt_running_task(key_event);
                 let input_result = self.bottom_pane.handle_key_event(key_event);
+                if matches!(
+                    input_result,
+                    InputResult::None | InputResult::ParentOwnedInputBlocked
+                ) {
+                    self.refresh_startup_recovery();
+                }
+                crate::startup_recovery::submitted(&input_result);
                 self.sync_backend_banner_view();
                 if should_pause_active_goal {
                     self.pause_active_goal_for_interrupt();
@@ -239,6 +272,7 @@ impl ChatWidget {
         }
         tracing::info!("attach_image path={path:?}");
         self.bottom_pane.attach_image(path);
+        self.refresh_startup_recovery();
         self.request_redraw();
     }
 
@@ -248,6 +282,7 @@ impl ChatWidget {
 
     pub(crate) fn apply_external_edit(&mut self, text: String) {
         self.bottom_pane.apply_external_edit(text);
+        self.refresh_startup_recovery();
         self.request_redraw();
     }
 
@@ -303,7 +338,6 @@ impl ChatWidget {
             .replace_selection_view_if_present(view_id, params)
     }
 
-    #[allow(dead_code, reason = "Used by later layers of the TUI refresh stack.")]
     pub(crate) fn shortcut_overlay_visible(&self) -> bool {
         self.bottom_pane.shortcut_overlay_visible()
     }
@@ -341,19 +375,22 @@ impl ChatWidget {
         &mut self,
         copy_fn: impl FnOnce(&str) -> Result<crate::clipboard_copy::CopyOutcome, String>,
     ) {
+        // The shortcut bypasses composer submission, which normally reveals local feedback.
+        self.app_event_tx.send(AppEvent::FollowTranscript);
         match self.transcript.last_agent_markdown.clone() {
-            Some(markdown) if !markdown.is_empty() => match copy_fn(&markdown) {
-                Ok(outcome) => {
-                    let status = outcome.store(&mut self.clipboard_lease);
-                    self.add_to_history(history_cell::new_info_event(
-                        status.message("last message"),
-                        /*hint*/ None,
-                    ));
+            Some(markdown) if !markdown.is_empty() => {
+                match self.write_clipboard(&markdown, copy_fn) {
+                    Ok(status) => {
+                        self.add_to_history(history_cell::new_info_event(
+                            status.message("last message"),
+                            /*hint*/ None,
+                        ));
+                    }
+                    Err(error) => self.add_to_history(history_cell::new_error_event(format!(
+                        "Copy failed: {error}"
+                    ))),
                 }
-                Err(error) => self.add_to_history(history_cell::new_error_event(format!(
-                    "Copy failed: {error}"
-                ))),
-            },
+            }
             _ => self.add_to_history(history_cell::new_error_event(
                 "No agent response to copy".into(),
             )),
@@ -362,7 +399,6 @@ impl ChatWidget {
     }
 
     /// Report a transcript copy without adding history and return its outcome to the viewport.
-    #[allow(dead_code, reason = "Used by later layers of the TUI refresh stack.")]
     pub(crate) fn copy_transcript_selection(
         &mut self,
         text: &str,
@@ -373,7 +409,6 @@ impl ChatWidget {
     }
 
     /// The owned viewport renders its own copy feedback above the composer.
-    #[allow(dead_code, reason = "Used by later layers of the TUI refresh stack.")]
     pub(super) fn copy_transcript_selection_with(
         &mut self,
         text: &str,
@@ -492,12 +527,17 @@ impl ChatWidget {
         if self.external_writer_view && !self.bottom_pane.has_active_view() {
             return;
         }
+        if !self.startup_submission_has_protected_input() {
+            self.cancel_startup_submission();
+        }
         self.bottom_pane.handle_paste(text);
+        self.refresh_startup_recovery();
     }
 
     // Returns true if caller should skip rendering this frame (a future frame is scheduled).
     pub(crate) fn handle_paste_burst_tick(&mut self, frame_requester: FrameRequester) -> bool {
         if self.bottom_pane.flush_paste_burst_if_due() {
+            self.refresh_startup_recovery();
             // A paste just flushed; request an immediate redraw and skip this frame.
             self.request_redraw();
             true
@@ -531,6 +571,7 @@ impl ChatWidget {
                 KeyModifiers::CONTROL,
             ));
         if self.bottom_pane.on_ctrl_c() == CancellationEvent::Handled {
+            self.refresh_startup_recovery();
             if DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED {
                 if modal_or_popup_active {
                     self.quit_shortcut_expires_at = None;

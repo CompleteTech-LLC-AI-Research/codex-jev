@@ -1,7 +1,6 @@
-//! Compose the owned transcript above the existing composer and route transcript-only gestures.
+//! Compose the owned transcript above the composer and route their selection gestures.
 //! Reserve a cleared row between transcript content and the composer. Slash suggestions overlay
 //! already-painted rows so opening or closing them leaves transcript geometry unchanged.
-//! Fresh-thread decoration is painted separately in unused cells and never enters history.
 //! Plain Enter returns an empty composer to latest after transcript interactions and prompt editing.
 
 use super::*;
@@ -15,6 +14,30 @@ use crate::transcript_view::ViewAction;
 use ratatui::widgets::Widget;
 
 impl App {
+    /// Copy draft selections before interrupt/exit shortcuts and configurable chords can consume C.
+    pub(super) fn handle_composer_copy_event(
+        &mut self,
+        tui: &mut tui::Tui,
+        event: &TuiEvent,
+        copy: impl FnOnce(&mut tui::Tui, &str) -> Result<crate::clipboard_copy::CopyStatus, String>,
+    ) -> bool {
+        if let TuiEvent::Key(key) = event
+            && tui.is_owned_screen()
+            && self.overlay.is_none()
+            && !self.transcript_view.has_active_interaction()
+            && let Some(text) = self.chat_widget.composer_selection_for_copy(*key)
+        {
+            self.cancel_pending_key_chord();
+            self.chat_widget.end_composer_drag();
+            let result = copy(tui, &text);
+            self.transcript_view
+                .show_copy_feedback(&result, text.chars().count());
+            tui.frame_requester().schedule_frame();
+            return true;
+        }
+        false
+    }
+
     fn sync_owned_transcript(&mut self, width: u16) -> bool {
         let chat_widget = &self.chat_widget;
         let transcript_width = chat_widget.history_wrap_width(width);
@@ -42,7 +65,17 @@ impl App {
         tui: &mut tui::Tui,
         screen_size: Size,
     ) -> Result<Rect> {
-        let motion = MotionMode::from_animations_enabled(self.local_settings.tui.animations);
+        self.chat_widget.sync_warnings(&self.transcript_cells);
+        let motion = MotionMode::from_animations_enabled(
+            self.local_settings.tui.animations && self.local_settings.tui.effects.shimmer,
+        );
+        let focused = tui.is_terminal_focused();
+        self.empty_state_presentation(
+            MotionMode::from_animations_enabled(
+                self.local_settings.tui.animations && self.local_settings.tui.effects.welcome,
+            ),
+            focused,
+        );
         let latest_navigation = if self.enter_returns_to_latest() {
             "enter/esc latest"
         } else {
@@ -68,7 +101,14 @@ impl App {
             /*height*/ 1,
         ));
         let footer = view.footer_with_navigation(footer_area.width, motion, latest_navigation);
-        let bottom = chat_widget.bottom_pane_renderable(prompt_footer.as_ref().or(footer.as_ref()));
+        let bottom = chat_widget.bottom_pane_renderable(
+            prompt_footer.as_ref().or(footer.as_ref()),
+            if view.has_active_interaction() {
+                crate::bottom_pane::CommandPopupPlacement::Hidden
+            } else {
+                crate::bottom_pane::CommandPopupPlacement::Overlay
+            },
+        );
         let dashboard_visible = chat_widget
             .selected_index_for_present_view(AGENTS_OVERVIEW_VIEW_ID)
             .is_some();
@@ -131,8 +171,14 @@ impl App {
             {
                 *progress = crate::bottom_pane::footer_hint_items_line(&items);
             }
-            let bottom =
-                chat_widget.bottom_pane_renderable(prompt_footer.as_ref().or(footer.as_ref()));
+            let bottom = chat_widget.bottom_pane_renderable(
+                prompt_footer.as_ref().or(footer.as_ref()),
+                if view.has_active_interaction() {
+                    crate::bottom_pane::CommandPopupPlacement::Hidden
+                } else {
+                    crate::bottom_pane::CommandPopupPlacement::Overlay
+                },
+            );
             footer_height_changed = !dashboard_visible
                 && bottom
                     .desired_height(screen_size.width)
@@ -152,7 +198,6 @@ impl App {
         if let Some(delay) = feedback_tick {
             tui.frame_requester().schedule_frame_in(delay);
         }
-
         let animating =
             view.is_following() && active_key.is_some_and(|key| key.animation_tick.is_some());
         let loading = view.is_loading_history() && motion == MotionMode::Animated;
@@ -177,6 +222,12 @@ impl App {
         {
             self.transcript_view.end_drag();
         }
+        if !tui.is_owned_screen()
+            || matches!(event, TuiEvent::FocusLost | TuiEvent::Resume)
+            || self.overlay.is_some()
+        {
+            self.chat_widget.end_composer_drag();
+        }
         if !tui.is_owned_screen() || self.overlay.is_some() {
             return Ok(false);
         }
@@ -198,18 +249,39 @@ impl App {
             }
             return Ok(false);
         }
+        if let TuiEvent::Mouse(mouse) = event {
+            let composer_ready = self.chat_widget.prepare_composer_mouse(*mouse);
+            if mouse.kind != crossterm::event::MouseEventKind::Moved {
+                let size = tui.prepare_draw_size()?;
+                self.render_owned_transcript(tui, size)?;
+            }
+            if composer_ready && self.chat_widget.handle_composer_mouse(*mouse) {
+                self.transcript_view.end_selection(&self.transcript_cells);
+                self.transcript_view.cancel_search();
+                self.transcript_view.clear_activity_focus();
+                tui.frame_requester().schedule_frame();
+                return Ok(true);
+            }
+        }
         if !self.chat_widget.no_modal_or_popup_active() {
+            self.chat_widget.end_composer_drag();
             return Ok(false);
         }
-        let input = matches!(event, TuiEvent::Key(key) if key.kind != KeyEventKind::Release)
-            || matches!(event, TuiEvent::Mouse(mouse) if mouse.kind != crossterm::event::MouseEventKind::Moved);
-        if input {
+        if matches!(event, TuiEvent::Key(key) if key.kind != KeyEventKind::Release) {
             let size = tui.prepare_draw_size()?;
             self.render_owned_transcript(tui, size)?;
         }
-        if !self.transcript_view.has_active_interaction()
+        if matches!(event, TuiEvent::Key(_))
+            || matches!(event, TuiEvent::Mouse(mouse) if matches!(mouse.kind, crossterm::event::MouseEventKind::Down(_)))
+        {
+            self.chat_widget.end_composer_drag();
+        }
+        // Visible shortcut help owns Escape before returning a paused viewport to latest.
+        // A transcript search or selection still owns Escape while it replaces the help footer.
+        if let TuiEvent::Key(key) = event
+            && !self.transcript_view.has_active_interaction()
             && self.chat_widget.shortcut_overlay_visible()
-            && matches!(event, TuiEvent::Key(key) if key.code == KeyCode::Esc)
+            && crate::key_hint::plain(KeyCode::Esc).is_press(*key)
         {
             return Ok(false);
         }
@@ -400,8 +472,16 @@ impl App {
 mod tests;
 
 #[cfg(test)]
+#[path = "empty_state_animation_tests.rs"]
+mod empty_state_animation_tests;
+
+#[cfg(test)]
 #[path = "owned_transcript_input_tests.rs"]
 mod input_tests;
+
+#[cfg(test)]
+#[path = "warning_notice_tests.rs"]
+mod warning_notice_tests;
 
 #[cfg(test)]
 #[path = "owned_transcript_follow_tests.rs"]

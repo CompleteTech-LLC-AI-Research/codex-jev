@@ -11,6 +11,12 @@ use crate::test_support::test_path_buf;
 use codex_app_server_protocol::AskForApproval;
 use codex_config::types::ApprovalsReviewer;
 use codex_protocol::models::PermissionProfile;
+use crossterm::event::MouseButton::Left;
+use crossterm::event::MouseEvent;
+use crossterm::event::MouseEventKind;
+use crossterm::event::MouseEventKind::Down;
+use crossterm::event::MouseEventKind::Drag;
+use crossterm::event::MouseEventKind::Up;
 use pretty_assertions::assert_eq;
 use ratatui::buffer::Buffer;
 
@@ -317,7 +323,10 @@ async fn owned_details_keep_the_composer_cursor_and_screen() -> Result<()> {
         app.render_owned_transcript(&mut tui, Size::new(/*width*/ 80, /*height*/ 24))?;
     let expected_cursor = app
         .chat_widget
-        .bottom_pane_renderable(/*footer*/ None)
+        .bottom_pane_renderable(
+            /*footer*/ None,
+            crate::bottom_pane::CommandPopupPlacement::Overlay,
+        )
         .cursor_pos(bottom_area)
         .expect("composer cursor");
     assert_eq!(
@@ -922,6 +931,98 @@ async fn offline_backtrack_keeps_the_preview_and_draft_without_reverting() -> Re
 }
 
 #[tokio::test]
+async fn slash_picker_overlays_history_without_moving_the_transcript_or_composer() -> Result<()> {
+    let mut app = crate::app::test_support::make_test_app().await;
+    attach_thread(&mut app, ThreadId::new());
+    app.chat_widget
+        .set_status_line(Some("gpt-test default · /tmp/project".into()));
+    app.local_settings.tui.animations = false;
+    app.chat_widget
+        .set_footer_hint_override(Some(vec![("model".to_string(), "high · fast".to_string())]));
+    app.transcript_cells = vec![Arc::new(crate::history_cell::PlainHistoryCell::new(
+        (1..=40)
+            .map(|row| format!("Transcript row {row:02}: content behind the menu").into())
+            .collect(),
+    ))];
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    tui.set_owned_screen(/*owned*/ true)?;
+    for (width, height) in [(80, 14), (32, 14), (80, 7), (80, 5)] {
+        let size = Size::new(width, height);
+        tui.terminal.resize(size)?;
+        app.chat_widget.apply_external_edit("/m".to_string());
+        app.chat_widget
+            .handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.render_owned_transcript(&mut tui, size)?;
+        app.transcript_view
+            .scroll(&app.transcript_cells, /*rows*/ -3);
+        let bottom = app.render_owned_transcript(&mut tui, size)?;
+        let cursor = tui.terminal.last_known_cursor_pos;
+        let before =
+            crate::custom_terminal::test_support::last_rendered_buffer(&tui.terminal).clone();
+
+        // Changing the token reopens the menu dismissed above.
+        app.chat_widget.apply_external_edit("/mo".to_string());
+        app.chat_widget.apply_external_edit("/m".to_string());
+        assert_eq!(app.render_owned_transcript(&mut tui, size)?, bottom);
+        assert_eq!(tui.terminal.last_known_cursor_pos, cursor);
+        let open =
+            crate::custom_terminal::test_support::last_rendered_buffer(&tui.terminal).clone();
+        let open_text = buffer_text(&open);
+        if bottom.y > 0 {
+            let menu_y = open_text
+                .lines()
+                .position(|line| line.contains("› /model"))
+                .expect("available rows show command matches");
+            let prefix_len = menu_y * usize::from(width);
+            assert_eq!(
+                &open.content()[..prefix_len],
+                &before.content()[..prefix_len]
+            );
+            assert_ne!(open, before);
+        }
+        let composer_start = open.index_of(bottom.x, bottom.y);
+        assert_eq!(
+            &open.content()[composer_start..],
+            &before.content()[composer_start..]
+        );
+        if (width, height) == (80, 14) {
+            insta::assert_snapshot!("slash_picker_overlays_history", open_text);
+        }
+
+        app.chat_widget.apply_external_edit("/mo".to_string());
+        assert_eq!(app.render_owned_transcript(&mut tui, size)?, bottom);
+        let filtered = buffer_text(crate::custom_terminal::test_support::last_rendered_buffer(
+            &tui.terminal,
+        ));
+        assert_eq!(
+            filtered
+                .lines()
+                .take(usize::from(bottom.y))
+                .any(|line| line.contains("› /model")),
+            bottom.y > 0,
+            "a single command remains visible when the menu has room",
+        );
+        app.chat_widget.apply_external_edit("/m".to_string());
+        app.chat_widget
+            .handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(app.render_owned_transcript(&mut tui, size)?, bottom);
+        assert_eq!(tui.terminal.last_known_cursor_pos, cursor);
+        app.chat_widget
+            .handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.render_owned_transcript(&mut tui, size)?, bottom);
+        assert_eq!(
+            (
+                crate::custom_terminal::test_support::last_rendered_buffer(&tui.terminal),
+                tui.terminal.last_known_cursor_pos
+            ),
+            (&before, cursor),
+        );
+    }
+    tui.set_owned_screen(/*owned*/ false)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn double_escape_browses_prompts_without_reverting_and_explains_editing() -> Result<()> {
     let (mut app, mut events, _operations) = make_test_app_with_channels().await;
     app.keymap = RuntimeKeymap::from_config(&toml::from_str(
@@ -1030,5 +1131,90 @@ async fn find_refreshes_live_details_before_searching_the_first_query() -> Resul
     assert!(rendered.contains("enter next"), "{rendered}");
     tui.set_owned_screen(/*owned*/ false)?;
     app_server.shutdown().await?;
+    Ok(())
+}
+
+fn mouse(kind: MouseEventKind, column: u16, row: u16) -> TuiEvent {
+    TuiEvent::Mouse(MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    })
+}
+
+fn row_containing(tui: &tui::Tui, text: &str) -> u16 {
+    let buffer = crate::custom_terminal::test_support::last_rendered_buffer(&tui.terminal);
+    buffer_text(buffer)
+        .lines()
+        .position(|row| row.contains(text))
+        .unwrap() as u16
+}
+
+#[tokio::test]
+async fn fullscreen_composer_mouse_copy_and_input_ownership() -> Result<()> {
+    let mut app = crate::app::test_support::make_test_app().await;
+    let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    tui.set_owned_screen(/*owned*/ true)?;
+    let size = tui.terminal.size()?;
+    app.transcript_cells = vec![user_cell("transcript text")];
+    app.chat_widget.apply_external_edit("hello world".into());
+    app.render_owned_transcript(&mut tui, size)?;
+    let end = tui.terminal.last_known_cursor_pos;
+    let x = end.x - 11;
+    let y = end.y;
+    for event in [
+        mouse(Down(Left), x, y),
+        mouse(Drag(Left), x + 5, y),
+        mouse(Up(Left), x + 5, y),
+    ] {
+        assert!(app.handle_owned_transcript_event(&mut tui, &mut server, &event)?);
+    }
+    assert!(!app.transcript_view.has_active_interaction());
+    let draft = app.chat_widget.capture_thread_input_state();
+    let copy_event = TuiEvent::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::SUPER));
+    assert!(
+        app.handle_composer_copy_event(&mut tui, &copy_event, |_, text| {
+            assert_eq!(text, "hello");
+            Ok(crate::clipboard_copy::CopyStatus::Confirmed)
+        })
+    );
+    assert_eq!(app.chat_widget.capture_thread_input_state(), draft);
+    app.render_owned_transcript(&mut tui, size)?;
+    assert!(row_containing(&tui, "Copied 5 chars to host clipboard") < y);
+
+    app.chat_widget.handle_key_event(KeyCode::Char('x').into());
+    assert!(!app.handle_composer_copy_event(&mut tui, &copy_event, |_, _| unreachable!()));
+    assert_eq!(app.chat_widget.composer_text_with_pending(), "x world");
+
+    // A transcript drag that crosses into the composer remains a transcript selection.
+    let transcript_y = row_containing(&tui, "transcript text");
+    for event in [
+        mouse(Down(Left), /*column*/ 1, transcript_y),
+        mouse(Drag(Left), x + 3, y),
+        mouse(Up(Left), x + 3, y),
+    ] {
+        app.handle_owned_transcript_event(&mut tui, &mut server, &event)?;
+    }
+    assert!(app.transcript_view.has_active_interaction());
+
+    // A fresh composer click takes ownership away from the transcript selection.
+    app.handle_owned_transcript_event(&mut tui, &mut server, &mouse(Down(Left), x, y))?;
+    assert!(!app.transcript_view.has_active_interaction());
+    app.chat_widget.apply_external_edit("/".into());
+    assert!(!app.chat_widget.no_modal_or_popup_active());
+    assert!(app.handle_owned_transcript_event(&mut tui, &mut server, &mouse(Down(Left), x, y))?);
+    app.handle_owned_transcript_event(&mut tui, &mut server, &mouse(Drag(Left), x + 1, y))?;
+    assert!(app.chat_widget.no_modal_or_popup_active());
+    app.chat_widget.open_feature_enable_prompt(Feature::Collab);
+    assert!(
+        !app.handle_composer_copy_event(&mut tui, &copy_event, |_, _| panic!(
+            "modals own copy input"
+        ),)
+    );
+    assert!(!app.handle_owned_transcript_event(&mut tui, &mut server, &mouse(Down(Left), x, y))?);
+    server.shutdown().await?;
+    tui.set_owned_screen(/*owned*/ false)?;
     Ok(())
 }
