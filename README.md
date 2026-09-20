@@ -1,3 +1,40 @@
+<div align="center">
+
+# Codex · JEV Research
+
+**A research fork of the Codex coding agent.**
+
+![Codebase: Rust](https://img.shields.io/badge/Codebase-Rust-b45309?style=flat-square) [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-64748b?style=flat-square)](LICENSE)
+
+[Fork checkout](#work-with-this-fork) · [Build guide](docs/install.md) · [Contributing](docs/contributing.md) · [Agent guidelines](AGENTS.md) · [Upstream](https://github.com/openai/codex)
+
+</div>
+
+---
+
+This repository is maintained under **CompleteTech LLC AI Research** and derives from [OpenAI Codex](https://github.com/openai/codex). The upstream introduction and installation instructions are retained below.
+
+> [!NOTE]
+> The upstream installers and `@openai/codex` package install the upstream distribution. They do not install this fork or establish that a JEV integration is enabled.
+
+## Work with this fork
+
+```sh
+git clone https://github.com/CompleteTech-LLC-AI-Research/codex-jev.git
+cd codex-jev
+```
+
+Follow the [build prerequisites](docs/install.md#build-from-source) using this checkout, and read [AGENTS.md](AGENTS.md) before modifying the code.
+
+| Area | Entry point |
+| --- | --- |
+| Rust agent and terminal UI | [codex-rs/](codex-rs/) |
+| Application server protocol | [App-server documentation](codex-rs/app-server/README.md) |
+| TypeScript SDK | [SDK guide](sdk/typescript/README.md) |
+| Development workflow | [Contributing](docs/contributing.md) |
+
+## Upstream Codex
+
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
 <p align="center">
   <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
