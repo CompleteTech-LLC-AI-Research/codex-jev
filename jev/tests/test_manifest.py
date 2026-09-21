@@ -654,5 +654,108 @@ class NativeAdapterTests(unittest.TestCase):
         )
 
 
+class ApprovalEvaluationTests(unittest.TestCase):
+    """The enforcement switch is gated on a declared, checkable evaluation record."""
+
+    COMPONENT = "jev-codex-approval"
+
+    def evaluation(self, manifest):
+        return component(manifest, self.COMPONENT)["evaluation"]
+
+    def test_shipped_evaluation_record_is_declared_and_supported(self):
+        manifest = load_manifest()
+        record = self.evaluation(manifest)
+        self.assertEqual(record["shadow_switch"], "approval.preflight")
+        self.assertEqual(record["enforce_switch"], "approval.enforcement")
+        self.assertEqual(jev_manifest.validate_manifest(manifest), [])
+
+    def test_enforcement_owner_must_declare_a_record(self):
+        manifest = load_manifest()
+        del component(manifest, self.COMPONENT)["evaluation"]
+        self.assertIn(
+            "E_EVALUATION_MISSING", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_record_must_carry_exactly_the_declared_keys(self):
+        manifest = load_manifest()
+        del self.evaluation(manifest)["guardian_only_on"]
+        self.assertIn(
+            "E_EVALUATION_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
+        )
+        manifest = load_manifest()
+        self.evaluation(manifest)["extra"] = True
+        self.assertIn(
+            "E_EVALUATION_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_enforcement_switch_must_stay_disabled_and_ordered(self):
+        manifest = load_manifest()
+        manifest["features"]["approval.enforcement"]["default"] = True
+        self.assertIn(
+            "E_EVALUATION_SWITCH", codes(jev_manifest.validate_manifest(manifest))
+        )
+        manifest = load_manifest()
+        manifest["features"]["approval.enforcement"]["requires"] = []
+        self.assertIn(
+            "E_EVALUATION_SWITCH", codes(jev_manifest.validate_manifest(manifest))
+        )
+        manifest = load_manifest()
+        self.evaluation(manifest)["shadow_switch"] = "sentinel.shadow"
+        self.assertIn(
+            "E_EVALUATION_SWITCH", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_opt_in_categories_are_restricted_to_approved_actions(self):
+        manifest = load_manifest()
+        self.evaluation(manifest)["opt_in_action_categories"] = [
+            "exec_command",
+            "shell",
+        ]
+        self.assertIn(
+            "E_EVALUATION_CATEGORY", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_remote_consent_must_not_be_defaulted(self):
+        manifest = load_manifest()
+        manifest["credentials"]["remote_inference"]["consent"] = True
+        self.assertIn(
+            "E_EVALUATION_CONSENT", codes(jev_manifest.validate_manifest(manifest))
+        )
+        manifest = load_manifest()
+        self.evaluation(manifest)["remote_consent_credential"] = "unknown"
+        self.assertIn(
+            "E_EVALUATION_CONSENT", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_guardian_only_return_covers_every_required_condition(self):
+        manifest = load_manifest()
+        self.evaluation(manifest)["guardian_only_on"].remove("timeout")
+        self.assertIn(
+            "E_EVALUATION_STATE", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_criteria_must_be_exactly_declared_and_wellformed(self):
+        manifest = load_manifest()
+        del self.evaluation(manifest)["criteria"]["min_labeled_pairs"]
+        self.assertIn(
+            "E_EVALUATION_CRITERIA", codes(jev_manifest.validate_manifest(manifest))
+        )
+        manifest = load_manifest()
+        self.evaluation(manifest)["criteria"]["min_labeled_pairs"] = 0
+        self.assertIn(
+            "E_EVALUATION_CRITERIA", codes(jev_manifest.validate_manifest(manifest))
+        )
+        manifest = load_manifest()
+        self.evaluation(manifest)["criteria"]["max_false_allow_rate"] = 1.5
+        self.assertIn(
+            "E_EVALUATION_CRITERIA", codes(jev_manifest.validate_manifest(manifest))
+        )
+        manifest = load_manifest()
+        self.evaluation(manifest)["criteria"]["require_measured_latency"] = "yes"
+        self.assertIn(
+            "E_EVALUATION_CRITERIA", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

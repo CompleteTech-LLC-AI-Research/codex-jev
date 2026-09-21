@@ -19,7 +19,10 @@ built so that faking them fails a check:
     decide whether enforcement may be enabled. It may not, unless the operator
     switch, the declared remote consent, the model-availability check, the
     frozen evaluation set, and the declared criteria all hold. Every missing or
-    unmeasured input leaves enforcement **disabled**, never "unknown".
+    unmeasured input leaves enforcement **disabled**, never "unknown". The gate
+    also refuses to produce a verdict at all unless the manifest declares the
+    evaluation record that gates the enforcement switch, so the contract is read
+    from one declaration rather than restated here.
 
 Nothing here measures model quality, latency, or safety. The only timings the
 report carries are wall-clock spans of the fixture's own steps, labelled as
@@ -105,6 +108,24 @@ ENFORCEMENT_SWITCH = "JEV_SWITCH_APPROVAL_ENFORCEMENT"
 GATE_SWITCH = "JEV_SWITCH_APPROVAL_ENFORCEMENT_GATE"
 CONSENT_ENV = "JEV_REMOTE_INFERENCE_CONSENT"
 MODEL_AVAILABLE_ENV = "JEV_APPROVAL_MODEL_AVAILABLE"
+
+# The enforcement switch the manifest record gates, the conditions the phase
+# accepts a return to Guardian-only for, and the default location of the
+# contract. The record is read rather than restated, so the document and the
+# validator cannot drift from the switch this tool decides about.
+GATED_SWITCH = "approval.enforcement"
+REQUIRED_GUARDIAN_ONLY_CONDITIONS = (
+    "binding_mismatch",
+    "cancelled",
+    "malformed_answer",
+    "missing_model",
+    "not_opted_in",
+    "provider_error",
+    "timeout",
+)
+MANIFEST_PATH = (
+    Path(__file__).resolve().parents[2] / "jev" / "compatibility-manifest.json"
+)
 
 
 class ShadowError(Exception):
@@ -592,6 +613,76 @@ def verify_freeze(frozen_path, paths):
     return drift
 
 
+def declared_evaluation_record(path=None, switch=GATED_SWITCH):
+    """Read the manifest record that gates ``switch`` and refuse to invent one.
+
+    The gate's decision is code, but the *contract* it enforces is declared: the
+    component that owns the enforcement switch carries an ``evaluation`` record
+    naming the switch, the report kind, the criteria the live evaluation must
+    meet, and the conditions that return the host to Guardian-only. Reading the
+    record here keeps the runtime decision and the manifest validator
+    (``verify-manifest.py --approval-enforcement disabled``) on one declaration
+    instead of two copies that can drift.
+    """
+    manifest_path = Path(path) if path else MANIFEST_PATH
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise ShadowError(
+            f"E_EVALUATION_MISSING: no manifest at {manifest_path} declares the "
+            f"evaluation record gating {switch}"
+        ) from None
+    owner = None
+    spec = (manifest.get("features") or {}).get(switch)
+    if isinstance(spec, dict):
+        owners = list(spec.get("components") or [])
+        for candidate in owners:
+            for component in manifest.get("components") or []:
+                if isinstance(component, dict) and component.get("id") == candidate:
+                    record = component.get("evaluation")
+                    if isinstance(record, dict):
+                        owner, declared = candidate, record
+                        break
+        if owner is None:
+            raise ShadowError(
+                f"E_EVALUATION_MISSING: {', '.join(owners) or 'no component'} owns "
+                f"{switch} but declares no evaluation record"
+            )
+    else:
+        raise ShadowError(
+            f"E_EVALUATION_SWITCH: {manifest_path} declares no {switch} feature"
+        )
+    if declared.get("enforce_switch") != switch:
+        raise ShadowError(
+            f"E_EVALUATION_SWITCH: the evaluation record of {owner} gates "
+            f"{declared.get('enforce_switch')!r}, not {switch!r}"
+        )
+    missing = sorted(
+        condition
+        for condition in REQUIRED_GUARDIAN_ONLY_CONDITIONS
+        if condition not in (declared.get("guardian_only_on") or ())
+    )
+    if missing:
+        raise ShadowError(
+            f"E_EVALUATION_STATE: the evaluation record of {owner} declares no "
+            f"Guardian-only return for {', '.join(missing)}"
+        )
+    return {
+        "component": owner,
+        "enforce_switch": switch,
+        "shadow_switch": declared.get("shadow_switch"),
+        "report_kind": declared.get("report_kind"),
+        "report_schema": declared.get("report_schema"),
+        "opt_in_action_categories": list(
+            declared.get("opt_in_action_categories") or ()
+        ),
+        "remote_consent_credential": declared.get("remote_consent_credential"),
+        "guardian_only_on": list(declared.get("guardian_only_on") or ()),
+        "criteria": declared.get("criteria") or {},
+        "manifest": str(manifest_path),
+    }
+
+
 def enforcement_state(
     env, *, criteria, observed, set_digest_ok, opted_in_categories=()
 ):
@@ -752,6 +843,7 @@ def render_markdown(report):
 
 
 def _cmd_gate(args):
+    contract = declared_evaluation_record(args.manifest)
     criteria = _load_criteria(args.criteria)
     document = load_set(args.set)
     split = document.get("split")
@@ -791,6 +883,7 @@ def _cmd_gate(args):
     state["freeze_drift"] = drift
     state["observed"] = observed
     state["report_problems"] = problems
+    state["declared_contract"] = contract
     text = json.dumps(state, indent=2, sort_keys=True)
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")
@@ -871,6 +964,14 @@ def main(argv=None):
     )
     gate.add_argument("--category", action="append")
     gate.add_argument("--out")
+    gate.add_argument(
+        "--manifest",
+        default=None,
+        help=(
+            "the compatibility manifest that declares the evaluation record "
+            "gating approval.enforcement (default: this checkout's manifest)"
+        ),
+    )
     gate.set_defaults(func=_cmd_gate)
 
     freeze_cmd = subparsers.add_parser("freeze", help="pin the split digests")

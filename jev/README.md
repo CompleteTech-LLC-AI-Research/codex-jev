@@ -33,7 +33,9 @@ installs its call site. Everything else the integration owns is here.
 | `scripts/sentinel_boundary.py` | The Sentinel hook boundary (C5): normalize and bound the prompt/pre-tool/post-tool events, run the pinned evaluator, record correlated incidents, and report effective coverage and activation. |
 | `scripts/sentinel_veto.py` | Host veto precedence (C5): map `REVIEW`/`BLOCK`/`QUARANTINE` onto the veto each stage supports, latch a session so a later approval or `DEFER` cannot clear it, serialize concurrent evaluations, and fail closed on every failure path. |
 | `scripts/jev_sentinel_adapter.py` | The Codex hook translation vendored from the pinned `jev-sentinel`: `EVENTS`, `normalize`, `render`, the decisions, and the input bound. |
+| `scripts/shadow_comparison.py` | The approval shadow comparison and the enforcement gate (C6): correlate typed judgments with the host's final decisions and timings without raw content, report every deferral and failure, freeze the calibration/holdout digests, and read the manifest's declared evaluation record before enforcement may be switched on. |
 | `scripts/verify-manifest.py --native-adapter` | Assert that the declared native approval adapter is installed and wired where the manifest says it is, or gone again after a rollback. |
+| `scripts/verify-manifest.py --approval-enforcement` | Assert that the approval evaluation record is declared and that every enforcement switch is still off. |
 | `scripts/build_provenance.py` | Build the pinned CLI with the repository recipe and record provenance. |
 | `scripts/verify-manifest.py` | Fail-closed validator for the manifest, a profile, the patch state, and the checkout pin. |
 | `scripts/jev_manifest.py` | The validation rules, importable from tests. |
@@ -81,4 +83,5 @@ explicitly instead of silently building.
 - [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) — the native approval preflight, its environment contract, eligibility and deferral, the answer binding and freshness rules, and the guarded host blobs.
 - [`RETRIEVAL_SCREENING.md`](RETRIEVAL_SCREENING.md) — screening retrieved context before injection, the two switches, the withholding rules, and memory-write authorization.
 - [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md) — bounded, metadata-only incident operations: validation, the read-only disable plan, correlation, and the policy view.
+- [`SHADOW_COMPARISON.md`](SHADOW_COMPARISON.md) — the shadow comparison and the enforcement gate: the judgment/host vocabularies and their declared mapping, correlation without raw commands, the labelled calibration/holdout splits and their frozen digests, the fail-closed gate checks, the Guardian-only return, and what the phase does not measure.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.

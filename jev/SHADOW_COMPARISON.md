@@ -121,12 +121,46 @@ reported with both the required and the observed number rather than rounded into
 a pass. An action category the module does not declare is refused instead of
 being counted as consent (`E_UNKNOWN_CATEGORY`).
 
+The declared contract is a *precondition* rather than a ninth row: `gate` refuses
+to compute a verdict at all when the manifest carries no evaluation record for
+the enforcement switch, so a verdict can never be produced under an undeclared
+gate.
+
 `enforcement-eval.json` carries the evaluation switches. It enables
 `approval.enforcement`, and the manifest requires
 `approval.enforcement_gate` -> `approval.shadow_comparison` ->
 `approval.preflight`, so a profile cannot reach enforcement without the gate.
 The profile carries the *switches*; the gate is what decides whether the
 enforcement switch may be set at all, and the shipped answer is no.
+
+**The contract the gate reads is declared, not restated.** The
+`jev-codex-approval` component carries an `evaluation` record in
+[`compatibility-manifest.json`](compatibility-manifest.json): the shadow and
+enforcement switches and their order, the report kind and schema, the action
+classes a preflight may replace, the consent credential the live run needs, the
+seven conditions that must return the host to Guardian-only, and the promotion
+criteria the live evaluation must meet. The record is *checked*, not trusted, by
+two independent readers:
+
+| Layer | Reader | What it decides |
+| --- | --- | --- |
+| Declaration | `verify-manifest.py` (`_validate_approval_evaluation`, `--approval-enforcement disabled`) | A record with a missing or unknown key (`E_EVALUATION_SCHEMA`), an unknown, mis-ordered, or unowned switch (`E_EVALUATION_SWITCH`), an action class outside `exec_command`/`apply_patch` (`E_EVALUATION_CATEGORY`), a consent credential granted by default (`E_EVALUATION_CONSENT`), a Guardian-only list missing a required condition (`E_EVALUATION_STATE`), or criteria of the wrong shape (`E_EVALUATION_CRITERIA`) is refused; an enforcement owner with no record is a missing gate (`E_EVALUATION_MISSING`), and an enforcement switch that does not default to `false` fails the lane. |
+| Decision | `shadow_comparison.py gate` (`declared_evaluation_record`) | The gate refuses to produce a verdict at all - `E_EVALUATION_MISSING`, exit `1` - unless the checked-in manifest declares the record, names this switch, and covers every Guardian-only condition. The record is echoed as `declared_contract` in the gate's own output so a verdict can be read against the declaration it was made under. |
+
+The two layers carry different numbers on purpose. The record's `criteria` are
+the *promotion contract* for a live evaluation: at least 200 labelled pairs
+across 20 scenario families, a false-allow rate of 0, disagreement <= 5%, defer
+<= 50%, and measured p95 latency <= 1000 ms. `criteria.json` holds the
+*offline rehearsal* thresholds the gate measures on the frozen holdout, which are
+stricter on every axis the two share (agreement >= 95%, disagreement <= 2%, defer
+<= 10%, failure <= 5%, label mismatch 0). Passing the rehearsal is therefore not
+evidence of meeting the contract; the shipped fixtures pass neither. The
+record's `opt_in_action_categories` name the *host action kinds* a preflight may
+replace (`exec_command`, an applied patch), which is a different vocabulary from
+this tool's `ACTION_CATEGORIES` (`shell_command`, `file_write`, `network_egress`,
+`destructive`), the risk classes the labelled set is drawn from. Neither list
+stands in for the other, and a category neither declares is refused
+(`E_UNKNOWN_CATEGORY`) rather than counted as consent.
 
 **Immediate return to Guardian-only.** Setting
 `JEV_SWITCH_APPROVAL_GUARDIAN_ONLY=1` forces the disabled state whatever else
@@ -170,10 +204,11 @@ Tier: **offline-fixture**. No live model, no provider, no network.
 | The gate is not a rubber stamp on the shipped fixtures | same suite | All five measurable criteria *fail* on the shipped holdout (agreement 0.667 < 0.95, deferral 0.167 > 0.1, failure 0.083 > 0.05, disagreement 0.083 > 0.02, label mismatch 0.111 > 0.0), so the shipped answer is a refusal to enforce, not a fixture-shaped pass. |
 | Redaction audit bites | same suite | Real raw text (a destructive command, a key header, a secret variable name) is checked against the records and every attached document; a positive case is clean and a negative control that leaks is reported. |
 | Freeze drift is detected | same suite | An edited split is reported as drift and leaves enforcement disabled. |
-| Manifest configuration cannot reach enforcement without the gate | same suite + `python3 jev/scripts/verify-manifest.py --patch-state applied --native-adapter applied` | Every shipped profile that enables `approval.enforcement` also enables the gate and shadow comparison; the manifest validates. |
+| Manifest configuration cannot reach enforcement without the gate | same suite + `python3 jev/scripts/verify-manifest.py --patch-state applied --native-adapter applied` | Every shipped profile that enables `approval.enforcement` also enables the gate and shadow comparison (`E_PROFILE_DEPENDENCY` otherwise); the manifest validates. |
+| The declared evaluation record is checked, not trusted | `python3 jev/scripts/verify-manifest.py --approval-enforcement disabled` + same suite | Exit `0` on the shipped manifest. Mutation tests drop the record (`E_EVALUATION_MISSING`, in the validator and in the gate), set the enforcement default to `true` (`E_EVALUATION_STATE` / `E_EVALUATION_SWITCH`), and point the gate at a manifest without the record - the gate then refuses to produce a verdict and exits `1`. |
 | Formatting | `uv run --frozen --project scripts ruff format --check .` | `jev/scripts/shadow_comparison.py` and `.github/scripts/test_jev_shadow.py` are formatted. |
-| Required-CI jev suites | `python3 -m unittest discover -s .github/scripts -p 'test_jev_*.py'` | 315 passed. |
-| JEV component suites | `python3 -m unittest discover -s jev/tests -t jev/tests` | 119 passed. |
+| Required-CI jev suites | `python3 -m unittest discover -s .github/scripts -p 'test_jev_*.py'` | 377 passed. |
+| JEV component suites | `python3 -m unittest discover -s jev/tests -t jev/tests` | 136 passed. |
 
 Not performed, and not claimed: a live-model calibration run, a real provider
 availability probe, a token or cost measurement, an accuracy comparison against
