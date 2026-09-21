@@ -92,3 +92,22 @@ Authorization, sandbox enforcement, mandatory review, cancellation, freshness
 checks, native compaction, and final execution stay host-owned. No component
 receives authority through a captured message, a recalled excerpt, or a
 preflight judgment.
+
+## C10 — The isolated environment is the only integration runtime
+
+One pinned build runs against one generated home under `.jev/isolated`, created
+by `jev/scripts/isolated_env.py`. The environment never reads or writes the
+ambient Codex home, never writes outside its own directory, and never shuts down
+or terminates WSL. `rollback` moves the directory aside instead of deleting it.
+
+Switches reach the runtime as `JEV_SWITCH_<FEATURE>` with `1`/`0`, derived from
+the profile: `JEV_SWITCH_<FEATURE>` is the only mechanism phases 2-6 may read, so
+no component invents an upstream flag. `init` refuses to materialise an
+environment from a profile that enables any optional switch, so an isolated
+environment always starts with projection, Sentinel, approval preflight, and
+remote inference disabled.
+
+Evidence is labelled by tier. Everything the fixtures produce is
+`offline-fixture`; a run of the pinned binary against them is
+`real-host-binary`; live-provider evidence is never produced by this
+environment because remote inference stays disabled and unbudgeted.

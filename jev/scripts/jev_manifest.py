@@ -139,6 +139,16 @@ def _effective_features(manifest, profile):
     return effective
 
 
+def effective_features(manifest, profile=None):
+    """Public wrapper: the feature switches a profile actually produces.
+
+    Integration scripts and tests read the effective set instead of the raw
+    profile so a profile that omits a default-on feature is still described
+    correctly.
+    """
+    return _effective_features(manifest, profile)
+
+
 def validate_manifest(manifest, repo_root=None, profile=None):
     """Return every validation error as ``CODE: message`` strings."""
     repo_root = Path(repo_root) if repo_root else repository_root()

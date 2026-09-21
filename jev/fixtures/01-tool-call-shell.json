@@ -1,0 +1,40 @@
+{
+  "fixture_version": 1,
+  "id": "tool_call_shell",
+  "tier": "offline-fixture",
+  "priority": 10,
+  "description": "Deterministic shell tool call for the request that mentions JEV_FIXTURE_TOOL_CALL.",
+  "match": {
+    "body_contains": "JEV_FIXTURE_TOOL_CALL"
+  },
+  "events": [
+    {
+      "type": "response.created",
+      "response": {
+        "id": "resp-offline-tool-call"
+      }
+    },
+    {
+      "type": "response.output_item.done",
+      "item": {
+        "type": "function_call",
+        "name": "shell",
+        "arguments": "{\"command\":[\"printf\",\"jev-offline-fixture\"]}",
+        "call_id": "call-offline-tool-call"
+      }
+    },
+    {
+      "type": "response.completed",
+      "response": {
+        "id": "resp-offline-tool-call",
+        "usage": {
+          "input_tokens": 0,
+          "input_tokens_details": null,
+          "output_tokens": 0,
+          "output_tokens_details": null,
+          "total_tokens": 0
+        }
+      }
+    }
+  ]
+}

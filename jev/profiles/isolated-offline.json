@@ -1,0 +1,14 @@
+{
+  "profile_version": 1,
+  "id": "isolated-offline",
+  "description": "Isolated launch profile: every optional enforcement path starts disabled, so the pinned build behaves exactly like the unpatched upstream host except for the build-time plaintext collaboration patch. Capture and budgeted retrieval stay on because they are local, read-only, and required by later phases. Remote inference is disabled and has no consent or budget.",
+  "features": {
+    "projection.dedup_receipts": false,
+    "projection.fabric_views": false,
+    "sentinel.shadow": false,
+    "sentinel.enforcement": false,
+    "approval.preflight": false,
+    "approval.enforcement": false,
+    "remote_inference.enabled": false
+  }
+}
