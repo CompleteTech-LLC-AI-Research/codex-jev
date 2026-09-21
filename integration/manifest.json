@@ -1,0 +1,262 @@
+{
+  "schema": "jev.codex.integration.manifest.v1",
+  "manifest_version": "1.1.0",
+  "generated_at": "2026-09-21T01:58:30Z",
+  "epic": "https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/2",
+  "excluded_components": [
+    {
+      "name": "omniroute-codex-docker",
+      "reason": "Explicitly excluded from the JEV Codex integration stack (epic #2)."
+    }
+  ],
+  "integration_host": {
+    "repository": "CompleteTech-LLC-AI-Research/codex-jev",
+    "role": "Integration host: one pinned build, one isolated profile, one native adapter per host boundary.",
+    "upstream": "openai/codex",
+    "codex_pin": {
+      "commit": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+      "subject": "Merge branch 'openai:main' into main",
+      "upstream_commit": "9fdff739ea0eca7881f180858dfd71b7bd1fa483",
+      "upstream_commit_date": "2026-09-20T20:47:14Z",
+      "codex_rs_toolchain": "1.95.0",
+      "status": "declared"
+    }
+  },
+  "component_pins": [
+    {
+      "name": "codex-plaintext-collab",
+      "repository": "CompleteTech-LLC-AI-Research/codex-plaintext-collab",
+      "commit": "073b3a99e4fa0eebe5417fd096f2e37abd7a7527",
+      "role": "Plaintext inter-agent collaboration patch and update-safe tooling.",
+      "delivery": "patch",
+      "artifacts": [
+        {
+          "path": "patches/0001-disable-collab-message-encryption.patch",
+          "sha256": "81ea56612bd7de1e0a72ae5421257539f75c76f24d661144a4daaed9370b8440"
+        }
+      ],
+      "status": "declared"
+    },
+    {
+      "name": "jev-context-fabric",
+      "repository": "CompleteTech-LLC-AI-Research/jev-context-fabric",
+      "commit": "5079099211c0d39a6ead347633a99d675a210c64",
+      "role": "Canonical capture, retrieval/hydration, MCP, and jev-bus registry owner.",
+      "delivery": "package",
+      "artifacts": [
+        {
+          "path": "src/jev_context/bus.py",
+          "sha256": "514e59a2776ae1adbed5bbcf8e669d4fa15972877440a15cf8b00516bbfb87b7"
+        },
+        {
+          "path": "adapters/bus.mjs",
+          "sha256": "907758980cd5939a341eb9ab04bed183c1b928f19e5faad690508581f9882cf0"
+        }
+      ],
+      "status": "declared"
+    },
+    {
+      "name": "jev-prune-kit",
+      "repository": "CompleteTech-LLC-AI-Research/jev-prune-kit",
+      "commit": "2ecc8ff4e0976991c7abc09287d8f2f736d3164c",
+      "role": "Duplicate-read pruning stage and native prune/compaction gate machine.",
+      "delivery": "package",
+      "artifacts": [
+        {
+          "path": "jev_prune/bus.py",
+          "sha256": "514e59a2776ae1adbed5bbcf8e669d4fa15972877440a15cf8b00516bbfb87b7"
+        },
+        {
+          "path": "adapters/bus.mjs",
+          "sha256": "907758980cd5939a341eb9ab04bed183c1b928f19e5faad690508581f9882cf0"
+        }
+      ],
+      "status": "declared"
+    },
+    {
+      "name": "jev-sentinel",
+      "repository": "CompleteTech-LLC-AI-Research/jev-sentinel",
+      "commit": "4ecd748d38fbe9ed5c770e7e69a1e03a3db4bf7a",
+      "role": "Boundary observation, screening, veto precedence, and incident records.",
+      "delivery": "package",
+      "artifacts": [],
+      "status": "declared"
+    },
+    {
+      "name": "jev-codex-approval",
+      "repository": "CompleteTech-LLC-AI-Research/jev-codex-approval",
+      "commit": "0b931ee24a907c9dc47dc1828a94a6afcd7775b6",
+      "role": "Native Codex approval preflight adapter with Guardian fallback.",
+      "delivery": "native-adapter",
+      "artifacts": [
+        {
+          "path": "adapters/codex-native/jev.rs",
+          "sha256": "37d3a1dddf32d26f18a5149b6ed39ab8d27be10f6af9132f6a5889ccafb23f43"
+        },
+        {
+          "path": "adapters/codex-native/manifest.json",
+          "sha256": "a0fd8d56f3e0ea26353d425572254e24b6b3de49712cad9b7b8aea08e07243c4"
+        }
+      ],
+      "inspected_upstream_commit": "c45ea25ffb72d5f7324489d824d0c677283aa0b4",
+      "status": "declared"
+    }
+  ],
+  "patch_order": [
+    {
+      "order": 1,
+      "name": "plaintext-collab",
+      "applies_to": "codex-jev checkout at codex_pin.commit",
+      "method": "semantic-transform-with-bundled-diff-fallback",
+      "touches": [
+        "codex-rs/core/src/tools/handlers/multi_agents_spec.rs",
+        "codex-rs/core/src/tools/router.rs"
+      ],
+      "verified_blobs_before": {
+        "codex-rs/core/src/tools/handlers/multi_agents_spec.rs": "52c24f8f0611e3015f3ba907c8861c6169a8abd6",
+        "codex-rs/core/src/tools/router.rs": "c3526fee10f54861bd9f47a33f3da55b7a84fbd3"
+      },
+      "verified_blobs_after": {
+        "codex-rs/core/src/tools/handlers/multi_agents_spec.rs": "6d07eb8ed5a646596a578878c1d0bfee372d8d88",
+        "codex-rs/core/src/tools/router.rs": "7384d262c0cb2e4a7181d55808a329b92efcd809"
+      },
+      "status": "validated"
+    },
+    {
+      "order": 2,
+      "name": "codex-native-approval-adapter",
+      "applies_to": "codex-jev checkout after patch order 1",
+      "method": "guarded-source-patch",
+      "touches": [
+        "codex-rs/core/src/guardian/mod.rs",
+        "codex-rs/core/src/guardian/review_request.rs",
+        "codex-rs/core/src/guardian/jev.rs"
+      ],
+      "verified_blobs_before": {
+        "codex-rs/core/src/guardian/mod.rs": "c8765943a57d65eb1186133d584cbf70bc0989b0",
+        "codex-rs/core/src/guardian/review_request.rs": "3ac51383012724857723385974c5a8c15ba87c5a"
+      },
+      "anchor_note": "The upstream inspected blobs are byte-identical at codex_pin.commit, so the guarded anchors resolve; the adapter manifest's exact-commit guard still must be re-pinned to codex_pin.commit before compilation.",
+      "status": "declared"
+    },
+    {
+      "order": 3,
+      "name": "native-bus-and-sentinel-adapter",
+      "applies_to": "codex-jev checkout after patch order 2",
+      "method": "native-source-change",
+      "touches": [
+        "codex-rs/core (outgoing-request projection boundary)",
+        "codex-rs/core (pre/post tool boundary)"
+      ],
+      "status": "declared"
+    }
+  ],
+  "runtime_requirements": {
+    "rust": {
+      "toolchain": "1.95.0",
+      "source": "codex-rs/rust-toolchain.toml",
+      "status": "validated"
+    },
+    "python": {
+      "minimum": "3.10",
+      "notes": "Components are zero-dependency at runtime; the integration layer and verifier use only the standard library.",
+      "status": "validated"
+    },
+    "node": {
+      "minimum": "18",
+      "notes": "Required only for adapters and node --test suites.",
+      "status": "declared"
+    },
+    "native_build_note": "The system has no OpenSSL development files; the pinned build enables the vendored OpenSSL feature on codex-cli, matching the plaintext-collab build recipe."
+  },
+  "supported_platforms": [
+    {
+      "platform": "linux-x86_64",
+      "status": "declared",
+      "notes": "Reference build platform for the isolated profile."
+    },
+    {
+      "platform": "macos",
+      "status": "unsupported",
+      "notes": "No macOS host available in this environment; refused rather than assumed."
+    },
+    {
+      "platform": "windows",
+      "status": "unsupported",
+      "notes": "No Windows host available; refused rather than assumed."
+    }
+  ],
+  "feature_switches": {
+    "JEV_ENABLE_FABRIC_CAPTURE": {
+      "default": false,
+      "effect": "Enable canonical evidence capture before any context projection.",
+      "status": "declared"
+    },
+    "JEV_ENABLE_BUS_PROJECTION": {
+      "default": false,
+      "effect": "Enable outgoing-request projection through the single native jev-bus boundary.",
+      "status": "declared"
+    },
+    "JEV_ENABLE_SENTINEL": {
+      "default": false,
+      "effect": "Enable Sentinel boundary checks.",
+      "status": "declared"
+    },
+    "JEV_ENABLE_APPROVAL_PREFLIGHT": {
+      "default": false,
+      "effect": "Enable the native approval preflight inside eligible synchronous review attempts only.",
+      "status": "declared"
+    },
+    "JEV_ENFORCEMENT_MODE": {
+      "default": "off",
+      "allowed": ["off", "shadow", "enforce"],
+      "effect": "Global enforcement posture. shadow observes only; enforce maps configured outcomes to host veto behavior.",
+      "status": "declared"
+    },
+    "JEV_ALLOW_REMOTE_INFERENCE": {
+      "default": false,
+      "effect": "Separate consent gate for any remote model call. Optional remote inference stays disabled unless explicitly authorized and budgeted.",
+      "status": "declared"
+    }
+  },
+  "shared_event_identifiers": {
+    "envelope_schema": "jev.event.v1",
+    "kinds": [
+      "codex.session.start",
+      "fabric.capture.canonical",
+      "fabric.retrieval.hydrate",
+      "bus.projection.plan",
+      "bus.projection.apply",
+      "bus.projection.reset",
+      "collab.message.plaintext",
+      "sentinel.prompt",
+      "sentinel.pre_tool",
+      "sentinel.post_tool",
+      "sentinel.veto",
+      "approval.preflight.request",
+      "approval.preflight.result",
+      "host.authorization.decision",
+      "host.execution.result"
+    ]
+  },
+  "ownership_boundaries": [
+    {"owner": "codex-jev", "owns": ["codex-rs/**", "integration/**", "the single native adapter for each host boundary"]},
+    {"owner": "codex-plaintext-collab", "owns": ["patches/0001-disable-collab-message-encryption.patch", "build/verify tooling"], "host_change": "applied by codex-jev at build time, never edited in place"},
+    {"owner": "jev-context-fabric", "owns": ["src/jev_context/**", "the jev-bus registry", "MCP server"]},
+    {"owner": "jev-prune-kit", "owns": ["jev_prune/**", "the dedup stage"]},
+    {"owner": "jev-sentinel", "owns": ["jev_sentinel/**", "incident records"]},
+    {"owner": "jev-codex-approval", "owns": ["adapters/codex-native/**", "the deterministic policy engine"]}
+  ],
+  "credentials": {
+    "policy": "Every component keeps its own credential file. No shared credential, no cross-component token reuse, and no credential in fixtures, logs, or committed records.",
+    "remote_consent": "Remote inference requires both JEV_ALLOW_REMOTE_INFERENCE and the owning component's own consent configuration; joining a chain never starts a paid call."
+  },
+  "unsupported_combinations": [
+    "A platform outside supported_platforms with a non-unsupported status.",
+    "Any component pin whose declared artifact hash does not match the checkout.",
+    "jev-bus vendored copies that are not byte-identical between jev-context-fabric and jev-prune-kit.",
+    "Dependency on omniroute-codex-docker.",
+    "Remote inference enabled without JEV_ALLOW_REMOTE_INFERENCE and component consent.",
+    "Approval preflight compiled against source blobs other than the pinned inspected blobs."
+  ]
+}
