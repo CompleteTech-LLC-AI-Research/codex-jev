@@ -77,6 +77,36 @@ class GateTests(unittest.TestCase):
             for name in document["failed"] + document["not_run"]:
                 self.assertIn(name, document["blocking"])
 
+    def test_a_skipped_roundtrip_cannot_reach_release_ready(self):
+        # #98 asked for this case in its own words: with the round trip skipped,
+        # `release_ready` must be false even when every platform is recorded.
+        # The skipped gate is emitted `not-run`, so it is part of the conjunction
+        # `summarize_gates` evaluates rather than absent from it; before #106 the
+        # gate was dropped and this same construction returned `True`.
+        skipped = release_readiness.evaluate_gates(REPO_ROOT, run_roundtrip=False)
+        by_id = {gate["id"]: gate for gate in skipped["gates"]}
+        self.assertIn("isolated.roundtrip", by_id)
+        roundtrip = by_id["isolated.roundtrip"]
+        self.assertEqual(roundtrip["status"], "not-run")
+        self.assertEqual(roundtrip["evidence"], "not-run")
+        self.assertIn("isolated.roundtrip", skipped["not_run"])
+        self.assertIn("isolated.roundtrip", skipped["blocking"])
+        # The gate that ran and the gate that was skipped are the same
+        # requirement, so a reviewer can compare the two evaluations directly.
+        executed = {gate["id"]: gate for gate in self.document["gates"]}
+        self.assertEqual(
+            roundtrip["requirement"], executed["isolated.roundtrip"]["requirement"]
+        )
+        # Every other gate passing is still not enough to release.
+        every_other_gate_passes = [
+            {**gate, "status": "pass"} if gate["id"] != "isolated.roundtrip" else gate
+            for gate in skipped["gates"]
+        ]
+        outcome = release_readiness.summarize_gates(every_other_gate_passes)
+        self.assertEqual(outcome["failed"], [])
+        self.assertFalse(outcome["release_ready"])
+        self.assertEqual(outcome["not_run"], ["isolated.roundtrip"])
+
     def test_manifest_and_control_gates_hold(self):
         by_id = {gate["id"]: gate for gate in self.document["gates"]}
         for gate_id in (
