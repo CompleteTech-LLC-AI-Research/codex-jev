@@ -38,9 +38,9 @@ is incomplete, even when a concurrency slot is free.
 | #58 | Reconcile the host's item-count fallback with the approved-view removal | — | open; filed from #55 |
 | #52 | Host proof is weaker than the component's own receipt validator | #65 | PR merged; issue left open (the body closes the gaps, not the issue) |
 | #57 | Reconcile C4's package-approval semantics with the host-owned view control | #62 | in review; filed from #17 |
-| #66 | repo-checks is red on `main`: root `README.md` asciicheck | — | open; CI lane |
-| #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | — | open; CI lane |
-| #70 | Run the real host binary to show projected outgoing content and exact reset | — | in review; from #5 criterion 3 |
+| #66 | repo-checks is red on `main`: root `README.md` asciicheck | #71 | merged; issue closed |
+| #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | — | open; CI lane, unmasked by #71 |
+| #70 | Run the real host binary to show projected outgoing content and exact reset | #75 | merged; issue closed |
 | #19–#20 | Sentinel veto precedence, retrieval screening, incident operations | — | open; blocked by #18 |
 | #21 | Port and compile the pinned native approval adapter | #72 | merged; issue closed |
 | #22 | Verify action binding, freshness, and fallback | — | in review; filed from #21 |
@@ -69,6 +69,8 @@ merged.
 | #55 | #63 | `0c10851a79` | `dad9e5ad1e` |
 | #52 | #65 | `0ad456b527` | `f9ba672eeb` |
 | #21 | #72 | `1e03adbaa` | `8ca45b6a7a` |
+| #66 | #71 | `aab06717a6` | `997b33da76` |
+| #70 | #75 | `89615fdaab` | `220c6e5023` |
 
 ## Pinned revisions
 
@@ -145,7 +147,10 @@ ever added as a component.
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being
-spawned, so both are recorded. The live-provider tier remains untouched.
+spawned, so both are recorded. The projection smoke is the launched host that
+#5's third acceptance item asks for, and it states its own limit: it resumes a
+seeded transcript rather than watching a host find its own duplicate pair. The
+live-provider tier remains untouched.
 
 ## Open blockers
 
@@ -155,7 +160,7 @@ spawned, so both are recorded. The live-provider tier remains untouched.
 | A live-model parent/child smoke requires the same consent. | #10 | Open for the live tier only; a real parent/child turn against a loopback mock now runs in `jev/smoke/` and is recorded in `jev/evidence/`. |
 | Every session authenticates to GitHub as one account, so "author ≠ reviewer" cannot be met with a second identity. | all | Open; reviews are recorded as self-review comments backed by reproducible automated checks. |
 | The private key for the GitHub-verified commits in this repository is not on this machine. | all | Open; commits are pushed unsigned and GitHub reports them unverified. |
-| `repo-checks` `just fmt-check` is red on `main`: `ruff format --check .` would reformat ten files under `jev/`. It is currently **masked** — step 17 (README asciicheck, #66) fails first, so steps 18–21 never run. | all | Open; filed as #69. Nine are ordinary debt (`test_jev_bus.py`, `test_jev_capture.py`, `test_jev_sentinel.py`, `bus_boundary.py`, `canonical_capture.py`, `jev_sentinel_adapter.py`, `sentinel_boundary.py`, `bus_stage_stub/view.py`, `test_sentinel_boundary.py`). The tenth, `jev/scripts/jev_bus.py`, must stay byte-identical to the pinned component copy (a digest test asserts it), so it needs a `ruff.toml` exclusion rather than a reformat. |
+| `repo-checks` `just fmt-check` is red on `main`: `ruff format --check .` reformats twelve files, and it is now **the first step to fail** because #71 fixed step 17. | all | Open; filed as #69. Eleven are ordinary debt (`test_jev_bus.py`, `test_jev_capture.py`, `test_jev_receipts.py`, `test_jev_sentinel.py`, `bus_boundary.py`, `canonical_capture.py`, `jev_sentinel_adapter.py`, `sentinel_boundary.py`, `bus_stage_stub/view.py`, `test_dedup_receipts.py`, `test_sentinel_boundary.py`). The twelfth, `jev/scripts/jev_bus.py`, must stay byte-identical to the pinned component copy (a digest test asserts it), so it needs a `ruff.toml` exclusion rather than a reformat. |
 | Codespell is red on `main` on three files under `codex-rs/`. | all | Open; inherited, not JEV. The findings are in upstream files carried in by the `openai:main` merge (`tui/src/markdown_render/math_tests.rs`, `tui/src/markdown_render/math/render.rs`, `exec-server/src/no_follow/unix.rs`), so the fix is an ignore entry or an upstream fix, not an integration change. |
 | The host path reduces bytes but never items, and passes no view to the carrier. | #55, #17 | Open; filed as #58. `codex-rs/core/src/jev_bus.rs` refuses any changed item count (required by #55) and passes no `--view`, so an approved view cannot shrink the outgoing array from a real Codex run yet. |
 | The projection boundary had no `real-host-binary` run. | #5, #55, #17 | Closed on a seeded transcript; filed as #70 and recorded in [`evidence/projection-real-host.md`](evidence/projection-real-host.md). A launched host now shows the reduced `input` and the exact reset, but it resumes a rollout whose duplicate pair is already present: this revision exposes no `read`/`read_file`/`file_read` tool, so no run yet shows a host *discovering* its own eligible pair, and there is still no live-provider or token measurement. |
