@@ -140,6 +140,47 @@ This mirrors the component's own `docs/EVALUATION.md` procedure and its
 binomial `1 - 0.05 ** (1/n)` one-sided 95% upper bound, which the report
 reproduces as `zero_error_one_sided_95_upper_bound` when a run shows no error.
 
+### The split is enforced, not just recorded
+
+A frozen split is only worth freezing if something refuses to accept a number
+that came from the other half of it, so the document carries two digests and the
+gate re-derives them (issue
+[#85](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/85)):
+
+- `labelled_rows_digest` — a digest of the labelled rows the split partitioned,
+  independent of file order. `correlate` records the same digest in the report
+  as `independent_labels.label_records_digest`.
+- `holdout_members` — one identity per holdout row: a digest of its review id and
+  family. The report records the rows its numbers were actually computed from as
+  `independent_labels.measured_members`.
+- `split_digest` — a digest over the partition, the seed, the fraction and both
+  values above, so the document can be checked against itself.
+
+`correlate` and `gate` both take `--split`. With it, `gate` reaches one of three
+outcomes, and they are deliberately distinct because they mean different things:
+
+| Outcome | Trigger | What the operator sees |
+| --- | --- | --- |
+| **Refused** `E_HOLDOUT_REQUIRED` | The report records no measured rows, was measured against different labelled rows than the split, or measured at least one row outside the holdout. | An error, not a verdict. Enforcement cannot be justified from the split that was tuned on. |
+| **Drift reported** | The split no longer matches its own `split_digest`, i.e. it was edited after it was frozen. | A verdict with `permitted: false`, the reason `split_drift`, and a `drift` block naming the expected and observed digests. Not an error: "this split changed" is a finding to record. |
+| **Incomplete holdout** | Every measured row is in the holdout, but some holdout row was not measured. | A verdict with `permitted: false` and the reason `holdout_incomplete`, plus the count still unmeasured. |
+
+Only when the split verifies, the labelled rows match, and every holdout row was
+measured can a criteria-passing report permit — and the verdict then names
+`split.seed`, `split.split_digest`, `split.labelled_rows_digest` and the holdout
+families, so the permission can be read against the exact set that produced it.
+
+Without `--split` the gate behaves exactly as it did before and its verdict says
+so (`holdout.checked: false` with the reason stated), so an existing caller is
+never silently upgraded to a holdout claim it did not make. `E_HOLDOUT_SPLIT` is
+the separate refusal for a split document that has lost its binding fields —
+a usage error, not drift.
+
+Two consequences worth stating plainly. First, a genuinely new evaluation needs
+its own frozen split: re-running `correlate` against a different labelled set is
+refused rather than merged. Second, a permitted verdict is still only a
+statement about *these* rows; the fixture-tier caveat below is unchanged.
+
 ## Consent, model availability, opt-in categories, and the return to Guardian
 
 The evaluation record declares the non-negotiable boundaries:
@@ -187,14 +228,18 @@ python3 jev/scripts/approval_shadow.py gate --report report.json
 python3 jev/scripts/approval_shadow.py criteria
 python3 jev/scripts/approval_shadow.py split \
   --labels labels.jsonl --seed 7 --out -
+python3 jev/scripts/approval_shadow.py gate --report report.json --split split.json
 python3 jev/scripts/verify-manifest.py --approval-enforcement disabled
 ```
 
 `correlate` exits `0` only when every attempt is categorized and `1` otherwise;
-`gate` exits `0` only when every criterion holds. Coverage is the offline-fixture
-tier: the transport tests, the repository fixtures, and the static manifest
-checks. No live provider, model, or Python component run is exercised here, and
-the report format is the only thing claimed to be reproducible.
+`gate` exits `0` only when every criterion holds *and*, when a split is supplied,
+the report was measured on that split's holdout. Coverage is the offline-fixture
+tier: the transport tests, the repository fixtures, the holdout-binding tests in
+`jev/tests/test_approval_shadow.py` and `.github/scripts/test_jev_shadow.py`, and
+the static manifest checks. No live provider, model, or Python component run is
+exercised here, and the report format is the only thing claimed to be
+reproducible.
 
 ## What was not performed
 

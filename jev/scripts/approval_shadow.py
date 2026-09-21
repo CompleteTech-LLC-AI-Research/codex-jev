@@ -33,11 +33,22 @@ fixture shipped in ``jev/tests/approval_fixtures/`` is illustrative only and is
 not a safety benchmark; ``split`` freezes a calibration/holdout partition by
 scenario family so a holdout cannot be silently re-tuned.
 
+The frozen split is not advisory paperwork. ``split`` records a digest of the
+labelled rows it partitioned and of the holdout rows it selected, and ``gate``
+re-derives both when it is given the split (``gate --split``). A report whose
+measured rows are not the declared holdout is refused (``E_HOLDOUT_REQUIRED``)
+rather than warned about, a split edited after it was frozen leaves enforcement
+disabled and names the drift, and a permitted verdict names the split, its seed
+and its digest, so a permission can be read against the exact set that produced
+it. A ``gate`` run without ``--split`` behaves exactly as it did before and says
+in its verdict that no holdout was checked.
+
 Subcommands:
 
 ``correlate``  pair a JEV audit stream with a normalized Guardian stream (and
                optional independent labels) and write a shadow report;
-``gate``       evaluate a shadow report against the declared enforcement criteria;
+``gate``       evaluate a shadow report against the declared enforcement criteria,
+               optionally binding it to a frozen split;
 ``criteria``   print the declared criteria and the current switch/gate state;
 ``split``      freeze a calibration/holdout split by scenario family.
 
@@ -99,6 +110,8 @@ E_SHADOW_BOUND = "E_SHADOW_BOUND"
 E_SHADOW_TIMING = "E_SHADOW_TIMING"
 E_GATE_CRITERIA = "E_GATE_CRITERIA"
 E_SPLIT_FAMILY = "E_SPLIT_FAMILY"
+E_HOLDOUT_REQUIRED = "E_HOLDOUT_REQUIRED"
+E_HOLDOUT_SPLIT = "E_HOLDOUT_SPLIT"
 
 
 class ShadowError(ValueError):
@@ -366,11 +379,16 @@ def correlate(jev_text, guardian_text, labels_text=None) -> dict:
         unsafe = [key for key in labeled if labels[key]["label"] == "deny"]
         allowed = [key for key in labeled if candidate(key) == "allow"]
         false_allows = [key for key in allowed if labels[key]["label"] == "deny"]
-        families = {
-            str(jev[key].get("scenario_family") or labels[key].get("scenario_family"))
-            for key in labeled
-            if jev[key].get("scenario_family") or labels[key].get("scenario_family")
-        }
+
+        def family_of(key):
+            # The split is frozen from the labels file, so its family is the one
+            # that binds a measured row to a holdout; the JEV row is the fallback.
+            value = labels[key].get("scenario_family") or jev[key].get(
+                "scenario_family"
+            )
+            return str(value) if value else ""
+
+        families = {family_of(key) for key in labeled if family_of(key)}
         report["independent_labels"] = {
             "paired_labeled": len(labeled),
             "unlabeled_paired": len(paired) - len(labeled),
@@ -382,6 +400,15 @@ def correlate(jev_text, guardian_text, labels_text=None) -> dict:
                 len(false_allows) / len(unsafe) if unsafe else None
             ),
             "scenario_families": len(families),
+            "families": sorted(families),
+            # What the numbers above were actually computed from, so a gate can
+            # prove they came from the declared holdout rather than from a
+            # re-drawn or union split. Metadata only: an identity is a digest.
+            "label_records_digest": labelled_rows_digest(list(labels.values())),
+            "measured_members": sorted(
+                member({"request_id": key, "scenario_family": family_of(key)})
+                for key in labeled
+            ),
             "zero_error_one_sided_95_upper_bound": (
                 1 - 0.05 ** (1 / len(allowed)) if allowed and not false_allows else None
             ),
@@ -389,13 +416,30 @@ def correlate(jev_text, guardian_text, labels_text=None) -> dict:
     return report
 
 
-def gate(report, criteria) -> dict:
+def gate(report, criteria, split=None) -> dict:
     """Evaluate a shadow report against the declared criteria.
 
     The gate is advisory: it never sets a switch, and ``enforcement_enabled`` is
     always ``False``. It reports ``permitted: True`` only when every criterion
     holds, so "enforcement stays disabled until declared evaluation criteria are
     met" is a computed statement rather than a promise.
+
+    When ``split`` is supplied the criteria are only half the question: a
+    criteria-passing report still may not permit enforcement unless its measured
+    rows are the declared holdout of a split that still matches its own digest.
+    The three outcomes are deliberately different, because they mean different
+    things to an operator:
+
+    * **refused** (``E_HOLDOUT_REQUIRED``) - the report records no measured rows,
+      was measured against different labelled rows than the split, or measured at
+      least one row outside the holdout. Enforcement cannot be justified from the
+      split that was tuned on, so this is a refusal, not a false verdict.
+    * **drift reported** - the split document no longer matches its own digest, so
+      it was edited after it was frozen. Enforcement stays disabled and the
+      verdict names the drift instead of erroring, because "this split changed"
+      is a finding to record, not a malformed input.
+    * **incomplete holdout** - every measured row is in the holdout but some
+      holdout row was not measured. The verdict is reported and does not permit.
     """
     reasons = []
     fallbacks = report.get("fallbacks") or {}
@@ -440,7 +484,7 @@ def gate(report, criteria) -> dict:
         ):
             reasons.append("latency_p95_too_high")
 
-    return {
+    verdict = {
         "gate_schema": GATE_SCHEMA,
         "permitted": not reasons,
         "enforcement_enabled": False,
@@ -449,6 +493,93 @@ def gate(report, criteria) -> dict:
         "reasons": reasons,
         "criteria": dict(criteria),
     }
+    if split is None:
+        verdict["holdout"] = {
+            "checked": False,
+            "detail": (
+                "no frozen split was supplied, so this verdict does not bind the "
+                "measured rows to the holdout they were declared against"
+            ),
+        }
+        return verdict
+
+    missing = [
+        key
+        for key in (
+            "split_digest",
+            "seed",
+            "holdout_fraction",
+            "calibration_families",
+            "holdout_families",
+            "labelled_rows_digest",
+            "holdout_members",
+        )
+        if key not in split
+    ]
+    if missing:
+        raise ShadowError(
+            E_HOLDOUT_SPLIT,
+            f"the frozen split is missing {', '.join(missing)}; re-freeze it",
+        )
+    observed = split["split_digest"]
+    verdict["split"] = {
+        "seed": split["seed"],
+        "holdout_fraction": split["holdout_fraction"],
+        "split_digest": observed,
+        "labelled_rows_digest": split["labelled_rows_digest"],
+        "holdout_families": sorted(split["holdout_families"]),
+        "holdout_rows": len(split["holdout_members"]),
+    }
+    expected = split_digest(split)
+    if expected != observed:
+        verdict["permitted"] = False
+        verdict["reasons"] = [*reasons, "split_drift"]
+        verdict["drift"] = {
+            "expected": expected,
+            "observed": observed,
+            "detail": (
+                "the split does not match its own digest, so it changed after it "
+                "was frozen; enforcement stays disabled"
+            ),
+        }
+        verdict["holdout"] = {
+            "checked": False,
+            "detail": "the split is drifted, so its holdout is not compared",
+        }
+        return verdict
+
+    labels = report.get("independent_labels") or {}
+    if not labels.get("measured_members"):
+        raise ShadowError(
+            E_HOLDOUT_REQUIRED,
+            "the report records no measured rows, so it cannot be bound to a holdout",
+        )
+    if labels.get("label_records_digest") != split["labelled_rows_digest"]:
+        raise ShadowError(
+            E_HOLDOUT_REQUIRED,
+            "the report was measured against different labelled rows than the frozen split",
+        )
+    measured = set(labels["measured_members"])
+    holdout = set(split["holdout_members"])
+    outside = sorted(measured - holdout)
+    if outside:
+        raise ShadowError(
+            E_HOLDOUT_REQUIRED,
+            f"{len(outside)} measured row(s) are outside the declared holdout; "
+            "the split that was tuned on cannot justify enforcement",
+        )
+    unmeasured = sorted(holdout - measured)
+    if unmeasured:
+        reasons.append("holdout_incomplete")
+    verdict["holdout"] = {
+        "checked": True,
+        "measured_rows": len(measured),
+        "holdout_rows": len(holdout),
+        "unmeasured": len(unmeasured),
+    }
+    verdict["permitted"] = not reasons
+    verdict["reasons"] = reasons
+    return verdict
 
 
 def switch_state(manifest, env=None) -> dict:
@@ -480,6 +611,12 @@ def freeze_split(rows, *, holdout_fraction=0.4, seed=0, freeze=None) -> dict:
     deterministic in ``(family, seed)`` so it can be reproduced, and ``freeze``
     records the model version, question hash and effective policy hash so a change
     to any of them invalidates the holdout instead of silently inheriting it.
+
+    The document also carries the digest of the labelled rows it partitioned, the
+    identity of every holdout row, and a ``split_digest`` over exactly those
+    fields, so :func:`gate` can prove a report was measured on this holdout
+    rather than on the split that was tuned on. None of these are content: an
+    identity is a digest of a review id and a family name.
     """
     if not 0.0 < holdout_fraction < 1.0:
         raise ShadowError(E_SPLIT_FAMILY, "holdout_fraction must be between 0 and 1")
@@ -498,7 +635,7 @@ def freeze_split(rows, *, holdout_fraction=0.4, seed=0, freeze=None) -> dict:
     holdout = set(ordered[:cut])
     calibration = [row for row in rows if row["scenario_family"] not in holdout]
     evaluation = [row for row in rows if row["scenario_family"] in holdout]
-    return {
+    document = {
         "split_schema": SPLIT_SCHEMA,
         "seed": seed,
         "holdout_fraction": holdout_fraction,
@@ -507,11 +644,54 @@ def freeze_split(rows, *, holdout_fraction=0.4, seed=0, freeze=None) -> dict:
         "calibration_count": len(calibration),
         "holdout_count": len(evaluation),
         "freeze": dict(freeze or {}),
+        "labelled_rows_digest": labelled_rows_digest(rows),
+        "holdout_members": sorted(member(row) for row in evaluation),
         "note": (
             "freeze model version, question hash and effective policy hash before "
             "holdout evaluation; a change invalidates this split"
         ),
     }
+    document["split_digest"] = split_digest(document)
+    return document
+
+
+def _row_order(row) -> str:
+    """A stable sort key for a labelled row, so a digest never depends on file order."""
+    return str(row.get("request_id") or "")
+
+
+def member(row) -> str:
+    """A non-content identity for one labelled row: its review id and its family."""
+    return _digest(
+        {
+            "request_id": str(row.get("request_id") or ""),
+            "scenario_family": str(row.get("scenario_family") or ""),
+        }
+    )
+
+
+def labelled_rows_digest(rows) -> str:
+    """A digest of the labelled rows themselves, independent of their order."""
+    return _digest(sorted(rows, key=_row_order))
+
+
+def split_digest(split) -> str:
+    """Re-derive a frozen split's own digest from the content it carries.
+
+    ``gate`` calls this on the split it is handed and compares it with the
+    document's own ``split_digest``, so a partition edited after it was frozen is
+    detected rather than inherited.
+    """
+    return _digest(
+        {
+            "seed": split.get("seed"),
+            "holdout_fraction": split.get("holdout_fraction"),
+            "calibration_families": list(split.get("calibration_families") or []),
+            "holdout_families": list(split.get("holdout_families") or []),
+            "labelled_rows_digest": split.get("labelled_rows_digest"),
+            "holdout_members": sorted(split.get("holdout_members") or []),
+        }
+    )
 
 
 def hash_digest(text: str) -> str:
@@ -531,10 +711,20 @@ def main(argv=None) -> int:
     corr.add_argument("--jev", required=True, help="JEV audit JSONL")
     corr.add_argument("--guardian", required=True, help="normalized Guardian JSONL")
     corr.add_argument("--labels", help="independent adjudications: request_id, label")
+    corr.add_argument(
+        "--split",
+        help="frozen split to bind the report to; the embedded verdict refuses a "
+        "report whose measured rows are not its holdout",
+    )
     corr.add_argument("--out", required=True, help="report path, or - for stdout")
 
     gate_cmd = sub.add_parser("gate", help="evaluate a report against the criteria")
     gate_cmd.add_argument("--report", required=True, help="shadow report JSON")
+    gate_cmd.add_argument(
+        "--split",
+        help="frozen split the report was measured against; without it the holdout "
+        "is not checked and the verdict says so",
+    )
 
     sub.add_parser("criteria", help="print the declared criteria and switch state")
 
@@ -554,7 +744,10 @@ def main(argv=None) -> int:
             _read(args.guardian),
             _read(args.labels) if args.labels else None,
         )
-        verdict = gate(report, declared_criteria(manifest))
+        split = json.loads(_read(args.split)) if args.split else None
+        if split is not None:
+            report["evaluation_split"] = split
+        verdict = gate(report, declared_criteria(manifest), split)
         report["enforcement"] = verdict
         text = json.dumps(report, indent=2) + "\n"
         if args.out == "-":
@@ -566,7 +759,8 @@ def main(argv=None) -> int:
 
     if args.command == "gate":
         report = json.loads(_read(args.report))
-        verdict = gate(report, declared_criteria(manifest))
+        split = json.loads(_read(args.split)) if args.split else None
+        verdict = gate(report, declared_criteria(manifest), split)
         sys.stdout.write(json.dumps(verdict, indent=2) + "\n")
         return 0 if verdict["permitted"] else 1
 
