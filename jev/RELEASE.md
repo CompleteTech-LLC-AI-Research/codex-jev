@@ -198,11 +198,18 @@ python3 jev/scripts/release_readiness.py record-platform \
   --codex <binary> --kit <jev-prune-kit-checkout>
 ```
 
-The gate marks a platform `stale` when the record's pinned-input digest no
-longer matches the tree, when the recorded revision is not an ancestor of `HEAD`
-(when the revision is resolvable), or when the record claims a `live-provider`
-tier. `release_ready` therefore stays `false` while any supported platform has no
-current run - that is the intended outcome, not a bug.
+The gate credits a platform only when its record is `verified`; every other
+outcome refuses it and is named in the gate detail:
+
+- `stale` - the pinned-input digest no longer matches the tree, or the recorded
+  revision resolves but is not an ancestor of `HEAD`;
+- `unverifiable` - the recorded revision does not resolve in this clone, so the
+  binding cannot be checked; an unresolvable revision is **not** a pass;
+- `fail` - the record claims a `live-provider` tier, records no harness result,
+  or omits a revision or a successful harness verdict.
+
+`release_ready` therefore stays `false` while any supported platform has no
+current, verifiable run - that is the intended outcome, not a bug.
 
 ## 9. Release gates
 

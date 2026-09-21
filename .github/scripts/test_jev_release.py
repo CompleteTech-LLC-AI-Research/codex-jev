@@ -146,7 +146,9 @@ class GateTests(unittest.TestCase):
         evidence = release_readiness.load_platform_evidence(REPO_ROOT)
         for row in self.document["platforms"]:
             if row["status"] != "verified":
-                self.assertIn(row["status"], ("not-run", "stale", "fail"))
+                self.assertIn(
+                    row["status"], ("not-run", "stale", "unverifiable", "fail")
+                )
                 continue
             record = evidence["platforms"][row["platform"]]
             self.assertTrue(record["revision"])
@@ -224,6 +226,75 @@ class GateTests(unittest.TestCase):
             self.assertEqual(row["status"], "stale")
             self.assertEqual(record["gate"]["status"], "not-run")
             self.assertIn("pinned inputs", record["gate"]["detail"])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_an_unresolvable_revision_is_not_credited(self):
+        # An invented or never-fetched SHA does not resolve in this clone. That
+        # is "the binding cannot be checked", which is not a pass, so the record
+        # must be refused rather than credited (issue #97).
+        reachable = release_readiness.revision_reachable(REPO_ROOT, "0" * 40)
+        self.assertIsNone(reachable)
+        status, reason = release_readiness.classify_platform_record(
+            self.record(revision="0" * 40), "digest", reachable
+        )
+        self.assertEqual(status, "unverifiable")
+        self.assertIn("not resolvable", reason)
+        self.assertEqual(
+            release_readiness.classify_platform_record(
+                self.record(revision="0" * 40), "digest", False
+            )[0],
+            "stale",
+        )
+        status, reason = release_readiness.classify_platform_record(
+            self.record(revision="a" * 40), "digest", True
+        )
+        self.assertEqual(status, "verified")
+        self.assertIn("reachable", reason)
+
+    @staticmethod
+    def record(revision="a" * 40, pinned_inputs_digest="digest", ok=True):
+        return {
+            "revision": revision,
+            "pinned_inputs_digest": pinned_inputs_digest,
+            "harness": {
+                "plaintext-collaboration": {
+                    "ok": ok,
+                    "exit_code": 0 if ok else 1,
+                    "tier": release_readiness.TIER_REAL_HOST,
+                }
+            },
+        }
+
+    def test_platform_gate_refuses_an_unresolvable_revision(self):
+        root = Path(tempfile.mkdtemp(prefix="jev-release-unresolvable-"))
+        try:
+            evidence_dir = root / "jev" / "evidence"
+            evidence_dir.mkdir(parents=True)
+            (evidence_dir / "platform-matrix.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "jev-platform-matrix.v1",
+                        "platforms": {
+                            "linux-x86_64": self.record(
+                                revision="0" * 40,
+                                pinned_inputs_digest=release_readiness.derive_pinned_inputs(
+                                    root
+                                )["digest"],
+                            )
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            record = release_readiness.evaluate_platform_gate(root, self.manifest)
+            row = next(
+                row for row in record["platforms"] if row["platform"] == "linux-x86_64"
+            )
+            self.assertEqual(row["status"], "unverifiable")
+            self.assertEqual(record["gate"]["status"], "not-run")
+            self.assertIn("not resolvable", record["gate"]["detail"])
+            self.assertIn("linux-x86_64", record["blockers"])
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
