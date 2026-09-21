@@ -102,12 +102,14 @@ the file byte-identically (sha256 verified before and after):
 | Mutation | Expected | Outcome |
 | --- | --- | --- |
 | a `claimed` pass is accepted as a pass | test fails | KILLED — `test_an_asserted_gate_is_never_a_pass` |
-| the skipped round trip is still run and credited | test fails | KILLED — `test_the_roundtrip_is_never_credited_unless_it_ran` |
+| the skipped round trip is still credited | test fails | KILLED — `test_a_skipped_roundtrip_is_not_run_and_blocks_readiness` (mutation: `else:` no longer emits the gate, the pre-#98 behaviour) |
 | the platform evidence is credited as `live-provider` | test fails | KILLED — `test_no_gate_claims_live_provider_coverage` |
 | readiness ignores the `not-run` gates | test fails | KILLED — `test_readiness_is_the_exact_conjunction_of_the_gates` |
 
 No survivor. The module was restored byte-identical (`sha256`
-`48819a6ad3fe92731af607eb9f5da5b9023d79302eafa754aa5cc082afff0e64`).
+`48578edc9aaa72b73b23cd0c5c3f06cafa088bc3217ab7c1a9c41091bf7c531f`, the
+post-#98 file; the pre-#98 file this record was first taken against hashed
+`c4c3765cc58777f3360ff7f94891bc99b9b442890bd1983d0e315748d1df90e6`).
 
 ## What this does not show
 
@@ -122,15 +124,40 @@ No survivor. The module was restored byte-identical (`sha256`
   was recorded by `#26` from a checked-in run with binary sha256
   `6d51fdc9278d1a2fbc1bb01e024ae12d5d9a3b233d7229a7f6e792eaf35c0c3b`; this
   claim reads it, checks its tier and binding, and does not re-execute it.
-- **Two known holes, neither hidden.** [`#97`](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/97):
-  the platform gate credits a record whose `revision` is unresolvable in the
-  local clone rather than treating it as stale. [`#98`](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/98):
-  `gates --skip-roundtrip` *removes* the round-trip gate instead of emitting it
-  as `not-run`, so a `release_ready: true` document is possible with the round
-  trip never proven, contrary to the flag's own `--help`. The phase test asserts
-  the weaker true property today — the round trip is never *credited* unless it
-  ran — and says so in the test body; when `#98` is fixed the assertion moves to
-  `not-run` and blocks.
+- **Both gate-binding follow-ups are now fixed.** [`#97`](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/97)
+  was fixed by [`#99`](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/pull/99)
+  (merge `30f04eecba`): a record whose revision does not resolve in this clone is
+  refused as `unverifiable` and named in the gate's `blocking`, instead of being
+  credited. [`#98`](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/98)
+  is fixed here: `gates --skip-roundtrip` now emits `isolated.roundtrip` as
+  `not-run` rather than dropping it, so the round trip cannot leave the
+  conjunction and a `release_ready: true` document is no longer reachable with it
+  unproven — matching the flag's own `--help` ("it is then not-run"). The phase
+  test moved from the weaker property (never *credited*) to the stronger one
+  (`not_run` + `blocking` + `release_ready` false), and the mutation table above
+  records the control that pins it.
+
+## After the follow-ups
+
+With `#97` and `#98` fixed, the phase-6 claim is re-taken at the `#98` change.
+Editing `jev/scripts/release_readiness.py` moves the pinned-inputs digest, so the
+`linux-x86_64` record was **re-run** on this revision (revision `29aefffe`, the
+`#98` commit) with the same debug binary
+`6d51fdc9278d1a2fbc1bb01e024ae12d5d9a3b233d7229a7f6e792eaf35c0c3b` — both host
+smokes exit 0, and the projection-reset verdict keeps 35 input items and reduces
+the serialized input `9705 -> 9130` bytes with a byte-identical switch-off
+control. The verdict is still `release_ready: false`, now blocking only on
+`macos-aarch64` and `windows-x86_64` (linux-x86_64 is `verified`), because those
+two supported platforms still have no recorded real-host run:
+
+```
+release_ready=false gates=10 failed=0 not_run=1 revision=29aefffee497ac673dc82e81fb95e194ef2b01dd
+  blocking=macos-aarch64,platform.matrix,windows-x86_64
+```
+
+The skipped-round-trip document is the complement, and it is *not* a pass:
+`gates --skip-roundtrip` reports `not_run=2` with `isolated.roundtrip` named in
+both `not_run` and `blocking`.
 
 ## Reproduce
 
