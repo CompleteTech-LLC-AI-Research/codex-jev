@@ -1,0 +1,13 @@
+{
+  "profile_version": 1,
+  "id": "enforcement-eval",
+  "description": "Evaluation profile for controlled enforcement: Sentinel veto precedence and approved JEV preflight decisions are enabled on eligible paths. Remote inference stays disabled until it is separately authorized and budgeted.",
+  "features": {
+    "projection.dedup_receipts": true,
+    "projection.fabric_views": true,
+    "sentinel.shadow": true,
+    "sentinel.enforcement": true,
+    "approval.preflight": true,
+    "approval.enforcement": true
+  }
+}

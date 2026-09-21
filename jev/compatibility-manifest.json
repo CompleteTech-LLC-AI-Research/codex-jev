@@ -1,0 +1,282 @@
+{
+  "manifest_version": 1,
+  "integration": {
+    "name": "codex-jev",
+    "role": "integration host",
+    "repository": "CompleteTech-LLC-AI-Research/codex-jev",
+    "epic_issue": 2,
+    "phase_issues": [3, 4, 5, 6, 7, 8],
+    "sub_issues": [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+    "excluded_repositories": ["CompleteTech-LLC-AI-Research/omniroute-codex-docker"]
+  },
+  "host": {
+    "base_ref": "main",
+    "base_commit": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+    "rust_toolchain": "1.95.0",
+    "python_requirement": ">=3.11",
+    "platforms": {
+      "supported": ["linux-x86_64", "macos-aarch64", "windows-x86_64"],
+      "reference": "linux-x86_64"
+    },
+    "runtime_requirements": [
+      {
+        "id": "rust",
+        "detail": "Rust toolchain 1.95.0 (codex-rs/rust-toolchain.toml) plus clippy, rustfmt, and rust-src components."
+      },
+      {
+        "id": "python",
+        "detail": "Python >=3.11 for the integration scripts. jev-prune-kit alone also supports 3.10; jev-context-fabric and jev-codex-approval require 3.11."
+      },
+      {
+        "id": "python-stdlib-only",
+        "detail": "Integration scripts and every component install path must run with the standard library only; no pip or npm install is required or permitted at integration time."
+      }
+    ]
+  },
+  "interfaces": {
+    "jev_bus": 1,
+    "event_envelope": 1,
+    "memory_tools": 1,
+    "sentinel_boundary": 1,
+    "approval_preflight": 1
+  },
+  "patches": [
+    {
+      "id": "0001-plaintext-collab",
+      "order": 10,
+      "component": "codex-plaintext-collab",
+      "file": "jev/patches/0001-disable-collab-message-encryption.patch",
+      "sha256": "be12a6e0a4feaa4973ca9aecc82c5b5424f146bcc9a8a9a2e405928edbc3cd3d",
+      "applies_to_host_base": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+      "targets": [
+        "codex-rs/core/src/tools/handlers/multi_agents_spec.rs",
+        "codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs",
+        "codex-rs/core/src/tools/router.rs"
+      ],
+      "behavior": "Collaboration tool calls (spawn_agent, send_message, followup_task) stop marking the message parameter as encrypted, so new child-agent messages are stored and forwarded as plaintext. The patch also updates the three tool-schema unit tests that assert the encrypted parameter, and reclassifies an absent encrypted-function-args field as a direct plaintext message.",
+      "disable": "Apply no patches to the pinned base (jev/scripts/apply-patches.py with an empty patch list); the pinned build then keeps the upstream encrypted message schema. Existing ciphertext records are never decrypted."
+    }
+  ],
+  "components": [
+    {
+      "id": "codex-jev",
+      "kind": "host",
+      "repository": "CompleteTech-LLC-AI-Research/codex-jev",
+      "revision": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+      "license": "Apache-2.0",
+      "python_requirement": ">=3.11",
+      "provides": ["event_envelope"],
+      "requires_interfaces": {},
+      "owns": [
+        "jev/",
+        "codex-rs/core/src/tools/router.rs",
+        "codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs",
+        "codex-rs/core/src/tools/handlers/multi_agents_spec.rs"
+      ],
+      "never_owns": [
+        "codex-rs/core/src/guardian/",
+        "codex-rs/core/src/sandboxing/",
+        "codex-rs/core/src/exec/",
+        "codex-rs/core/src/safety/"
+      ]
+    },
+    {
+      "id": "codex-plaintext-collab",
+      "kind": "patch",
+      "repository": "CompleteTech-LLC-AI-Research/codex-plaintext-collab",
+      "revision": "073b3a99e4fa0eebe5417fd096f2e37abd7a7527",
+      "version": "0.1.0",
+      "license": "MIT",
+      "python_requirement": ">=3.10",
+      "provides": ["plaintext_collab_patch"],
+      "requires_interfaces": {},
+      "owns": ["patches/", "scripts/"],
+      "test_command": "tests/run.sh"
+    },
+    {
+      "id": "jev-context-fabric",
+      "kind": "python",
+      "repository": "CompleteTech-LLC-AI-Research/jev-context-fabric",
+      "revision": "5079099211c0d39a6ead347633a99d675a210c64",
+      "version": "0.1.0",
+      "license": "MIT",
+      "python_requirement": ">=3.11",
+      "provides": ["memory_tools", "event_envelope", "capture", "retrieval"],
+      "requires_interfaces": {"memory_tools": 1, "event_envelope": 1},
+      "owns": ["src/", "adapters/", "install.py"],
+      "test_command": "python3 -m pytest -q tests"
+    },
+    {
+      "id": "jev-prune-kit",
+      "kind": "python",
+      "repository": "CompleteTech-LLC-AI-Research/jev-prune-kit",
+      "revision": "2ecc8ff4e0976991c7abc09287d8f2f736d3164c",
+      "version": "0.1.0",
+      "license": "MIT",
+      "python_requirement": ">=3.10",
+      "provides": ["jev_bus", "dedup_stage"],
+      "requires_interfaces": {"jev_bus": 1, "event_envelope": 1},
+      "owns": ["jev_prune/", "adapters/", "runner.py"],
+      "test_command": "python3 -m pytest -q tests"
+    },
+    {
+      "id": "jev-sentinel",
+      "kind": "python",
+      "repository": "CompleteTech-LLC-AI-Research/jev-sentinel",
+      "revision": "4ecd748d38fbe9ed5c770e7e69a1e03a3db4bf7a",
+      "version": "0.1.0",
+      "license": "MIT",
+      "python_requirement": ">=3.10",
+      "provides": ["sentinel_boundary", "incident_envelope"],
+      "requires_interfaces": {"sentinel_boundary": 1, "event_envelope": 1},
+      "owns": ["jev_sentinel/", "adapters/", "launch.py"],
+      "test_command": "python3 -m pytest -q tests"
+    },
+    {
+      "id": "jev-codex-approval",
+      "kind": "python-native",
+      "repository": "CompleteTech-LLC-AI-Research/jev-codex-approval",
+      "revision": "0b931ee24a907c9dc47dc1828a94a6afcd7775b6",
+      "version": "0.1.0",
+      "license": "MIT",
+      "python_requirement": ">=3.11",
+      "provides": ["approval_preflight"],
+      "requires_interfaces": {"approval_preflight": 1, "event_envelope": 1},
+      "owns": ["jev_approval/", "adapters/"],
+      "test_command": "python3 -m pytest -q tests"
+    }
+  ],
+  "features": {
+    "capture.canonical_evidence": {
+      "default": true,
+      "components": ["jev-context-fabric"],
+      "requires": [],
+      "invariant": "Canonical evidence is captured before any context projection."
+    },
+    "retrieval.budgeted_hydration": {
+      "default": true,
+      "components": ["jev-context-fabric"],
+      "requires": ["capture.canonical_evidence"],
+      "invariant": "Recalled content is evidence and never authorization."
+    },
+    "projection.dedup_receipts": {
+      "default": false,
+      "components": ["jev-prune-kit"],
+      "requires": ["capture.canonical_evidence"],
+      "invariant": "Projection replaces only outgoing request bodies; the canonical transcript is never mutated."
+    },
+    "projection.fabric_views": {
+      "default": false,
+      "components": ["jev-context-fabric"],
+      "requires": ["projection.dedup_receipts"],
+      "invariant": "Duplicate-read pruning (stage 100) runs before the approved prose view (stage 200)."
+    },
+    "sentinel.shadow": {
+      "default": false,
+      "components": ["jev-sentinel"],
+      "requires": [],
+      "invariant": "Sentinel starts observational and reports effective coverage; installation alone is not activation."
+    },
+    "sentinel.enforcement": {
+      "default": false,
+      "components": ["jev-sentinel"],
+      "requires": ["sentinel.shadow"],
+      "invariant": "Sentinel vetoes cannot be cleared by a later approval."
+    },
+    "approval.preflight": {
+      "default": false,
+      "components": ["jev-codex-approval"],
+      "requires": [],
+      "invariant": "Approval preflight applies only to eligible review attempts; failures and uncertainty defer to the existing reviewer within the original deadline."
+    },
+    "approval.enforcement": {
+      "default": false,
+      "components": ["jev-codex-approval"],
+      "requires": ["approval.preflight"],
+      "invariant": "Final execution ownership stays with the host."
+    },
+    "collab.plaintext_messages": {
+      "default": true,
+      "components": ["codex-plaintext-collab"],
+      "requires": [],
+      "build_time_only": true,
+      "requires_patches": ["0001-plaintext-collab"],
+      "invariant": "New collaboration messages are readable plaintext; existing ciphertext is preserved and never decrypted."
+    },
+    "remote_inference.enabled": {
+      "default": false,
+      "components": [],
+      "requires": [],
+      "requires_consent": "remote_inference",
+      "requires_budget": "remote_inference",
+      "invariant": "Optional remote inference stays disabled unless separately authorized and budgeted."
+    }
+  },
+  "events": {
+    "envelope_version": 1,
+    "envelope_fields": [
+      "event_id",
+      "parent_event_id",
+      "session_id",
+      "turn_id",
+      "tool_call_id",
+      "component",
+      "stage",
+      "kind",
+      "origin_workspace",
+      "capture_id",
+      "occurred_at_ms",
+      "redaction"
+    ],
+    "kinds": [
+      "user_message",
+      "assistant_message",
+      "tool_call",
+      "tool_result",
+      "collab_message",
+      "sentinel_incident",
+      "approval_judgment",
+      "projection_receipt"
+    ],
+    "stages": [
+      {"order": 100, "id": "dedup", "owner": "jev-prune-kit"},
+      {"order": 200, "id": "fabric_view", "owner": "jev-context-fabric"}
+    ],
+    "correlation": "Every event carries session_id, turn_id, and (for tool or collaboration activity) tool_call_id, so a single trace can correlate capture, projection, boundary checks, approval, and execution."
+  },
+  "credentials": {
+    "remote_inference": {
+      "consent": false,
+      "consent_source": "explicit operator configuration in the isolated profile",
+      "budget_usd_max": null,
+      "separate_from": ["local_memory", "sentinel_evaluator", "gateway"]
+    },
+    "local_memory": {
+      "network": "loopback-only",
+      "consent": "not-applicable"
+    },
+    "sentinel_evaluator": {
+      "network": "none-by-default",
+      "consent": "not-applicable"
+    }
+  },
+  "ownership": {
+    "rule": "One writable owner per repository path and per shared interface.",
+    "interface_owners": {
+      "jev_bus": "jev-prune-kit",
+      "event_envelope": "codex-jev",
+      "memory_tools": "jev-context-fabric",
+      "sentinel_boundary": "jev-sentinel",
+      "approval_preflight": "jev-codex-approval"
+    },
+    "host_owned_interfaces": [
+      "jev_bus_call_site",
+      "tool_routing",
+      "authorization",
+      "sandboxing",
+      "cancellation",
+      "compaction",
+      "final_execution"
+    ]
+  }
+}

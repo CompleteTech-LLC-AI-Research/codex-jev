@@ -1,0 +1,6 @@
+{
+  "profile_version": 1,
+  "id": "baseline",
+  "description": "Manifest defaults: canonical capture and budgeted retrieval are on; projection, Sentinel, approval enforcement, and remote inference are off.",
+  "features": {}
+}
