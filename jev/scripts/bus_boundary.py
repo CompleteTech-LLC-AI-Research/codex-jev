@@ -111,6 +111,21 @@ def _digest(value) -> str:
     return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
 
 
+def _fingerprint(messages) -> str:
+    """A total, order-sensitive snapshot of a stage's message array."""
+    try:
+        return _canonical(messages)
+    except (TypeError, ValueError):
+        return repr(messages)
+
+
+def _fingerprints(messages) -> list[str]:
+    """One snapshot per item, so a stage's edits can be located by position."""
+    if not isinstance(messages, list):
+        return []
+    return [_fingerprint(message) for message in messages]
+
+
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -135,6 +150,17 @@ def _text_from_parts(parts) -> str | None:
     return "\n".join(chunks)
 
 
+def _opaque(index: int, item) -> dict:
+    """Tag a shape no stage may own, carrying a deep copy of the original item.
+
+    The copy is what makes ``E_UNSUPPORTED_MUTATED`` meaningful: an in-process
+    stage receives this tag by reference, so an alias of ``request["input"][i]``
+    would let a stage edit both the canonical transcript and its own comparison
+    baseline at once, hiding the edit from the guard in ``_rebuild``.
+    """
+    return {"_jev_index": index, "_jev_shape": "opaque", "_jev_raw": copy.deepcopy(item)}
+
+
 def normalize_item(item, index: int):
     """Map one wire ``ResponseItem`` onto a bus message.
 
@@ -142,15 +168,15 @@ def normalize_item(item, index: int):
     array can be rebuilt positionally and opaque shapes can be restored verbatim.
     """
     if not isinstance(item, dict):
-        return {"_jev_index": index, "_jev_shape": "opaque", "_jev_raw": item}
+        return _opaque(index, item)
     shape = item.get("type")
     if shape not in SUPPORTED_SHAPES:
-        return {"_jev_index": index, "_jev_shape": "opaque", "_jev_raw": item}
+        return _opaque(index, item)
     if shape == "message":
         text = _text_from_parts(item.get("content"))
         if text is None:
             # A non-text message shape is not one the prose view can own.
-            return {"_jev_index": index, "_jev_shape": "opaque", "_jev_raw": item}
+            return _opaque(index, item)
         return {
             "_jev_index": index,
             "_jev_shape": "message",
@@ -160,7 +186,7 @@ def normalize_item(item, index: int):
     if shape == "function_call":
         call_id = item.get("call_id")
         if not isinstance(call_id, str):
-            return {"_jev_index": index, "_jev_shape": "opaque", "_jev_raw": item}
+            return _opaque(index, item)
         return {
             "_jev_index": index,
             "_jev_shape": "function_call",
@@ -179,10 +205,10 @@ def normalize_item(item, index: int):
         }
     call_id = item.get("call_id")
     if not isinstance(call_id, str):
-        return {"_jev_index": index, "_jev_shape": "opaque", "_jev_raw": item}
+        return _opaque(index, item)
     output = item.get("output")
     if not isinstance(output, str):
-        return {"_jev_index": index, "_jev_shape": "opaque", "_jev_raw": item}
+        return _opaque(index, item)
     return {
         "_jev_index": index,
         "_jev_shape": "function_call_output",
@@ -407,6 +433,12 @@ def project(
 
     The canonical ``request`` is never mutated. The returned report records the
     chain notes, the stage invocation order, and one receipt per applied stage.
+    A stage is applied unless it both reported a bare ``passthrough`` and handed
+    back the array it was given, so a stage that projects earns its receipt even
+    when it also reports unrelated notes, while a stage that cannot project still
+    ran: it stays in ``invoked`` and only loses its receipt. A stage whose every
+    change contract ``C3`` reverts also loses its receipt, because a receipt
+    records a projection that reached the wire.
 
     When an approved prose ``view`` is supplied it is applied to the post-dedup
     array, so eligible assistant prose leaves the outgoing request; the view is
@@ -442,6 +474,32 @@ def project(
         return copy.deepcopy(request), report
 
     invoke = invoke or _subprocess_invoke
+    changed: dict[str, set] = {}
+
+    def observe(stage, stage_request, stage_workspace, budget_ms):
+        """Invoke one stage and record which positions of the array it changed.
+
+        Which stages project is decided by that stage's own output, never by its
+        note vocabulary: the ``action`` strings are another package's wording and
+        the bus contract does not fix them, so a stage that substitutes bodies and
+        also reports an unrelated ``passthrough`` note must still earn a receipt.
+        """
+        before = _fingerprints(stage_request.get("messages"))
+        response = invoke(stage, stage_request, stage_workspace, budget_ms)
+        produced_messages = (
+            response.get("messages") if isinstance(response, dict) else None
+        )
+        after = _fingerprints(produced_messages)
+        moved = {
+            index
+            for index, (was, now) in enumerate(zip(before, after))
+            if was != now
+        }
+        if len(before) != len(after) or not isinstance(produced_messages, list):
+            moved.add(-1)  # a structural change no single position can describe
+        changed[stage["name"]] = moved
+        return response
+
     produced, notes, _appends = jev_bus.run_chain(
         HOST,
         messages,
@@ -451,7 +509,7 @@ def project(
         accepts_system_append=False,
         registry=registry,
         chain_timeout_ms=chain_timeout_ms,
-        invoke=invoke,
+        invoke=observe,
     )
     report["notes"] = list(notes)
     refused = any(note.get("action") == "chain-refused" for note in notes)
@@ -459,7 +517,8 @@ def project(
         skipped = {
             note.get("stage") for note in notes if note.get("action") == "skipped"
         }
-        degraded = {
+        # A bare passthrough only downgrades a stage that changed nothing.
+        silent = {
             note.get("stage") for note in notes if note.get("action") == "passthrough"
         }
         report["invoked"] = [
@@ -467,7 +526,9 @@ def project(
             for stage in registry["stages"]
             if stage["name"] not in skipped
         ]
-        report["applied"] = [name for name in report["invoked"] if name not in degraded]
+        report["applied"] = [
+            name for name in report["invoked"] if changed.get(name) or name not in silent
+        ]
 
     outgoing = copy.deepcopy(request)
     if op == "transform":
@@ -499,6 +560,14 @@ def project(
                         "detail": item["reason"],
                     }
                 )
+            reverted = {item["index"] for item in receipt_report["reverted"]}
+            if changed.get(DEDUP_STAGE) and changed[DEDUP_STAGE] <= reverted:
+                # Every change the stage made was reverted, so nothing it
+                # projected reached the wire: a receipt records a projection
+                # that landed, and the reverts above already record the refusal.
+                report["applied"] = [
+                    name for name in report["applied"] if name != DEDUP_STAGE
+                ]
         if VIEW_STAGE in report["applied"]:
             # Contract C4: apply an approved prose view bound to the post-dedup
             # snapshot, or refuse (remove nothing) when it is stale/cancelled.
