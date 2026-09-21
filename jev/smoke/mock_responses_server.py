@@ -8,15 +8,31 @@ a service: it speaks just enough of the streaming Responses protocol for
 unchanged so the caller can assert on what the host actually sent.
 
 Usage:
-    mock_responses_server.py --requests-dir DIR [--port N] [--port-file FILE]
+    mock_responses_server.py --requests-dir DIR [--script NAME] [--port N] [--port-file FILE]
 
-The response script is fixed:
+The `plaintext` script is fixed:
   * the first uncorrelated turn answers with a `spawn_agent` function call whose
     `message` argument is the sentinel task text,
   * a turn whose request already contains that sentinel is treated as the child
     agent and answers with a plain assistant message,
   * once the parent's request contains the `spawn_agent` function call output,
     it answers with a final plain assistant message.
+
+The `projection` script drives the same host through a longer transcript that
+contains an eligible duplicate read pair, so the jev-bus boundary has something
+it can actually project:
+  * the first `PROJECTION_READS` turns answer with a `memories` `read` function
+    call; the first two are identical in tool and arguments, so the host answers
+    both with the same body, while every later call names a different path and
+    so forms its own group,
+  * every turn after that answers with a plain assistant message, so a second
+    `codex exec resume` turn is the request that carries the whole transcript
+    and therefore the one the boundary can project.
+
+The duplicate pair is deliberately early and the transcript deliberately long:
+the host only accepts a dedup receipt for a pair that is outside the current
+user turn *and* outside the last `RECENT = 16` items, so a short transcript
+cannot demonstrate a projection at all.
 
 The parent's post-spawn turn is held open until the child turn has been served
 (`--child-rendezvous-seconds`, default 20). A spawned agent runs concurrently
@@ -44,6 +60,41 @@ SPAWN_CALL_ID = "call_jev_smoke_spawn_1"
 # faithful function call must carry that namespace. A bare `spawn_agent` call is
 # rejected as "unsupported call" by the tool router.
 COLLAB_NAMESPACE = "collaboration"
+
+#: The projection script's read tool, and the namespace it has to be called
+#: through. The pinned dedup policy only proves a replacement for a read-family
+#: call (`read`, `read_file`, `file_read`), and the host re-derives the receipt
+#: from the call's own name and arguments rather than trusting the stage that
+#: proposed the replacement. The bus view carries the bare `name` and never
+#: reads the namespace, so the name has to stay bare while the namespace rides
+#: alongside in its own field -- which is exactly the pair the pinned policy
+#: proves and the router routes.
+#:
+#: This fork ships no *unconditional* built-in read tool, and the routes that do
+#: exist are unusable as evidence: a bare `read_file` call is answered by the
+#: router with a 27-byte `unsupported call` string (byte-identical, but shorter
+#: than the marker that would replace it, so nothing can be pruned), an MCP read
+#: prepends a nondeterministic `Wall time:` header and returns a content-item
+#: list that the boundary treats as opaque, and the notes/skills read tools need
+#: a live provider or an orchestrator provider. The memories extension is the
+#: one route that returns a *deterministic* body (`JsonToolOutput` over the
+#: parsed `ReadMemoryResponse`, no wall-clock header), so the fixture drives it
+#: and the harness enables it with `[features] memories = true` plus
+#: `[memories] dedicated_tools = true`.
+PROJECTION_READ_TOOL = "read"
+PROJECTION_READ_NAMESPACE = "memories"
+#: Read turns the projection transcript drives before it stops calling tools.
+PROJECTION_READS = 11
+#: Paths are relative to the memories root (`$CODEX_HOME/memories`), which the
+#: harness populates before the run. The first two calls are identical in path,
+#: so their bodies are identical too; every later call reads a different path so
+#: it can never join the same group.
+PROJECTION_PATHS = ("jev-probe.txt", "jev-probe.txt") + tuple(
+    f"probe-{index:02d}.txt" for index in range(3, PROJECTION_READS + 1)
+)
+#: The projection transcript's closing assistant turn, once every read is spent.
+PROJECTION_FINAL_TEXT = "projection transcript complete"
+PROJECTION_SCRIPTS = ("plaintext", "projection")
 
 
 def sse(payload: dict) -> bytes:
@@ -126,8 +177,69 @@ def spawn_stream(response_id: str) -> bytes:
     )
 
 
-def classify(body: dict) -> str:
+def read_stream(response_id: str, call_id: str, name: str, arguments: dict) -> bytes:
+    """Answer with one function call to the fixture's read tool.
+
+    The namespace has to be attached for the call to route at all -- this fork
+    has no built-in read tool -- while the *name* has to stay bare so it reaches
+    the bus view as the pinned policy spells it: `bus_boundary.normalize_item`
+    passes the wire name through unchanged and does not read the namespace.
+    """
+    item = {
+        "type": "function_call",
+        "id": f"fc_{response_id}",
+        "name": name,
+        "namespace": PROJECTION_READ_NAMESPACE,
+        "call_id": call_id,
+        "arguments": json.dumps(arguments),
+        "status": "completed",
+    }
+    return stream_bytes(
+        [
+            {"type": "response.created", "response": {"id": response_id}},
+            {"type": "response.output_item.done", "item": item},
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": response_id,
+                    "end_turn": True,
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "total_tokens": 15,
+                        "input_tokens_details": {"cached_tokens": 0},
+                        "output_tokens_details": {"reasoning_tokens": 0},
+                    },
+                },
+            },
+        ],
+    )
+
+
+def projection_reads(body: dict) -> int:
+    """How many read calls the transcript in ``body`` already carries.
+
+    The transcript is resent in full on every turn, so counting is a stable way
+    to decide which read comes next without keeping state between requests.
+    """
+    items = body.get("input")
+    if not isinstance(items, list):
+        return 0
+    return sum(
+        1
+        for item in items
+        if isinstance(item, dict)
+        and item.get("type") == "function_call"
+        and item.get("name") == PROJECTION_READ_TOOL
+    )
+
+
+def classify(body: dict, script: str) -> str:
     """Return the scripted turn for a request body."""
+    if script == "projection":
+        if projection_reads(body) < PROJECTION_READS:
+            return "projection_read"
+        return "projection_final"
     blob = json.dumps(body)
     if SPAWN_CALL_ID in blob and '"function_call_output"' in blob:
         return "parent_after_spawn"
@@ -187,7 +299,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:  # pragma: no cover - defensive
             self._json(400, {"error": {"message": f"bad body: {error}"}})
             return
-        turn = classify(body)
+        script = self.server.script  # type: ignore[attr-defined]
+        turn = classify(body, script)
         self._label(index, turn)
         if turn == "parent_after_spawn":
             self._await_child_turn()
@@ -195,15 +308,26 @@ class Handler(BaseHTTPRequestHandler):
             self.server.turns.append(turn)  # type: ignore[attr-defined]
             count = len(self.server.turns)  # type: ignore[attr-defined]
         response_id = f"resp_jev_smoke_{count}"
-        payload = {
-            "parent_initial": spawn_stream,
-            "child": lambda rid: message_stream(
-                rid, "child agent received plaintext task"
-            ),
-            "parent_after_spawn": lambda rid: message_stream(
-                rid, "parent observed child"
-            ),
-        }[turn](response_id)
+        if turn == "projection_read":
+            position = projection_reads(body)
+            payload = read_stream(
+                response_id,
+                f"call_jev_projection_{position + 1:02d}",
+                PROJECTION_READ_TOOL,
+                {"path": PROJECTION_PATHS[position]},
+            )
+        elif turn == "projection_final":
+            payload = message_stream(response_id, PROJECTION_FINAL_TEXT)
+        else:
+            payload = {
+                "parent_initial": spawn_stream,
+                "child": lambda rid: message_stream(
+                    rid, "child agent received plaintext task"
+                ),
+                "parent_after_spawn": lambda rid: message_stream(
+                    rid, "parent observed child"
+                ),
+            }[turn](response_id)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Content-Length", str(len(payload)))
@@ -249,6 +373,12 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--requests-dir", required=True)
+    parser.add_argument(
+        "--script",
+        choices=PROJECTION_SCRIPTS,
+        default="plaintext",
+        help="which response script to serve (default: plaintext)",
+    )
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--port-file", default=None)
     parser.add_argument("--child-rendezvous-seconds", type=float, default=20.0)
@@ -257,6 +387,7 @@ def main() -> int:
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     server.daemon_threads = True
     server.requests_dir = os.path.abspath(args.requests_dir)  # type: ignore[attr-defined]
+    server.script = args.script  # type: ignore[attr-defined]
     server.lock = threading.Lock()  # type: ignore[attr-defined]
     server.turns = []  # type: ignore[attr-defined]
     server.next_index = 0  # type: ignore[attr-defined]
@@ -280,6 +411,7 @@ def main() -> int:
     server.server_close()
     transcription = {
         "turns": server.turns,  # type: ignore[attr-defined]
+        "script": args.script,
         "sentinel_task": SENTINEL_TASK,
         "spawn_call_id": SPAWN_CALL_ID,
         "collab_namespace": COLLAB_NAMESPACE,

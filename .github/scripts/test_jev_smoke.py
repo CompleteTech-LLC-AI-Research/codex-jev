@@ -1,11 +1,12 @@
-"""Required-CI gate for the host-driven plaintext smoke under ``jev/smoke``.
+"""Required-CI gate for the host-driven smokes under ``jev/smoke``.
 
 Runs from ``just test-github-scripts`` alongside the other repository-level
-Python checks. The smoke fixture drives a real Codex host through a
-parent/child collaboration turn; CI cannot build that host, so what it gates is
-the half that must never rot: the checker itself has to pass the plaintext
-shape and *reject* the encrypted shape, a missing child turn, and a call that
-drops the tool namespace.
+Python checks. Each smoke fixture drives a real Codex host -- one through a
+parent/child collaboration turn, one through a seeded projection transcript,
+one through a transcript whose duplicate pair the host produces itself by
+executing a read tool; CI cannot build that host, so what this gates is the
+half that must never rot: the checkers. Each has to pass the honest shape and
+*reject* the hollow ones.
 """
 
 import importlib.util
@@ -19,6 +20,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SMOKE_ROOT = REPO_ROOT / "jev" / "smoke"
 SELF_TEST = SMOKE_ROOT / "self_test.py"
 PROJECTION_SELF_TEST = SMOKE_ROOT / "self_test_projection.py"
+READ_TOOL_CHECKER = SMOKE_ROOT / "check_read_tool_projection.py"
+READ_TOOL_SELF_TEST = SMOKE_ROOT / "self_test_read_tool_projection.py"
 
 
 def load_module(name: str, path: Path):
@@ -42,6 +45,9 @@ class SmokeFixtureTests(unittest.TestCase):
             "run-projection-reset-smoke.sh",
             "seed_projection_rollout.py",
             "self_test_projection.py",
+            "check_read_tool_projection.py",
+            "run-read-tool-projection-smoke.sh",
+            "self_test_read_tool_projection.py",
         ):
             with self.subTest(name=name):
                 self.assertTrue(
@@ -84,6 +90,29 @@ class SmokeFixtureTests(unittest.TestCase):
             with self.subTest(turn=required):
                 self.assertIn(required, source)
 
+    def test_read_tool_checker_keeps_its_tier_and_marker_honest(self):
+        checker = load_module("jev_smoke_check_read_tool_projection", READ_TOOL_CHECKER)
+        pinned = load_module(
+            "jev_smoke_pinned_dedup",
+            REPO_ROOT / "jev" / "scripts" / "dedup_receipts.py",
+        )
+        # The checker re-derives the replacement the *host* proves; a lookalike
+        # marker regex here would let the fixture accept a shape the carrier
+        # itself refuses.
+        self.assertEqual(
+            checker.MARKER_RE.pattern,
+            pinned.MARKER_RE.pattern,
+            "the fixture's marker no longer matches the pinned dedup policy",
+        )
+        import inspect
+
+        source = inspect.getsource(checker.main)
+        # A projection run over a loopback mock measures serialized bytes. If the
+        # tier label or the unmeasured-token line were dropped, the same numbers
+        # would read as a token measurement or as live-provider evidence.
+        self.assertIn("real-host-binary", source, "tier label removed")
+        self.assertIn("unmeasured", source, "unmeasured-token disclaimer removed")
+
     def test_self_test_passes(self):
         result = subprocess.run(
             [sys.executable, str(SELF_TEST)],
@@ -111,6 +140,21 @@ class SmokeFixtureTests(unittest.TestCase):
             f"jev/smoke/self_test_projection.py failed:\n{result.stdout}\n{result.stderr}",
         )
         self.assertIn("self-test: passed", result.stdout)
+
+    def test_read_tool_self_test_passes(self):
+        result = subprocess.run(
+            [sys.executable, str(READ_TOOL_SELF_TEST)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            0,
+            result.returncode,
+            "jev/smoke/self_test_read_tool_projection.py failed:\n"
+            f"{result.stdout}\n{result.stderr}",
+        )
+        self.assertIn("self-test ok", result.stdout)
 
 
 if __name__ == "__main__":
