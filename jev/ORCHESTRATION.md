@@ -26,7 +26,9 @@ is incomplete, even when a concurrency slot is free.
 | #10 | Plaintext collaboration in the pinned build | #32, #37 | merged; issue closed |
 | #11 | Isolated build and integration profile | #35 | merged; issue closed |
 | #12 | Fabric runtime and MCP bound to the isolated workspace | #38 | merged; issue closed |
-| #13–#14 | Canonical capture, budgeted retrieval | — | open; blocked by #12 |
+| #13 | Canonical capture and event correlation | #40 | merged; issue closed |
+| #14 | Budgeted retrieval and hydration | #42 | open; in review |
+| #41 | Verify the fabric checkout revision against the pinned component | #44 | open; follow-up found by verifying #12 |
 | #15–#17 | Native bus adapter, receipts, views | — | open; blocked by phase 2 |
 | #18–#20 | Sentinel hooks, veto precedence, screening | — | open; blocked by phase 3 |
 | #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
@@ -42,7 +44,7 @@ Recorded in `compatibility-manifest.json` and validated by
 | Component | Revision |
 | --- | --- |
 | codex-jev host base | `8198a91a4f46b01647bc6c0d8d63afafbf4c9180` |
-| codex-plaintext-collab | `073b3a99e4fa0eebe5417fd096f2e37abd7a7527` |
+| codex-plaintext-collab | `7bf9202513a59362171b6687563580c9b02ec203` |
 | jev-context-fabric | `5079099211c0d39a6ead347633a99d675a210c64` |
 | jev-prune-kit | `2ecc8ff4e0976991c7abc09287d8f2f736d3164c` |
 | jev-sentinel | `4ecd748d38fbe9ed5c770e7e69a1e03a3db4bf7a` |
@@ -62,6 +64,8 @@ ever added as a component.
 | Remote inference is gated by credentials consent *and* a positive budget, not by a feature switch alone. | Optional remote inference stays disabled unless separately authorized and budgeted. |
 | Shared interfaces have exactly one declared owner. | One writable owner per shared interface keeps the transformation boundary unambiguous. |
 | Concurrent duplicate work is consolidated into one canonical change per issue. | Three sessions opened an implementation of #9 at once (#27, #28, #29); merging duplicates would land incompatible trees, so the strongest artifact was adopted, its defects fixed, and the duplicates closed with a cross-reference. |
+| A declared pin is not an enforced pin. | Verifying #12 showed the binding driver read the fabric revision from the manifest and never from the `--fabric` checkout it executed, so a record could name the pin while another revision installed. #41 fixes that and records the observed checkout revision; C8 states the rule. |
+| A component checkout that is not its own work-tree root is recorded as unpinned, not refused. | Required CI drives an in-repo test double whose `rev-parse HEAD` would answer for the enclosing repository; only a checkout that reports a revision other than the pin is refused. |
 
 ## Evidence
 
@@ -69,6 +73,7 @@ ever added as a component.
 | --- | --- |
 | [`evidence/plaintext-pinned-build.md`](evidence/plaintext-pinned-build.md) | The host-driven plaintext smoke (real host, loopback mock) and the isolated-profile checks, with the unpatched pinned base as a negative control. |
 | [`ISOLATED_ENV.md`](ISOLATED_ENV.md) | How to build the pinned host and run the isolated profile offline. |
+| [`FABRIC_BINDING.md`](FABRIC_BINDING.md) | How the pinned fabric is bound to the isolated home, what `verify` proves, the checkout-revision rule, and the evidence tiers. |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being
