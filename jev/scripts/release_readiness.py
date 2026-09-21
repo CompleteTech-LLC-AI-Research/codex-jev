@@ -1005,7 +1005,11 @@ def write_platform_evidence(
 
 
 GATE_STATUSES = ("pass", "fail", "not-run")
-GATE_EVIDENCE = ("verified-here", "recorded", "claimed")
+#: ``not-run`` is an evidence kind as well as a status: a gate whose evidence
+#: does not exist yet (a skipped round trip, an absent platform record) reports
+#: it here rather than dropping out of the conjunction (issue #98), so it must
+#: be in the vocabulary the gate tests check against.
+GATE_EVIDENCE = ("verified-here", "recorded", "claimed", "not-run")
 
 
 def summarize_gates(gates: list[dict]) -> dict:

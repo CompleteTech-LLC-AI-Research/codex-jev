@@ -77,6 +77,31 @@ class GateTests(unittest.TestCase):
             for name in document["failed"] + document["not_run"]:
                 self.assertIn(name, document["blocking"])
 
+    def test_skip_roundtrip_is_reported_not_removed(self):
+        # `--skip-roundtrip` must not delete the round-trip gate. #8's criterion
+        # is that release readiness follows actual evidence, so a step that did
+        # not run is reported `not-run` and blocks: the discriminating case is
+        # that every *other* gate passing still leaves readiness false, because
+        # the round trip is unproven rather than credited (issue #98). The
+        # phase test pins the same property on the real tree; this one isolates
+        # it from the platform gate that happens to be `not-run` here too.
+        skipped = release_readiness.evaluate_gates(REPO_ROOT, run_roundtrip=False)
+        by_id = {gate["id"]: gate for gate in skipped["gates"]}
+        self.assertIn("isolated.roundtrip", by_id)
+        gate = by_id["isolated.roundtrip"]
+        self.assertEqual(gate["status"], "not-run")
+        self.assertIn(gate["evidence"], release_readiness.GATE_EVIDENCE)
+        self.assertIn("isolated.roundtrip", skipped["not_run"])
+        self.assertNotIn("isolated.roundtrip", skipped["failed"])
+        credited = [
+            {**other, "status": "pass", "evidence": "verified-here"}
+            for other in skipped["gates"]
+            if other["id"] != "isolated.roundtrip"
+        ]
+        outcome = release_readiness.summarize_gates(credited + [gate])
+        self.assertFalse(outcome["release_ready"])
+        self.assertIn("isolated.roundtrip", outcome["not_run"])
+
     def test_manifest_and_control_gates_hold(self):
         by_id = {gate["id"]: gate for gate in self.document["gates"]}
         for gate_id in (
