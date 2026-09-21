@@ -14,24 +14,22 @@ use crate::transcript_view::ViewAction;
 use ratatui::widgets::Widget;
 
 impl App {
-    /// Copy draft selections before interrupt/exit shortcuts and configurable chords can consume C.
+    /// Copy draft selections before key shortcuts, or after mouse layout has been refreshed.
     pub(super) fn handle_composer_copy_event(
         &mut self,
         tui: &mut tui::Tui,
         event: &TuiEvent,
         copy: impl FnOnce(&mut tui::Tui, &str) -> Result<crate::clipboard_copy::CopyStatus, String>,
     ) -> bool {
-        if let TuiEvent::Key(key) = event
-            && tui.is_owned_screen()
+        if tui.is_owned_screen()
             && self.overlay.is_none()
             && !self.transcript_view.has_active_interaction()
-            && let Some(text) = self.chat_widget.composer_selection_for_copy(*key)
+            && let Some((char_count, result)) = self
+                .chat_widget
+                .copy_composer_selection(event, |text| copy(tui, text))
         {
             self.cancel_pending_key_chord();
-            self.chat_widget.end_composer_drag();
-            let result = copy(tui, &text);
-            self.transcript_view
-                .show_copy_feedback(&result, text.chars().count());
+            self.transcript_view.show_copy_feedback(&result, char_count);
             tui.frame_requester().schedule_frame();
             return true;
         }
@@ -82,11 +80,11 @@ impl App {
             "esc latest"
         };
         self.sync_owned_transcript(screen_size.width);
-        let composer_tip = self.composer_tip();
+        let transcript_width = self.chat_widget.history_wrap_width(screen_size.width);
+        let composer_hint = self.composer_hint(transcript_width.saturating_sub(/*rhs*/ 2));
         let mut prompt_footer =
             self.prompt_navigation_footer(screen_size.width.saturating_sub(/*rhs*/ 2));
         let chat_widget = &self.chat_widget;
-        let transcript_width = chat_widget.history_wrap_width(screen_size.width);
         let view = &mut self.transcript_view;
         let active_key = chat_widget.active_cell_transcript_key();
         view.sync_history_tail(&self.transcript_cells);
@@ -155,7 +153,7 @@ impl App {
                     )
                 });
             feedback_tick =
-                view.render_composer_gap(follow_area, composer_tip.as_ref(), frame.buffer);
+                view.render_composer_gap(follow_area, composer_hint.as_ref(), frame.buffer);
             // Rendering resolves whether new activity is still hidden. Paint that result in
             // this frame so a revision change cannot flash a stale activity hint.
             let mut footer =
@@ -254,6 +252,11 @@ impl App {
             if mouse.kind != crossterm::event::MouseEventKind::Moved {
                 let size = tui.prepare_draw_size()?;
                 self.render_owned_transcript(tui, size)?;
+            }
+            if composer_ready
+                && self.handle_composer_copy_event(tui, event, tui::Tui::copy_transcript_selection)
+            {
+                return Ok(true);
             }
             if composer_ready && self.chat_widget.handle_composer_mouse(*mouse) {
                 self.transcript_view.end_selection(&self.transcript_cells);

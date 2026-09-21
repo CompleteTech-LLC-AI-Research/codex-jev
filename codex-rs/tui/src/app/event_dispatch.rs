@@ -25,7 +25,7 @@ use codex_app_server_protocol::WindowsSandboxSetupMode;
 pub(super) const SHUTDOWN_FIRST_EXIT_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 2);
 
 impl App {
-    pub(super) async fn handle_event(
+    pub(crate) async fn handle_event(
         &mut self,
         tui: &mut tui::Tui,
         app_server: &mut AppServerSession,
@@ -798,12 +798,16 @@ impl App {
 
                 if start < end {
                     self.native_history.consolidate(&self.transcript_cells[start..end], &consolidated);
-                    self.transcript_view.replace_range(&self.transcript_cells, start..end, &consolidated);
+                    if tui.is_owned_screen() {
+                        self.transcript_view.replace_group(&self.transcript_cells, start..end, &consolidated);
+                    } else {
+                        self.transcript_view.replace_range(&self.transcript_cells, start..end, &consolidated);
+                    }
                     self.transcript_cells
                         .splice(start..end, std::iter::once(consolidated.clone()));
 
                     if let Some(Overlay::Transcript(t)) = &mut self.overlay {
-                        t.consolidate_cells(start..end, consolidated.clone());
+                        t.regroup_cells(start..end, consolidated.clone());
                         tui.frame_requester().schedule_frame();
                     }
 
@@ -1566,6 +1570,7 @@ impl App {
                     let rate_limit_reset_credits = response.rate_limit_reset_credits.clone();
                     let snapshots = if accepted
                     {
+                        self.chat_widget.apply_usage_notice_read(request_id);
                         self.chat_widget.update_backend_banner(&response);
                         self.apply_backend_banner_fallback(app_server).await;
                         app_server_rate_limit_snapshots(response)
@@ -1958,6 +1963,7 @@ impl App {
                 self.chat_widget.open_advanced_reasoning_popup(model);
             }
             AppEvent::ApplyAdvancedReasoning { model, effort } => {
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 if self
                     .active_thread_model_setting_update_params(model.clone())
                     .is_some_and(|params| params.permissions.is_some())
@@ -2195,6 +2201,7 @@ impl App {
                 }
             }
             AppEvent::PersistModelSelection { model, effort } => {
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 match self.persist_model_defaults(
                     app_server.request_handle(),
                     crate::config_update::build_model_selection_edits(
@@ -2230,6 +2237,7 @@ impl App {
                 }
             }
             AppEvent::SelectSessionModel { model, effort } => {
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.select_session_model(app_server, model, effort).await;
             }
             AppEvent::CyberModelAutoReviewNotice => {
@@ -2445,6 +2453,7 @@ impl App {
                 }
             }
             AppEvent::PersistPlanModeReasoningEffort(effort) => {
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 let key_path = "plan_mode_reasoning_effort";
                 let edit = if let Some(effort) = effort {
                     crate::config_update::replace_config_value(
@@ -2895,6 +2904,7 @@ impl App {
                     Err(err) => {
                         let error = format_config_error(&err);
                         tracing::error!(error = %error, "failed to persist status line settings; keeping previous selection");
+                        self.app_event_tx.send(AppEvent::FollowTranscript);
                         self.chat_widget.add_error_message(format!(
                             "Failed to save status line settings: {error}"
                         ));
@@ -2934,6 +2944,7 @@ impl App {
                     }
                     Err(err) => {
                         tracing::error!(error = %err, "failed to persist terminal title items; keeping previous selection");
+                        self.app_event_tx.send(AppEvent::FollowTranscript);
                         self.chat_widget.revert_terminal_title_setup_preview();
                         self.chat_widget.add_error_message(format!(
                             "Failed to save terminal title items: {err}"
@@ -2973,6 +2984,7 @@ impl App {
                         self.restore_runtime_theme_from_config();
                         self.refresh_status_line();
                         tracing::error!(error = %err, "failed to persist theme selection");
+                        self.app_event_tx.send(AppEvent::FollowTranscript);
                         self.chat_widget
                             .add_error_message(format!("Failed to save theme: {err}"));
                     }
@@ -3109,6 +3121,7 @@ impl App {
         ) {
             Ok(outcome) => outcome,
             Err(err) => {
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.chat_widget.add_error_message(err);
                 return;
             }
@@ -3120,6 +3133,7 @@ impl App {
                 message,
             } => (*keymap_config, bindings, message),
             crate::keymap_setup::KeymapEditOutcome::Unchanged { message } => {
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.chat_widget.add_info_message(message, /*hint*/ None);
                 return;
             }
@@ -3157,10 +3171,12 @@ impl App {
                 self.sync_side_thread_ui();
                 self.chat_widget
                     .return_to_keymap_picker(&context, &action, &runtime_keymap);
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.chat_widget.add_info_message(message, /*hint*/ None);
             }
             Err(err) => {
                 tracing::error!(error = %err, "failed to persist keymap binding");
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.chat_widget
                     .add_error_message(format!("Failed to save shortcut: {err}"));
             }
@@ -3182,6 +3198,7 @@ impl App {
         ) {
             Ok(keymap_config) => keymap_config,
             Err(err) => {
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.chat_widget.add_error_message(err);
                 return;
             }
@@ -3190,6 +3207,7 @@ impl App {
         let runtime_keymap = match RuntimeKeymap::from_config(&keymap_config) {
             Ok(runtime_keymap) => runtime_keymap,
             Err(err) => {
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.chat_widget
                     .add_error_message(format!("Failed to refresh shortcuts: {err}"));
                 return;
@@ -3211,6 +3229,7 @@ impl App {
                 self.sync_side_thread_ui();
                 self.chat_widget
                     .return_to_keymap_picker(&context, &action, &runtime_keymap);
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.chat_widget.add_info_message(
                     format!("Removed custom shortcut for `{context}.{action}`."),
                     /*hint*/ None,
@@ -3218,6 +3237,7 @@ impl App {
             }
             Err(err) => {
                 tracing::error!(error = %err, "failed to clear keymap binding");
+                self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.chat_widget
                     .add_error_message(format!("Failed to remove shortcut: {err}"));
             }

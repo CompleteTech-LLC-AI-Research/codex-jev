@@ -3,6 +3,7 @@
 use super::*;
 use crate::app::tests::make_test_app_with_channels;
 use crate::app_command::AppCommand;
+use crate::app_event::ConsolidationScrollbackReflow;
 use crate::chatwidget::tests::helpers::normalize_snapshot_paths;
 use crate::history_cell::HistoryCell;
 use crate::history_cell::UserHistoryCell;
@@ -12,6 +13,7 @@ use codex_app_server_protocol::AskForApproval;
 use codex_config::types::ApprovalsReviewer;
 use codex_protocol::models::PermissionProfile;
 use crossterm::event::MouseButton::Left;
+use crossterm::event::MouseButton::Right;
 use crossterm::event::MouseEvent;
 use crossterm::event::MouseEventKind;
 use crossterm::event::MouseEventKind::Down;
@@ -69,6 +71,52 @@ fn buffer_text(buffer: &Buffer) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[tokio::test]
+async fn list_spacing_completion_preserves_the_scrolled_reader() -> Result<()> {
+    let mut app = crate::app::test_support::make_test_app().await;
+    app.transcript_cells = vec![Arc::new(history_cell::AgentMessageCell::new(
+        vec![
+            "- First item wraps onto".into(),
+            "  a second row".into(),
+            "- b".into(),
+            "- c".into(),
+        ],
+        /*is_first_line*/ true,
+    ))];
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    tui.set_owned_screen(/*owned*/ true)?;
+    let area = Rect::new(
+        /*x*/ 0, /*y*/ 0, /*width*/ 26, /*height*/ 1,
+    );
+    let mut before = Buffer::empty(area);
+    app.transcript_view
+        .jump_to_entry(&app.transcript_cells, /*index*/ 0);
+    app.transcript_view
+        .render(area, &mut before, &app.transcript_cells);
+    app.transcript_view
+        .scroll(&app.transcript_cells, /*rows*/ 3);
+    app.transcript_view
+        .render(area, &mut before, &app.transcript_cells);
+    assert!(buffer_text(&before).contains("- c"));
+    app.handle_consolidate_agent_message(
+        &mut tui,
+        "- First item wraps onto a second row\n- b\n- c".into(),
+        app.config.cwd.to_path_buf(),
+        /*inline_visualization_context*/ None,
+        ConsolidationScrollbackReflow::Required,
+        /*deferred_history_cell*/ None,
+    )?;
+    let mut after = Buffer::empty(area);
+    app.transcript_view
+        .render(area, &mut after, &app.transcript_cells);
+    assert_eq!(after, before);
+    app.transcript_view.jump_to_latest();
+    app.transcript_view
+        .render(area, &mut after, &app.transcript_cells);
+    assert_eq!(after, before);
+    Ok(())
 }
 
 #[tokio::test]
@@ -190,7 +238,8 @@ async fn owned_transcript_reserves_a_row_above_the_composer() -> Result<()> {
         let gap = Rect::new(/*x*/ 0, bottom.y - 1, width, /*height*/ 1);
         let buffer = crate::custom_terminal::test_support::last_rendered_buffer(&tui.terminal);
         let start = buffer.index_of(gap.x, gap.y);
-        if app.transcript_view.is_following() {
+        // Both scenarios show the current tail, including the paused detailed view.
+        if matches!(label, "Latest" | "Detailed") {
             assert_eq!(
                 &buffer.content()[start..start + usize::from(width)],
                 Buffer::empty(gap).content(),
@@ -1172,21 +1221,97 @@ async fn fullscreen_composer_mouse_copy_and_input_ownership() -> Result<()> {
         assert!(app.handle_owned_transcript_event(&mut tui, &mut server, &event)?);
     }
     assert!(!app.transcript_view.has_active_interaction());
+    app.render_owned_transcript(&mut tui, size)?;
+    let cursor = tui.terminal.last_known_cursor_pos;
     let draft = app.chat_widget.capture_thread_input_state();
-    let copy_event = TuiEvent::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::SUPER));
-    assert!(
-        app.handle_composer_copy_event(&mut tui, &copy_event, |_, text| {
-            assert_eq!(text, "hello");
-            Ok(crate::clipboard_copy::CopyStatus::Confirmed)
-        })
-    );
+    for event in [
+        mouse(Up(Right), x + 2, y),
+        mouse(Down(Right), /*column*/ 0, y),
+        mouse(Down(Right), size.width, y),
+        mouse(Down(Right), x, y - 1),
+        mouse(Down(Right), x, y + 1),
+    ] {
+        assert!(!app.handle_composer_copy_event(&mut tui, &event, |_, _| unreachable!()));
+    }
+    let copy_events = [
+        TuiEvent::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::SUPER)),
+        mouse(Down(Right), x + 2, y),
+    ];
+    let mut selection_frames = Vec::new();
+    for event in &copy_events {
+        for result in [
+            Err("clipboard unavailable".to_string()),
+            Ok(crate::clipboard_copy::CopyStatus::Unconfirmed),
+            Ok(crate::clipboard_copy::CopyStatus::Confirmed),
+        ] {
+            assert!(app.handle_composer_copy_event(&mut tui, event, |_, text| {
+                assert_eq!(text, "hello");
+                result.clone()
+            }));
+            app.render_owned_transcript(&mut tui, size)?;
+            let buffer = crate::custom_terminal::test_support::last_rendered_buffer(&tui.terminal);
+            let rendered_draft = (x..x + 11)
+                .map(|column| buffer[(column, y)].symbol())
+                .collect::<String>();
+            let selection = (x..x + 11)
+                .map(|column| {
+                    if buffer[(column, y)]
+                        .modifier
+                        .contains(ratatui::style::Modifier::REVERSED)
+                    {
+                        '^'
+                    } else {
+                        '·'
+                    }
+                })
+                .collect::<String>();
+            let cleared = matches!(event, TuiEvent::Mouse(_))
+                && result == Ok(crate::clipboard_copy::CopyStatus::Confirmed);
+            assert_eq!(
+                (
+                    app.chat_widget.capture_thread_input_state(),
+                    tui.terminal.last_known_cursor_pos,
+                    selection.as_str(),
+                ),
+                (
+                    draft.clone(),
+                    cursor,
+                    if cleared {
+                        "···········"
+                    } else {
+                        "^^^^^······"
+                    },
+                )
+            );
+            let gesture = if matches!(event, TuiEvent::Mouse(_)) {
+                "right-click"
+            } else {
+                "keyboard"
+            };
+            selection_frames.push(format!(
+                "{gesture} {result:?}\n{rendered_draft}\n{selection}"
+            ));
+        }
+    }
     assert_eq!(app.chat_widget.capture_thread_input_state(), draft);
     app.render_owned_transcript(&mut tui, size)?;
     assert!(row_containing(&tui, "Copied 5 chars to host clipboard") < y);
+    insta::assert_snapshot!(
+        "fullscreen_composer_right_click_copy",
+        format!(
+            "{}\n\n{}",
+            selection_frames.join("\n\n"),
+            normalize_snapshot_paths(buffer_text(
+                crate::custom_terminal::test_support::last_rendered_buffer(&tui.terminal)
+            ))
+        )
+    );
 
     app.chat_widget.handle_key_event(KeyCode::Char('x').into());
-    assert!(!app.handle_composer_copy_event(&mut tui, &copy_event, |_, _| unreachable!()));
-    assert_eq!(app.chat_widget.composer_text_with_pending(), "x world");
+    for event in &copy_events {
+        assert!(!app.handle_composer_copy_event(&mut tui, event, |_, _| unreachable!()));
+    }
+    assert_eq!(app.chat_widget.composer_text_with_pending(), "hellox world");
 
     // A transcript drag that crosses into the composer remains a transcript selection.
     let transcript_y = row_containing(&tui, "transcript text");
@@ -1198,6 +1323,9 @@ async fn fullscreen_composer_mouse_copy_and_input_ownership() -> Result<()> {
         app.handle_owned_transcript_event(&mut tui, &mut server, &event)?;
     }
     assert!(app.transcript_view.has_active_interaction());
+    for event in &copy_events {
+        assert!(!app.handle_composer_copy_event(&mut tui, event, |_, _| unreachable!()));
+    }
 
     // A fresh composer click takes ownership away from the transcript selection.
     app.handle_owned_transcript_event(&mut tui, &mut server, &mouse(Down(Left), x, y))?;
@@ -1208,11 +1336,13 @@ async fn fullscreen_composer_mouse_copy_and_input_ownership() -> Result<()> {
     app.handle_owned_transcript_event(&mut tui, &mut server, &mouse(Drag(Left), x + 1, y))?;
     assert!(app.chat_widget.no_modal_or_popup_active());
     app.chat_widget.open_feature_enable_prompt(Feature::Collab);
-    assert!(
-        !app.handle_composer_copy_event(&mut tui, &copy_event, |_, _| panic!(
-            "modals own copy input"
-        ),)
-    );
+    for event in &copy_events {
+        assert!(
+            !app.handle_composer_copy_event(&mut tui, event, |_, _| panic!(
+                "modals own copy input"
+            ))
+        );
+    }
     assert!(!app.handle_owned_transcript_event(&mut tui, &mut server, &mouse(Down(Left), x, y))?);
     server.shutdown().await?;
     tui.set_owned_screen(/*owned*/ false)?;
