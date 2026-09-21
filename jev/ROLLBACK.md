@@ -52,6 +52,26 @@ uninstalling is still safe: every path the binding wrote lives under
 
 ## After a bad build
 
+## Remove the native approval adapter
+
+Two independent steps, in increasing order of effort:
+
+1. **Stop the preflight without touching the source.** Unset `CODEX_JEV_PYTHON`,
+   `CODEX_JEV_LAUNCHER`, and `CODEX_JEV_CONFIG`, or set
+   `JEV_SWITCH_APPROVAL_PREFLIGHT=0`, and restart the host. Eligibility then
+   fails before a subprocess starts and the original reviewer answers.
+2. **Remove the port from the tree.** Delete `codex-rs/core/src/guardian/jev.rs`
+   and the `mod jev;` declaration in `guardian/mod.rs`, and restore the single
+   `run_guardian_review_session_before_deadline` call site in
+   `guardian/review_request.rs` that the installer replaced. Then
+   `python3 jev/scripts/verify-manifest.py --native-adapter absent` must pass;
+   it fails closed while any declared anchor is still present.
+
+This is separate from the plaintext patch: removing the patch does not remove
+the module, and the validator reports the two states separately
+(`--patch-state` and `--native-adapter`). [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md)
+records the guarded blobs and the exact declarations.
+
 The environment records the binary path and its SHA-256 in `isolated-env.json`
 and `logs/invocations.jsonl`. If a rebuild changes the binary hash, `status`
 reports `binary_matches_plan: false` and the next launch refuses nothing - it

@@ -48,6 +48,14 @@ Only two kinds of integration change this repository's source:
 Everything else stays in the owning component repository and is consumed through
 an interface with a declared version.
 
+Each native adapter is declared in the manifest under the component that owns it
+(`native_source_adapter`), so the installed file, the declarations it creates,
+and the host blobs it was applied to are all checkable:
+
+| Adapter | Component | Installed at | Switch (default) | Recorded in |
+| --- | --- | --- | --- | --- |
+| Approval preflight and Guardian fallback | `jev-codex-approval` | `codex-rs/core/src/guardian/jev.rs` | `approval.preflight` (false) | [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) |
+
 ## Evidence tiers
 
 Every validation claim is labelled with the tier that produced it:

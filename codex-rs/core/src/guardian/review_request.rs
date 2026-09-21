@@ -7,6 +7,7 @@ use codex_guardian_reviewer::ReviewHost;
 use codex_protocol::approvals::GuardianReviewReason;
 
 pub(in crate::guardian) struct PreparedApproval {
+    jev_review_id: String,
     request: GuardianApprovalRequest,
     root_authorization_version: Option<GuardianAuthorizationVersion>,
     user_message_revision: u64,
@@ -134,6 +135,7 @@ impl ReviewHost for super::super::runtime::ReviewRuntime {
         drop(history);
         Ok((
             PreparedApproval {
+                jev_review_id: review_id.to_owned(),
                 request,
                 root_authorization_version,
                 user_message_revision,
@@ -149,16 +151,31 @@ impl ReviewHost for super::super::runtime::ReviewRuntime {
         deadline: Instant,
         cancellation: &CancellationToken,
     ) -> (GuardianReviewOutcome, GuardianReviewAnalyticsResult) {
-        let (mut outcome, analytics) = run_guardian_review_session_before_deadline(
-            Arc::clone(&self.session),
-            self.context.clone(),
-            prepared.request.clone(),
-            self.reasons.clone(),
-            guardian_output_schema(),
-            Some(cancellation.clone()),
+        let jev_outcome = super::super::jev::review(
+            self.session.as_ref(),
+            &self.context,
+            &prepared.request,
+            &self.reasons,
+            &self.options,
+            &prepared.jev_review_id,
             deadline,
+            cancellation,
         )
         .await;
+        let (mut outcome, analytics) = if let Some(outcome) = jev_outcome {
+            (outcome, GuardianReviewAnalyticsResult::without_session())
+        } else {
+            run_guardian_review_session_before_deadline(
+                Arc::clone(&self.session),
+                self.context.clone(),
+                prepared.request.clone(),
+                self.reasons.clone(),
+                guardian_output_schema(),
+                Some(cancellation.clone()),
+                deadline,
+            )
+            .await
+        };
         let session = &self.session;
         let root_authorization_version = prepared.root_authorization_version;
         let user_message_revision = prepared.user_message_revision;
