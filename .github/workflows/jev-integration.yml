@@ -1,0 +1,87 @@
+name: jev-integration
+
+# Fork-specific checks for the JEV integration layer under jev/.
+# Fork-local checks only: never make the upstream Codex CI depend on them.
+on:
+  push:
+    paths:
+      - "jev/**"
+      - ".github/workflows/jev-integration.yml"
+  pull_request:
+    paths:
+      - "jev/**"
+      - ".github/workflows/jev-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  manifest:
+    name: manifest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: python3
+          - os: macos-latest
+            python: python3
+          - os: windows-latest
+            python: python
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate the manifest and every shipped profile
+        shell: bash
+        run: |
+          ${{ matrix.python }} jev/scripts/verify-manifest.py --json
+          ${{ matrix.python }} jev/scripts/verify-manifest.py --profile jev/profiles/baseline.json
+          ${{ matrix.python }} jev/scripts/verify-manifest.py --profile jev/profiles/integrated-offline.json
+          ${{ matrix.python }} jev/scripts/verify-manifest.py --profile jev/profiles/enforcement-eval.json
+
+      - name: Reject an unsupported combination explicitly
+        shell: bash
+        run: ${{ matrix.python }} jev/tests/unsupported_combination_check.py
+
+      - name: Run focused validation tests
+        run: ${{ matrix.python }} -m unittest discover -s jev/tests -t jev/tests -v
+
+  pinned-base:
+    name: pinned base and patch order
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository with history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Apply the manifest patches to a pristine pinned base
+        shell: bash
+        run: |
+          BASE="$(python3 -c 'import json;print(json.load(open("jev/compatibility-manifest.json"))["host"]["base_commit"])')"
+          git worktree add --detach /tmp/pinned-base "$BASE"
+          cp -r jev /tmp/pinned-base/jev
+          python3 jev/scripts/apply-patches.py --repo-root /tmp/pinned-base --check
+          python3 jev/scripts/apply-patches.py --repo-root /tmp/pinned-base
+          python3 jev/scripts/verify-manifest.py --repo-root /tmp/pinned-base --patch-state applied
+
+      - name: Confirm the patch is not applied to the pristine base
+        shell: bash
+        run: |
+          BASE="$(python3 -c 'import json;print(json.load(open("jev/compatibility-manifest.json"))["host"]["base_commit"])')"
+          git worktree add --detach /tmp/pristine-base "$BASE"
+          cp -r jev /tmp/pristine-base/jev
+          python3 jev/scripts/verify-manifest.py --repo-root /tmp/pristine-base --patch-state absent

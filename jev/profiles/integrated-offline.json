@@ -1,0 +1,11 @@
+{
+  "profile_version": 1,
+  "id": "integrated-offline",
+  "description": "Full local integration with every enforcement path still observational: dedup projection, approved Fabric views, Sentinel shadow, and approval preflight shadow. Remote inference stays disabled.",
+  "features": {
+    "projection.dedup_receipts": true,
+    "projection.fabric_views": true,
+    "sentinel.shadow": true,
+    "approval.preflight": true
+  }
+}

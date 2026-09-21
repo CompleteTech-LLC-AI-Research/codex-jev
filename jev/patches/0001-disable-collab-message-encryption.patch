@@ -1,0 +1,47 @@
+diff --git a/codex-rs/core/src/tools/handlers/multi_agents_spec.rs b/codex-rs/core/src/tools/handlers/multi_agents_spec.rs
+index 8d9d48e..2427c16 100644
+--- a/codex-rs/core/src/tools/handlers/multi_agents_spec.rs
++++ b/codex-rs/core/src/tools/handlers/multi_agents_spec.rs
+@@ -190,8 +190,7 @@ pub fn create_send_message_tool() -> ToolSpec {
+             "message".to_string(),
+             JsonSchema::string(Some(
+                 "Message text to queue on the target agent.".to_string(),
+-            ))
+-            .with_encrypted(),
++            )),
+         ),
+     ]);
+ 
+@@ -223,8 +222,7 @@ pub fn create_followup_task_tool() -> ToolSpec {
+             "message".to_string(),
+             JsonSchema::string(Some(
+                 "Message text to send to the target agent.".to_string(),
+-            ))
+-            .with_encrypted(),
++            )),
+         ),
+     ]);
+ 
+@@ -623,8 +621,7 @@ fn spawn_agent_common_properties_v2(agent_type_description: &str) -> BTreeMap<St
+             "message".to_string(),
+             JsonSchema::string(Some(
+                 "Initial plain-text task for the new agent.".to_string(),
+-            ))
+-            .with_encrypted(),
++            )),
+         ),
+         (
+             "agent_type".to_string(),
+diff --git a/codex-rs/core/src/tools/router.rs b/codex-rs/core/src/tools/router.rs
+index 8d5bde3..b537efd 100644
+--- a/codex-rs/core/src/tools/router.rs
++++ b/codex-rs/core/src/tools/router.rs
+@@ -51,7 +51,7 @@ impl ToolCall {
+             && self
+                 .encrypted_function_args
+                 .as_ref()
+-                .is_some_and(Vec::is_empty)
++                .map_or(true, |args| args.is_empty())
+         {
+             ToolCallSource::DirectPlaintextMessage
+         } else {
