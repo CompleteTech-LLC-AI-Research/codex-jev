@@ -232,6 +232,18 @@
       "requires": ["capture.canonical_evidence"],
       "invariant": "Recalled content is evidence and never authorization."
     },
+    "screening.retrieval": {
+      "default": false,
+      "components": ["jev-sentinel"],
+      "requires": ["retrieval.budgeted_hydration", "sentinel.shadow"],
+      "invariant": "Retrieved context is screened before injection; withheld evidence is never injected and never erased from the canonical store."
+    },
+    "screening.enforcement": {
+      "default": false,
+      "components": ["jev-sentinel"],
+      "requires": ["screening.retrieval", "sentinel.enforcement"],
+      "invariant": "A component finding withholds a retrieved candidate only under the declared enforcement switch; a procedural violation withholds unconditionally."
+    },
     "projection.dedup_receipts": {
       "default": false,
       "components": ["jev-prune-kit"],

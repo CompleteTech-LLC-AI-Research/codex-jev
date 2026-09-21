@@ -135,11 +135,21 @@ def component_index(manifest) -> dict:
 
 def feature_switches(manifest, env=None) -> dict:
     """Resolve the two Sentinel switches from the ``JEV_SWITCH_*`` environment."""
+    return feature_switches_for(manifest, (SHADOW_SWITCH, ENFORCE_SWITCH), env)
+
+
+def feature_switches_for(manifest, features, env=None) -> dict:
+    """Resolve named manifest switches from their ``JEV_SWITCH_*`` environment.
+
+    A feature with no environment override takes its declared default, so an
+    unset variable means "whatever the manifest says", never "off". Later phases
+    declare their own switch pairs and resolve them through this one rule.
+    """
     env = os.environ if env is None else env
-    features = manifest.get("features", {})
+    declared = manifest.get("features", {})
     state = {}
-    for feature in (SHADOW_SWITCH, ENFORCE_SWITCH):
-        spec = features.get(feature)
+    for feature in features:
+        spec = declared.get(feature)
         if spec is None:
             raise BoundaryError(E_POLICY_SHAPE, f"manifest declares no feature {feature}")
         key = "JEV_SWITCH_" + feature.upper().replace(".", "_")

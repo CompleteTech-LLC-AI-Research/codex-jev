@@ -9,7 +9,9 @@
     "sentinel.enforcement": false,
     "approval.preflight": false,
     "approval.enforcement": false,
-    "remote_inference.enabled": false
+    "remote_inference.enabled": false,
+    "screening.retrieval": false,
+    "screening.enforcement": false
   },
   "fabric": {
     "component": "jev-context-fabric",
