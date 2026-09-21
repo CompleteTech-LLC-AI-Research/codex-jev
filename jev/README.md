@@ -36,6 +36,7 @@ installs its call site. Everything else the integration owns is here.
 | `scripts/approval_shadow.py` | The approval shadow comparator and enforcement gate (C6): correlate typed judgments with the host's final decisions and observed timing, refuse raw content, account for every failure and deferral, and freeze a scenario-family calibration/holdout split. |
 | `scripts/e2e_regression.py` | The composed end-to-end regression harness (phase 6.1): drive capture → retrieval → screening → projection → collab → sentinel/veto → approval over checked-in fixtures, with a tier on every assertion. |
 | `scripts/perf_validation.py` | The offline integration-performance harness (phase 6.2): baseline vs integrated payload bytes, a byte-derived token estimate, observed boundary latency, fallback and refusal counts, and zero provider usage. |
+| `scripts/release_readiness.py` | The packaging workflow (phase 6.3): release gates re-derived from real runs, the isolated create/rollback round trip, and the candidate artifact's inclusion, exclusion, and digest rules. |
 | `scripts/verify-manifest.py --native-adapter` | Assert that the declared native approval adapter is installed and wired where the manifest says it is, or gone again after a rollback. |
 | `scripts/build_provenance.py` | Build the pinned CLI with the repository recipe and record provenance. |
 | `scripts/verify-manifest.py` | Fail-closed validator for the manifest, a profile, the patch state, and the checkout pin. |
@@ -89,3 +90,4 @@ explicitly instead of silently building.
 - [`END_TO_END.md`](END_TO_END.md) — the composed regression harness: the composed order, the per-step artifact, the evidence tiers, how to run it, and what it does not prove.
 - [`VALIDATION.md`](VALIDATION.md) — the offline, real-host, and live-provider validation record: the performance numbers, the host smokes, and the live-provider blocker.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.
+- [`RELEASE.md`](RELEASE.md) — manifest verification, build and profile instructions, feature controls, diagnostics, install/upgrade order, state ownership, the platform matrix, release gates, and the candidate artifact.

@@ -1,0 +1,28 @@
+{
+  "note": "Real-host-binary runs recorded by `jev/scripts/release_readiness.py record-platform`. A record is evidence for the exact binary digest, revision, and pinned inputs it names; the release gate treats it as stale once those inputs change.",
+  "platforms": {
+    "linux-x86_64": {
+      "binary_kind": "debug",
+      "binary_sha256": "6d51fdc9278d1a2fbc1bb01e024ae12d5d9a3b233d7229a7f6e792eaf35c0c3b",
+      "harness": {
+        "plaintext-collaboration": {
+          "exit_code": 0,
+          "ok": true,
+          "tier": "real-host-binary"
+        },
+        "projection-reset": {
+          "exit_code": 0,
+          "ok": true,
+          "tier": "real-host-binary"
+        }
+      },
+      "pinned_inputs_digest": "8b6f5641ae5ff2f0c30d2fff36e500e0521fbba2faac186b13234af76c60bd25",
+      "platform": "linux-x86_64",
+      "recorded_at_unix_ms": 1790024153611,
+      "revision": "6c881d049d04a3384800c354a399f8ea9fb87eaa",
+      "rust_toolchain": "1.95.0",
+      "tier": "real-host-binary"
+    }
+  },
+  "schema": "jev-platform-matrix.v1"
+}
