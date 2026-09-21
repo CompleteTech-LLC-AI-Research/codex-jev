@@ -184,16 +184,21 @@ that checkout is present.
   (`MAX_INPUT_BYTES`), and the whole call is cut off at `JEV_BUS_TIMEOUT_MS`
   (default 15000, clamped to 120000) with the child killed. No run here measures
   that latency — [#25](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/25)
-  owns the performance validation, and no measurement has been taken on a real
-  host turn ([#70](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/70)).
+  owns the performance validation. The
+  [#70](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/70) row
+  below does launch a real host turn, but it records the bytes that turn sent,
+  not how long the chain took.
   With the switches off — the declared default and every profile — the cost is
   exactly zero, because no process is spawned.
-- **The reduction is proved on fixtures, never by a running host.** Every row
-  below drives the module, the adapter, or the transport directly; none compiles
-  or launches a `codex` binary, so no run yet shows a launched host reaching the
-  boundary. The harness that could (`jev/smoke/`) exists and runs a real binary
-  against a loopback mock for #10, and the gap is filed as
-  [#70](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/70).
+- **The reduction is now shown by a launched host, but only on a seeded
+  transcript.** The `real-host-binary` row below starts a real `codex` process,
+  resumes a session whose transcript already carries a duplicate read pair, and
+  reads the bytes it put on the wire. That closes the gap
+  [#70](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/70)
+  was filed for, but it does not show a host *discovering* a pair on its own:
+  this revision exposes no `read`, `read_file`, or `file_read` tool, so a pair
+  can only enter the transcript from a resumed rollout. There is still no
+  live-provider run and no token measurement.
 
 ## Evidence
 
@@ -214,6 +219,7 @@ call was made.
 | `bus-stage-stub` transport runs (`subprocess`, checked-in doubles) | Both stages invoked in order `[jev-prune.dedup, jev-context-fabric.view]`; one `projection_receipt` per applied stage; the opaque `reasoning` item byte-identical; an unproven substitution over the wire is reverted. |
 | Host-invocation run (`test_jev_bus_host.py` through the adapter the host resolves) | The adapter is reached with the host's argv, stdin, and environment; the duplicate read is replaced by a retained-witness marker the host-side receipt enforcement accepts; assistant prose is replaced by the view marker; the outgoing view is strictly smaller than the incoming one; the source request is untouched. |
 | Disabled-switch run | `invoked: []`, note `disabled`, outgoing request byte-identical to the input. |
+| `real-host-binary` run — `jev/smoke/run-projection-reset-smoke.sh` against a `codex` built from `8ca45b6a7a` (binary sha256 `8da29416…`), three turns resuming one seeded session | Switch off: the recorded `input` is byte-identical to the unswitched control (9753 bytes, 35 items) and no `projection_receipt` appears. Switch on with a receipt in the pinned component's own proof format: the recorded `input` is strictly smaller (9178 bytes, 575 saved), the item count is unchanged at 35, the source body carries the omission marker while the witness body is retained, and the chain emits one `projection_receipt` at stage 100 with `accepted: [3]` and no reverts. All three rollouts still hold the original read body, so nothing was persisted. Recorded in [`evidence/projection-real-host.md`](evidence/projection-real-host.md). |
 
 The transport runs exercise the real `subprocess` stage path. The
 `real-component` row drives the pinned `jev-prune-kit` stage over its own
@@ -226,6 +232,6 @@ and remain their own suites' subject.
 
 The `codex-rs` tests build the real host module and drive it against a hermetic
 stand-in adapter, so they prove the host boundary and its fallbacks. They do not
-compile or run a Codex binary, and no test above is a live-provider
-measurement: the reduction is measured in serialized bytes on a fixture request,
-never in tokens and never against a real model.
+compile or run a Codex binary; only the `real-host-binary` row above does. No
+row is a live-provider measurement: the reduction is measured in serialized
+bytes on a fixture request, never in tokens and never against a real model.
