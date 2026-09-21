@@ -21,6 +21,15 @@ different interpreter requirement. `fabric_env.install` re-checks the same
 pin against the manifest and refuses to install on any drift, so a profile can
 never quietly bind a fabric revision the manifest did not approve.
 
+That is a check on the configuration, not on the code that runs, so the driver
+also reads the revision of `--fabric` itself and refuses a standalone checkout
+that is not at the pinned commit. A checkout nested inside another work tree
+(the in-repo test double) is not a component checkout: `git -C <path> rev-parse
+HEAD` would answer for the enclosing repository, so such a path reports no
+revision rather than a misleading one. Without this, a record could name the
+pinned revision while an unapproved one was installed, because the revision in
+the record came from the manifest rather than from the checkout.
+
 ## Containment
 
 The installer is run with a redirected environment:
@@ -63,9 +72,10 @@ python3 jev/scripts/fabric_env.py --fabric <fabric-checkout> uninstall
 `install` writes `.jev/isolated/fabric-env.json`, which records the pinned
 component and revision, the profile, the resolved runtime (harness, MCP server
 name, interpreter, interpreter requirement and whether it is satisfied), the
-workspace, and every changed file. `--dry-run` reports what would change
-without writing a record or a file. Re-running `install` is idempotent: a
-second run reports no changed files.
+workspace, every changed file, and the checkout that ran - its `revision`,
+whether it is `pinned` at the manifest revision, and whether its work tree is
+`dirty`. `--dry-run` reports what would change without writing a record or a
+file. Re-running `install` is idempotent: a second run reports no changed files.
 
 `status` reports the bound surfaces and whether the MCP entry, hooks, and skill
 are still present against the recorded file list. It fails closed when no
@@ -85,8 +95,10 @@ and asserts six properties:
 
 `uninstall` runs the installer's `--uninstall`, which restores the exact
 pre-install bytes of every file it changed (including `config.toml`) and
-removes the files it created. The result records any conflicts, and the
-unrelated settings in `config.toml` survive.
+removes the files it created. It applies the same revision rule against the
+recorded `component_revision`, so removal logic cannot be run from a checkout
+other than the one that installed. The result records the checkout, any
+conflicts, and the unrelated settings in `config.toml` survive.
 
 ## Disable
 
@@ -104,13 +116,14 @@ WSL distribution.
 
 | Tier | Source |
 | --- | --- |
-| `real-fabric-installer` | The pinned `jev-context-fabric` checkout, run against the isolated environment. |
-| `fabric-stub` | `jev/tests/fabric_stub/install.py`, a checked-in test double used by required CI, which does not have the component checkout. |
+| `real-fabric-installer` | A standalone checkout at the manifest-pinned revision, run against the isolated environment. |
+| `unpinned-fabric-checkout` | An installer run from a path that is not a standalone checkout at the pin, including the in-repo test double. Never evidence that a pinned install ran. |
 
 Required CI (`python3 -m unittest discover -s .github/scripts -p 'test_jev_*.py'`)
-drives the stub, because the fabric lives in a separate repository that CI does
-not check out. Stub results are never evidence that a real install ran. The
-real-installer results are recorded on issue #12.
+drives the in-repo double, because the fabric lives in a separate repository
+that CI does not check out. Those runs are tier `unpinned-fabric-checkout`, and
+they are never evidence that a real install ran. The real-installer results are
+recorded on issue #12.
 
 Known limits:
 
@@ -118,6 +131,15 @@ Known limits:
   vendored into this repository.
 - `uninstall` needs the same checkout, because the removal logic belongs to the
   component rather than the host.
+- A checkout nested inside another work tree, or one whose revision cannot be
+  read at all (no git metadata, or git unavailable), cannot state which
+  revision it is, so it is recorded as unpinned instead of being refused.
+  Such a run is not pinned-checkout evidence; only a checkout that reports a
+  revision other than the pin is refused.
+- An uncommitted work tree is recorded (`dirty: true`) rather than refused, so
+  the installer's own `__pycache__` cannot make a second install fail. A dirty
+  checkout at the pinned revision is evidence that the pin was read, not that
+  the tree was pristine.
 - `verify` exercises capture, retrieval, and workspace identity. It does not
   assert that the host's MCP client loads the server, which is phase #5 (#13)
   onwards.

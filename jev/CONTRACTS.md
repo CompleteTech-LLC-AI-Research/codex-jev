@@ -82,9 +82,12 @@ GitHub records or committed files.
 
 Components are pinned to immutable commits, and patches are pinned by digest and
 by the host base commit they apply to (`E_PATCH_BASE`, `E_PATCH_HASH`). Patch
-order is unique and recorded. Disabling the integration means building the
-pinned base without patches and running the baseline profile: the original
-behavior is reproduced rather than approximated.
+order is unique and recorded. A pin is only real where it is enforced: a
+component checkout that executes must be the pinned revision, so
+`fabric_env.py` refuses a standalone checkout at any other commit and records
+the revision it observed alongside the revision the manifest pins. Disabling the
+integration means building the pinned base without patches and running the
+baseline profile: the original behavior is reproduced rather than approximated.
 
 ## C9 — Host-owned behavior
 

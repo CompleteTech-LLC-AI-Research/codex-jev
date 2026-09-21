@@ -18,7 +18,10 @@ Subcommands:
 The runtime that is bound - component, revision, interpreter requirement,
 harness, and MCP server name - comes from the ``fabric`` pin in the integration
 profile, cross-checked against the manifest component table, so the profile and
-the manifest cannot drift apart unnoticed.
+the manifest cannot drift apart unnoticed. The checkout that actually runs is
+checked against that same revision: a standalone component checkout that is not
+at the pinned commit is refused, and every record names the revision observed
+on disk as well as the revision the manifest pins.
 
 Exit codes: 0 = ok, 1 = validation failure, 2 = usage error.
 """
@@ -149,6 +152,63 @@ def ensure_contained(paths, env_dir):
         )
 
 
+def git_output(path, *args):
+    """Return ``git -C path <args>`` output, or None when git cannot answer."""
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(path), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
+def checkout_state(fabric_root):
+    """Describe the revision of a standalone component checkout.
+
+    A record must name the revision that ran, and the manifest pin is not that
+    revision unless the executed checkout is at it. Only a path that is its own
+    work-tree root can answer for itself: ``git -C <path> rev-parse HEAD`` inside
+    a nested directory (the in-repo test double) reports the enclosing
+    repository, which would be a misleading answer rather than no answer, so a
+    nested path reports no revision at all.
+    """
+    root = Path(fabric_root).resolve()
+    unpinned = {"root": str(root), "revision": None, "pinned": False, "dirty": None}
+    if not (root / ".git").exists():
+        return unpinned
+    top = git_output(root, "rev-parse", "--show-toplevel")
+    if top is None or Path(top).resolve() != root:
+        return unpinned
+    status = git_output(root, "status", "--porcelain")
+    return {
+        "root": str(root),
+        "revision": git_output(root, "rev-parse", "HEAD"),
+        "pinned": False,
+        "dirty": None if status is None else bool(status),
+    }
+
+
+def require_pinned_checkout(fabric_root, revision):
+    """Refuse to run a standalone checkout that is not the pinned revision."""
+    state = checkout_state(fabric_root)
+    if state["revision"] is None:
+        return state
+    if state["revision"] != revision:
+        raise FabricError(
+            f"fabric checkout {state['root']} is at {state['revision']} but the "
+            f"manifest pins {FABRIC_COMPONENT}@{revision}; check out the pinned "
+            "revision instead of installing an unapproved one"
+        )
+    state["pinned"] = True
+    return state
+
+
 def run_installer(fabric_root, argv, env):
     entry = Path(fabric_root) / "install.py"
     if not entry.is_file():
@@ -175,6 +235,7 @@ def install(env_dir, fabric_root, workspace=None, dry_run=False, root=None):
     env_dir = Path(env_dir)
     plan = isolated_env.read_env(env_dir)
     pin, revision = pinned_runtime(plan, root)
+    checkout = require_pinned_checkout(fabric_root, revision)
     prefix = fabric_prefix(env_dir)
     workspace = (
         Path(workspace).resolve()
@@ -203,6 +264,7 @@ def install(env_dir, fabric_root, workspace=None, dry_run=False, root=None):
         "record_version": RECORD_VERSION,
         "component": FABRIC_COMPONENT,
         "component_revision": revision,
+        "checkout": checkout,
         "profile": plan["profile"],
         "runtime": {
             "component": pin["component"],
@@ -232,7 +294,11 @@ def install(env_dir, fabric_root, workspace=None, dry_run=False, root=None):
             }
         ),
         "notes": result.get("notes", []),
-        "tier": "real-fabric-installer",
+        "tier": (
+            "real-fabric-installer"
+            if checkout["pinned"]
+            else "unpinned-fabric-checkout"
+        ),
         "recorded_at_unix_ms": int(time.time() * 1000),
     }
     if not dry_run:
@@ -390,11 +456,13 @@ def uninstall(env_dir, fabric_root=None, root=None):
     entry = Path(fabric_root) / "install.py" if fabric_root else None
     if entry is None or not entry.is_file():
         raise FabricError("uninstall needs --fabric pointing at the fabric checkout")
+    checkout = require_pinned_checkout(fabric_root, record["component_revision"])
     result = run_installer(
         fabric_root, ["--uninstall", "--prefix", str(prefix)], child_env(plan, prefix)
     )
     record["uninstalled_at_unix_ms"] = int(time.time() * 1000)
     record["uninstall"] = {
+        "checkout": checkout,
         "uninstalled": result.get("uninstalled"),
         "restored": sorted(result.get("restored", [])),
         "conflicts": sorted(

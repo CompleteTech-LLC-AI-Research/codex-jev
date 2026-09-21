@@ -10,6 +10,8 @@ and a report that escapes the environment fails closed.
 """
 
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,6 +26,7 @@ import isolated_env  # noqa: E402
 
 STUB = REPO_ROOT / "jev" / "tests" / "fabric_stub" / "install.py"
 UNRELATED = 'model = "kestrel"\napproval_policy = "on-request"\n'
+GIT = shutil.which("git")
 
 
 class FabricBindingTests(unittest.TestCase):
@@ -48,7 +51,11 @@ class FabricBindingTests(unittest.TestCase):
     def test_install_stays_inside_the_environment(self):
         record = self.install()
         self.assertTrue(record["contained"])
-        self.assertEqual(record["tier"], "real-fabric-installer")
+        # The in-repo double is not a standalone component checkout, so the
+        # record must not claim the pinned-checkout tier.
+        self.assertEqual(record["tier"], "unpinned-fabric-checkout")
+        self.assertFalse(record["checkout"]["pinned"])
+        self.assertIsNone(record["checkout"]["revision"])
         for path in record["changed_files"]:
             self.assertTrue(
                 str(Path(path).resolve()).startswith(str(self.env_dir.resolve())),
@@ -152,6 +159,112 @@ class FabricBindingTests(unittest.TestCase):
             fabric_env.parse_args(
                 ["--env-dir", "/tmp/x", "verify", "--workspace", "/tmp/y"]
             )
+
+
+@unittest.skipUnless(GIT, "git is needed to pin a checkout revision")
+class FabricCheckoutPinTests(unittest.TestCase):
+    """The checkout that runs must be the revision the manifest pins."""
+
+    def setUp(self):
+        self.work = tempfile.TemporaryDirectory()
+        self.addCleanup(self.work.cleanup)
+        self.env_dir = Path(self.work.name) / "isolated"
+        isolated_env.init_env(env_dir=self.env_dir, root=REPO_ROOT)
+        self.config = Path(self.env_dir) / "home" / "config.toml"
+        self.config.write_text(UNRELATED, encoding="utf-8")
+        self.repo = Path(self.work.name) / "fabric"
+        self.repo.mkdir()
+        shutil.copy(STUB, self.repo / "install.py")
+        self.git("init", "-q")
+        self.git("config", "user.email", "jev@example.invalid")
+        self.git("config", "user.name", "JEV Tests")
+        self.git("config", "commit.gpgsign", "false")
+        self.commit("fabric checkout")
+
+    def git(self, *args):
+        return subprocess.run(
+            [GIT, "-C", str(self.repo), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    def commit(self, message):
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        self.revision = self.git("rev-parse", "HEAD").stdout.strip()
+        return self.revision
+
+    def profile_pin(self):
+        return isolated_env.load_profile("isolated-offline", REPO_ROOT)["fabric"]
+
+    def test_pinned_checkout_is_accepted_and_recorded(self):
+        pin = self.profile_pin()
+        with mock.patch.object(
+            fabric_env, "pinned_runtime", return_value=(pin, self.revision)
+        ):
+            record = fabric_env.install(self.env_dir, self.repo, root=REPO_ROOT)
+        self.assertEqual(record["checkout"]["revision"], self.revision)
+        self.assertTrue(record["checkout"]["pinned"])
+        self.assertFalse(record["checkout"]["dirty"])
+        self.assertEqual(record["tier"], "real-fabric-installer")
+
+    def test_drifted_checkout_is_refused_and_writes_no_record(self):
+        # No mocking here: the temp checkout cannot be at the manifest pin.
+        self.assertNotEqual(self.revision, fabric_env.component_revision(REPO_ROOT))
+        with self.assertRaises(fabric_env.FabricError) as caught:
+            fabric_env.install(self.env_dir, self.repo, root=REPO_ROOT)
+        self.assertIn("manifest pins", str(caught.exception))
+        self.assertFalse(fabric_env.record_path(self.env_dir).is_file())
+        self.assertFalse((Path(self.env_dir) / "fabric").exists())
+
+    def test_nested_checkout_reports_no_revision(self):
+        # The in-repo double is nested inside the host work tree; answering with
+        # the host's HEAD would be wrong, so it reports nothing instead.
+        state = fabric_env.require_pinned_checkout(STUB.parent, "0" * 40)
+        self.assertIsNone(state["revision"])
+        self.assertFalse(state["pinned"])
+        self.assertIsNone(state["dirty"])
+
+    def test_dirty_checkout_is_recorded(self):
+        (self.repo / "scratch.txt").write_text("uncommitted\n", encoding="utf-8")
+        state = fabric_env.require_pinned_checkout(self.repo, self.revision)
+        self.assertTrue(state["pinned"])
+        self.assertTrue(state["dirty"])
+
+    def test_checkout_without_git_metadata_reports_no_revision(self):
+        plain = Path(self.work.name) / "plain"
+        plain.mkdir()
+        shutil.copy(STUB, plain / "install.py")
+        state = fabric_env.require_pinned_checkout(plain, "0" * 40)
+        self.assertIsNone(state["revision"])
+        self.assertFalse(state["pinned"])
+
+    def test_uninstall_refuses_a_checkout_at_another_revision(self):
+        pin = self.profile_pin()
+        with mock.patch.object(
+            fabric_env, "pinned_runtime", return_value=(pin, self.revision)
+        ):
+            fabric_env.install(self.env_dir, self.repo, root=REPO_ROOT)
+        (self.repo / "moved.txt").write_text("moved\n", encoding="utf-8")
+        self.commit("move the checkout off the recorded revision")
+        with self.assertRaises(fabric_env.FabricError):
+            fabric_env.uninstall(self.env_dir, fabric_root=self.repo, root=REPO_ROOT)
+        record = json.loads(fabric_env.record_path(self.env_dir).read_text("utf-8"))
+        self.assertNotIn("uninstall", record)
+        self.assertTrue(self.config.is_file())
+
+    def test_uninstall_records_the_pinned_checkout(self):
+        pin = self.profile_pin()
+        with mock.patch.object(
+            fabric_env, "pinned_runtime", return_value=(pin, self.revision)
+        ):
+            fabric_env.install(self.env_dir, self.repo, root=REPO_ROOT)
+            result = fabric_env.uninstall(
+                self.env_dir, fabric_root=self.repo, root=REPO_ROOT
+            )
+        self.assertTrue(result["checkout"]["pinned"])
+        self.assertEqual(result["checkout"]["revision"], self.revision)
 
 
 class FabricPinTests(unittest.TestCase):
