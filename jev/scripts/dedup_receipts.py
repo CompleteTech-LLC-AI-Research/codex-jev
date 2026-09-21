@@ -54,6 +54,8 @@ R_PROTECTED_TURN = "protected_turn"
 R_PROTECTED_TAIL = "protected_tail"
 R_NON_READ = "non_read_tool"
 R_OUTPUT_SHAPE = "output_shape_changed"
+R_NON_REDUCING = "non_reducing_marker"
+R_DEP_CONFLICT = "receipt_dependency_conflict"
 
 
 class ReceiptError(ValueError):
@@ -227,54 +229,88 @@ def enforce(items, outgoing, *, session: str = "", keep_recent: int = RECENT):
 
     Returns ``(items_out, report)``. The original ``items`` and ``outgoing`` are
     never mutated. Only the ``output`` string of a ``function_call_output`` may
-    change; a different count, order, shape, or any other field is refused whole.
+    change; a different count, order, or shape is refused whole
+    (``ReceiptError``). A non-result item is taken exactly as proposed: those
+    shapes belong to other stages, and this module is not their owner.
+
+    Two of the pinned component's own rules are enforced here as well, so the
+    host's guard is never weaker than the validator it mirrors. A marker must be
+    strictly shorter than the body it replaces (``non_reducing_marker``), since a
+    projection that grows the request has saved nothing; and no receipt set may
+    name a witness that is also a source (``receipt_dependency_conflict``), which
+    the component refuses as "Receipt dependencies conflict" because such a
+    receipt is no longer re-derivable from the request it accompanies.
     """
     if not isinstance(outgoing, list) or len(outgoing) != len(items):
         raise ReceiptError(R_OUTPUT_SHAPE)
     calls, results = _calls(items), _results(items)
     protected = protected_indices(items, keep_recent)
     start = turn_start(items)
-    accepted, reverted, receipts = [], [], []
-    out = []
+    reverted = []
+    pending: dict[int, tuple] = {}
     for index, original in enumerate(items):
         proposed = outgoing[index]
         if _shape(original) != _shape(proposed):
             raise ReceiptError(R_OUTPUT_SHAPE)
         if _shape(original) != "function_call_output":
-            # Non-result items belong to other stages; take the proposal unchanged.
-            out.append(proposed)
             continue
         original_body, proposed_body = _body(original), _body(proposed)
         if proposed_body == original_body:
-            out.append(original)
             continue
-        if proposed_body is None:
+        if proposed_body is None or not isinstance(original_body, str):
             reverted.append({"index": index, "reason": R_NOT_TOOL})
-            out.append(original)
             continue
         match = MARKER_RE.match(proposed_body)
         if match is None:
             reverted.append({"index": index, "reason": R_NOT_MARKER})
-            out.append(original)
             continue
         source_id, witness_id = original.get("call_id"), match.group("witness")
         if not isinstance(source_id, str) or witness_id not in results:
             reverted.append({"index": index, "reason": R_MISSING_WITNESS})
-            out.append(original)
             continue
         receipt, reason = _eligible(
             items, calls, results, protected, start, source_id, witness_id
         )
         if receipt is None:
             reverted.append({"index": index, "reason": reason})
-            out.append(original)
             continue
-        accepted.append(index)
-        receipts.append({**receipt, "session": session})
-        rebuilt = dict(original)
-        rebuilt["output"] = proposed_body
-        out.append(rebuilt)
-    return out, {"accepted": accepted, "reverted": reverted, "receipts": receipts}
+        if len(proposed_body.encode("utf-8")) >= len(original_body.encode("utf-8")):
+            # A replacement that does not shrink the request saves nothing. The
+            # component refuses these, and accepting one would mean the host's
+            # guard is weaker than the validator it mirrors. This is the last
+            # gate on an otherwise-proven replacement, so it never hides the
+            # specific proof reason above.
+            reverted.append({"index": index, "reason": R_NON_REDUCING})
+            continue
+        pending[index] = ({**receipt, "session": session}, proposed_body)
+    # A witness that is also a source makes the whole set unverifiable: the
+    # receipt for that source names a witness whose own body this same request
+    # has just replaced, so it cannot be re-derived from the emitted request. The
+    # component refuses the set, so the host reverts it whole rather than keeping
+    # the receipts it happens to like.
+    sources = {receipt["source"]["id"] for receipt, _ in pending.values()}
+    witnesses = {receipt["witness"]["id"] for receipt, _ in pending.values()}
+    if sources & witnesses or len(sources) != len(pending):
+        for index in sorted(pending):
+            reverted.append({"index": index, "reason": R_DEP_CONFLICT})
+        pending = {}
+    reverted.sort(key=lambda entry: entry["index"])
+    out = []
+    for index, original in enumerate(items):
+        if index in pending:
+            rebuilt = dict(original)
+            rebuilt["output"] = pending[index][1]
+            out.append(rebuilt)
+        elif _shape(original) == "function_call_output":
+            out.append(original)
+        else:
+            # Non-result items belong to other stages; take the proposal unchanged.
+            out.append(outgoing[index])
+    return out, {
+        "accepted": sorted(pending),
+        "reverted": reverted,
+        "receipts": [pending[index][0] for index in sorted(pending)],
+    }
 
 
 # --------------------------------------------------------------------- CLI

@@ -49,8 +49,10 @@ A projection may replace an older read body only when the request arguments and
 the result body match a later retained copy, the current user turn and the
 recent tail are protected, and the source and witness hashes validate against
 native identities. Everything else — stale receipts, changed arguments, missing
-witnesses, concurrent results — keeps the original content. Projection is
-idempotent and never removes unique evidence.
+witnesses, concurrent results, a witness that is itself a source, a marker that
+is not strictly shorter than the body it replaces — keeps the original content.
+Projection is idempotent, never removes unique evidence, and never grows the
+request.
 
 ## C4 — Approved views are reversible
 

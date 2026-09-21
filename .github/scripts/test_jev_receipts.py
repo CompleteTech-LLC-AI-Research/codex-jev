@@ -8,10 +8,13 @@ arguments and body on a later retained copy, unique native identities, outside
 the protected current turn and recent tail). Stale receipts, changed arguments
 or bodies, missing witnesses, concurrent results, and unmarked edits all keep
 the original content; enforcement is idempotent and never removes unique
-evidence.
+evidence. They also pin the two rules the pinned component enforces on itself
+(#52): a marker must be strictly shorter than the body it replaces, and no
+receipt may name a witness that is also a source.
 """
 
 import copy
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -27,6 +30,10 @@ VIEW = "jev-context-fabric.view"
 ARGS = '{"path":"a"}'
 OTHER_ARGS = '{"path":"b"}'
 BODY = "FILE A BODY"
+# A body long enough that the retained-witness marker is strictly shorter, which
+# is what makes a replacement a projection rather than an expansion. Real read
+# results are far larger; `BODY` stays short for the refusal cases.
+LONG_BODY = "FILE A BODY " * 40
 
 
 def call(call_id, name="read_file", arguments=ARGS):
@@ -44,6 +51,15 @@ def result(call_id, body=BODY):
 
 def duplicate_pair():
     return [call("call_1"), result("call_1"), call("call_2"), result("call_2")]
+
+
+def long_pair():
+    return [
+        call("call_1"),
+        result("call_1", body=LONG_BODY),
+        call("call_2"),
+        result("call_2", body=LONG_BODY),
+    ]
 
 
 def marker(witness):
@@ -66,7 +82,7 @@ class ReceiptContractTests(unittest.TestCase):
         self.assertEqual(receipt["source"]["hash"], receipt["witness"]["hash"])
 
     def test_proven_replacement_is_accepted(self):
-        items = duplicate_pair()
+        items = long_pair()
         outgoing = copy.deepcopy(items)
         outgoing[1]["output"] = marker("call_2")
         out, report = dedup_receipts.enforce(items, outgoing, keep_recent=0)
@@ -153,7 +169,7 @@ class ReceiptContractTests(unittest.TestCase):
         )
 
     def test_enforcement_is_idempotent_and_keeps_unique_evidence(self):
-        items = duplicate_pair()
+        items = long_pair()
         outgoing = copy.deepcopy(items)
         outgoing[1]["output"] = marker("call_2")
         once, _ = dedup_receipts.enforce(items, outgoing, keep_recent=0)
@@ -176,6 +192,79 @@ class ReceiptContractTests(unittest.TestCase):
         items = duplicate_pair()
         with self.assertRaises(dedup_receipts.ReceiptError):
             dedup_receipts.enforce(items, items[:-1], keep_recent=0)
+
+    def test_non_reducing_marker_is_reverted(self):
+        """A marker longer than the body it replaces saves nothing (#52 G2).
+
+        The pinned component refuses a marker that is not strictly shorter, so
+        accepting one here would leave the host's guard weaker than the validator
+        it mirrors - and would grow the request.
+        """
+
+        items = [
+            call("call_1"),
+            result("call_1", body="aaaa"),
+            call("call_2"),
+            result("call_2", body="aaaa"),
+        ]
+        outgoing = copy.deepcopy(items)
+        outgoing[1]["output"] = marker("call_2")
+        out, report = dedup_receipts.enforce(items, outgoing, keep_recent=0)
+        self.assertEqual(report["accepted"], [])
+        self.assertEqual(
+            report["reverted"][0]["reason"], dedup_receipts.R_NON_REDUCING
+        )
+        self.assertEqual(out[1]["output"], "aaaa")
+        # The acceptance criterion is about the serialized request, not the body.
+        self.assertLessEqual(len(json.dumps(out)), len(json.dumps(items)))
+
+    def test_reducing_marker_is_still_accepted(self):
+        """The reduction rule must not reject a genuine projection."""
+
+        for size in (255, 256, 2000):
+            with self.subTest(size=size):
+                body = "x" * size
+                items = [
+                    call("call_1"),
+                    result("call_1", body=body),
+                    call("call_2"),
+                    result("call_2", body=body),
+                ]
+                outgoing = copy.deepcopy(items)
+                outgoing[1]["output"] = marker("call_2")
+                out, report = dedup_receipts.enforce(items, outgoing, keep_recent=0)
+                self.assertEqual(report["accepted"], [1])
+                self.assertLess(len(json.dumps(out)), len(json.dumps(items)))
+
+    def test_marker_chain_is_reverted_whole(self):
+        """A witness that is also a source makes the set unverifiable (#52 G1).
+
+        `call_1 -> call_2` plus `call_2 -> call_3` leaves a receipt whose witness
+        body this same request has replaced, so the receipt is no longer
+        re-derivable from the request it accompanies. The component refuses the
+        set as "Receipt dependencies conflict"; the host reverts it whole.
+        """
+
+        items = [
+            call("call_1"),
+            result("call_1", body=LONG_BODY),
+            call("call_2"),
+            result("call_2", body=LONG_BODY),
+            call("call_3"),
+            result("call_3", body=LONG_BODY),
+        ]
+        outgoing = copy.deepcopy(items)
+        outgoing[1]["output"] = marker("call_2")
+        outgoing[3]["output"] = marker("call_3")
+        out, report = dedup_receipts.enforce(items, outgoing, keep_recent=0)
+        self.assertEqual(report["accepted"], [])
+        self.assertEqual(
+            [entry["reason"] for entry in report["reverted"]],
+            [dedup_receipts.R_DEP_CONFLICT, dedup_receipts.R_DEP_CONFLICT],
+        )
+        # Every hashed witness body is still present in the emitted request.
+        for index in (1, 3, 5):
+            self.assertEqual(out[index]["output"], LONG_BODY)
 
 
 class Recorder:
@@ -239,7 +328,7 @@ def single_read_request():
 
 def long_request():
     """A duplicate read far enough back that a later witness is retained."""
-    items = duplicate_pair()
+    items = long_pair()
     for n in range(16):
         items.append(
             {
@@ -287,7 +376,7 @@ class BoundaryEnforcementTests(unittest.TestCase):
         self.assertEqual(outgoing["input"][1]["output"], marker("call_2"))
         self.assertEqual(report["dedup"]["accepted"], [1])
         self.assertEqual(report["dedup"]["receipts"][0]["witness"]["id"], "call_2")
-        self.assertEqual(request["input"][1]["output"], BODY)  # caller untouched
+        self.assertEqual(request["input"][1]["output"], LONG_BODY)  # caller untouched
 
     def test_dedup_stage_is_owned_by_jev_prune_kit(self):
         registry = make_registry()
