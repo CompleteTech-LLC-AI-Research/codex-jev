@@ -31,8 +31,9 @@ is incomplete, even when a concurrency slot is free.
 | #41 | Verify the fabric checkout revision against the pinned component | #44 | merged; issue closed |
 | #15 | Native request adapter and bus boundary | #47 | merged; issue closed |
 | #16 | Duplicate-read proof receipts | #50 | merged; issue closed |
-| #17 | Approved Fabric views and reversible controls | — | in review |
-| #18–#20 | Sentinel hooks, veto precedence, screening | — | open; blocked by phase 3 |
+| #17 | Approved Fabric views and reversible controls | #53 | merged; issue closed |
+| #18 | Wire Sentinel hooks and effective coverage reporting | #60 | in review |
+| #19–#20 | Sentinel veto precedence, retrieval screening, incident operations | — | open; blocked by #18 |
 | #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
 
@@ -52,6 +53,7 @@ merged.
 | #41 | #44 | `3bfc68389c` | `9ba51473e0` |
 | #15 | #47 | `916ec10cae` | `f444b1066a` |
 | #16 | #50 | `d5276641dc` | `a7949e368e` |
+| #17 | #53 | `2bfb977a23` | `013ba38df8` |
 
 ## Pinned revisions
 
@@ -87,6 +89,11 @@ ever added as a component.
 | The host vendors `jev-bus.v1` and owns the `codex` call site. | The bus contract is owned by `jev-prune-kit` and vendored byte-identically into every participant; the host is the only component that knows where Codex builds its request, so the adapter normalizes supported shapes there and invokes the single bus owner. |
 | A stage's replacement is accepted only where the host can re-derive the proof. | The dedup stage decides which reads are duplicates, but the host re-derives the receipt (exact arguments and body on a later retained copy, unique identities, outside the protected turn and tail) and reverts every unproven edit, so a marker's claim is never taken on its own word. |
 | The outgoing array may only shrink by an item the host has approved. | A stage that removes an input item is reverted (`unapproved_removal`) unless an approved prose view, bound to the exact post-dedup snapshot, authorizes it; an approved view is refused whole when that snapshot changed or the turn was cancelled, so removal is never a stage's own authority and never touches tool, reasoning, or compaction items. |
+| Sentinel enforcement is gated by a declared switch, not by the policy's `mode`. | The phase starts in local shadow mode (C5): a finding is recorded and never vetoes until `sentinel.enforcement` is on, and an enforcing policy under an off switch still returns nothing to the host, so enforcement can never be switched on by editing a policy file alone. The shadow and enforcement switches are the only mechanism the phase reads (`JEV_SWITCH_SENTINEL_*`). |
+| The host vendors only Sentinel's serialization contract, never its detection. | The host must bound and correlate a payload before it forwards it and must know which response keys Codex supports, so `jev/scripts/jev_sentinel_adapter.py` carries `EVENTS`/`normalize`/`render`/`MAX_INPUT` from the pinned component and is proven equal to it on 26 goldens. Every verdict still comes from running the component's own `launch.py check`, so rules, thresholds, and the audit store are not duplicated. |
+| Installation is not activation, and only a probe can show activation. | Codex requires per-hook trust approval that no file on disk records, so a present `hooks.json`, a resolvable launcher, and a matching revision are necessary but never sufficient. `coverage --probe` runs the *wired command itself* and requires an audit row whose `content_sha256` and `session_ref` match a per-run-unique canary session, so neither a stale row nor a launcher that merely echoes `{}` can be mistaken for activation. |
+| A payload the host cannot bound is refused, never truncated. | A normalized event above the component's own input limit (`MAX_INPUT`) or content above the policy's `max_content_bytes` is not forwarded; the host records a fail-closed `REVIEW` incident (`backend="host_boundary"`) instead, because a shortened prompt would be assessed as if complete. |
+| Bypass surfaces are reported, not assumed away. | `coverage.bypass_surfaces` names each observed way a finding is skipped or an action left ungated — `native_disable_all_hooks`, `hook_not_wired`, `launcher_unreachable`, `tools_outside_matcher`/`matcher_opaque`, `post_tool_replacement_unsupported`, `ingress_scope_is_prompt_only`, `local_rules_only`, `host_trust_unverified`, `component_revision_mismatch`, `integration_switch_off` — so the uncovered space is explicit. Only a canary through the wired command can show a hook is active, because a shadow response is `{}`. |
 
 ## Evidence
 
@@ -100,6 +107,7 @@ ever added as a component.
 | [`BUS_BOUNDARY.md`](BUS_BOUNDARY.md) | The single request-construction boundary and its file/line anchors, the supported vs opaque shapes, the invocation invariants, and the fixture plus transport runs. |
 | [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) | Duplicate-read proof receipts: the receipt the host proves, the reasons it reverts, and the enforcement invariants (#16). |
 | [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md) | Approved, reversible Fabric prose views: the snapshot binding, preview/apply/reset, the eligibility rules, and the byte/token split (#17). |
+| [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) | The Sentinel hook boundary: the three events, the two switches, the payload bound and refusal, effective coverage, the activation probe, the incident envelope, and the bypass surfaces (#18). |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being

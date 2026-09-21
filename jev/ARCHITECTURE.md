@@ -4,7 +4,8 @@
 
 ```mermaid
 flowchart TD
-    C[Codex session] --> F[Fabric capture and retrieval]
+    C[Codex session] --> I[Sentinel prompt check]
+    I --> F[Fabric capture and retrieval]
     F --> P[Native jev-bus projection: dedup then approved prose view]
     P --> M[Codex model request]
     M --> S[Sentinel pre-tool checks]
@@ -24,7 +25,7 @@ flowchart TD
 | `jev_bus` stage ordering and single invocation | `jev-prune-kit` contract, hosted by the native adapter in this repository | Stage 100 is duplicate-read dedup; stage 200 is the approved Fabric view. |
 | Event envelope and correlation identifiers | this repository | Other components emit envelopes; only the host defines the schema. |
 | Memory tools and retrieval | `jev-context-fabric` | Capture happens before projection; retrieval is budgeted and source-backed. |
-| Boundary observation and vetoes | `jev-sentinel` | Shadow first; enforcement only where a veto is representable. |
+| Boundary observation and vetoes | `jev-sentinel` | Prompt, pre-tool, and post-tool; shadow first; enforcement only where a veto is representable. Host carrier in [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md). |
 | Approval preflight | `jev-codex-approval` | Eligible review attempts only; failure or uncertainty defers to the existing reviewer. |
 | Authorization, sandbox, cancellation, compaction, final execution | this repository (host) | Never delegated to a component. |
 
