@@ -23,6 +23,8 @@ Tracking epic: [CompleteTech-LLC-AI-Research/codex-jev#2](https://github.com/Com
 | `scripts/jev_manifest.py` | The validation rules, importable from tests. |
 | `tests/` | Focused tests for every validation rule. |
 | `patches/` | Ordered, digest-pinned patches applied to the pinned host source. |
+| `smoke/` | Host-driven plaintext smoke: a real host runs a parent/child turn against a loopback mock. |
+| `evidence/` | Recorded runs: what was executed, on which revision, and what was not. |
 
 ## Scope
 

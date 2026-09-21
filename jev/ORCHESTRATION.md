@@ -20,16 +20,19 @@ is incomplete, even when a concurrency slot is free.
 
 ## Status
 
-| Issue | Scope | Owner | Branch | PR | State |
-| --- | --- | --- | --- | --- | --- |
-| #9 | Compatibility manifest and integration contracts | lead (integration) | `jev/1.1-compatibility-manifest` | #31 | in review |
-| #10 | Plaintext collaboration in the pinned build | lead (native/Rust) | `jev/1.2-plaintext` | pending | blocked by #9 |
-| #11 | Isolated build and integration profile | lead (integration) | `jev/1.3-profile` | pending | blocked by #10 |
-| #12–#14 | Fabric binding, capture, retrieval | unassigned | — | — | blocked by phase 1 |
-| #15–#17 | Native bus adapter, receipts, views | unassigned | — | — | blocked by phase 2 |
-| #18–#20 | Sentinel hooks, veto precedence, screening | unassigned | — | — | blocked by phase 3 |
-| #21–#23 | Approval preflight, binding, shadow comparison | unassigned | — | — | blocked by phase 4 |
-| #24–#26 | Regression, live-host validation, release package | unassigned | — | — | blocked by phase 5 |
+| Issue | Scope | PR | State |
+| --- | --- | --- | --- |
+| #9 | Compatibility manifest and integration contracts | #28, #31 | merged; issue closed |
+| #10 | Plaintext collaboration in the pinned build | #32, #37 | merged; issue closed |
+| #11 | Isolated build and integration profile | #35 | merged; issue closed |
+| #12 | Fabric runtime and MCP bound to the isolated workspace | #38 | merged; issue closed |
+| #13–#14 | Canonical capture, budgeted retrieval | — | open; blocked by #12 |
+| #15–#17 | Native bus adapter, receipts, views | — | open; blocked by phase 2 |
+| #18–#20 | Sentinel hooks, veto precedence, screening | — | open; blocked by phase 3 |
+| #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
+| #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
+
+State above is the GitHub state of each issue and PR, not a local plan.
 
 ## Pinned revisions
 
@@ -60,11 +63,22 @@ ever added as a component.
 | Shared interfaces have exactly one declared owner. | One writable owner per shared interface keeps the transformation boundary unambiguous. |
 | Concurrent duplicate work is consolidated into one canonical change per issue. | Three sessions opened an implementation of #9 at once (#27, #28, #29); merging duplicates would land incompatible trees, so the strongest artifact was adopted, its defects fixed, and the duplicates closed with a cross-reference. |
 
+## Evidence
+
+| Artifact | Covers |
+| --- | --- |
+| [`evidence/plaintext-pinned-build.md`](evidence/plaintext-pinned-build.md) | The host-driven plaintext smoke (real host, loopback mock) and the isolated-profile checks, with the unpatched pinned base as a negative control. |
+| [`ISOLATED_ENV.md`](ISOLATED_ENV.md) | How to build the pinned host and run the isolated profile offline. |
+
+The plaintext smoke is the real parent/child turn that #10's acceptance criteria
+ask for; the focused transport tests alone could not show a child agent being
+spawned, so both are recorded. The live-provider tier remains untouched.
+
 ## Open blockers
 
 | Blocker | Affected issues | Status |
 | --- | --- | --- |
 | Live-provider evidence needs explicit consent and a positive budget. | #10, #17, #22, #23, #25 | Open; offline and real-host-mocked-service tiers still run. |
-| Real parent/child smoke with a live model requires the same consent. | #10 | Open; the focused transport tests run offline. |
+| A live-model parent/child smoke requires the same consent. | #10 | Open for the live tier only; a real parent/child turn against a loopback mock now runs in `jev/smoke/` and is recorded in `jev/evidence/`. |
 | Every session authenticates to GitHub as one account, so "author ≠ reviewer" cannot be met with a second identity. | all | Open; reviews are recorded as self-review comments backed by reproducible automated checks. |
 | The private key for the GitHub-verified commits in this repository is not on this machine. | all | Open; commits are pushed unsigned and GitHub reports them unverified. |
