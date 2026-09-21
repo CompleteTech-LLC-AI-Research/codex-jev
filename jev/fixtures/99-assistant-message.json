@@ -1,0 +1,43 @@
+{
+  "fixture_version": 1,
+  "id": "assistant_message",
+  "tier": "offline-fixture",
+  "priority": 1000,
+  "description": "Fallback fixture: one deterministic assistant message and a completion. Matches any request that no more specific fixture claims.",
+  "match": {},
+  "events": [
+    {
+      "type": "response.created",
+      "response": {
+        "id": "resp-offline-assistant"
+      }
+    },
+    {
+      "type": "response.output_item.done",
+      "item": {
+        "type": "message",
+        "role": "assistant",
+        "id": "msg-offline-assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "jev offline fixture reply"
+          }
+        ]
+      }
+    },
+    {
+      "type": "response.completed",
+      "response": {
+        "id": "resp-offline-assistant",
+        "usage": {
+          "input_tokens": 0,
+          "input_tokens_details": null,
+          "output_tokens": 0,
+          "output_tokens_details": null,
+          "total_tokens": 0
+        }
+      }
+    }
+  ]
+}

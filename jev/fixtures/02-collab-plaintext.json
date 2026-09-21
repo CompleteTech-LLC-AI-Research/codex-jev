@@ -1,0 +1,41 @@
+{
+  "fixture_version": 1,
+  "id": "collab_plaintext",
+  "tier": "offline-fixture",
+  "priority": 20,
+  "description": "Collaboration spawn_agent call whose message argument is reported as not encrypted. The pinned build must deliver the child a readable payload; an unpatched build would not reach this shape because it still requests encryption.",
+  "match": {
+    "body_contains": "JEV_FIXTURE_COLLAB_PLAINTEXT"
+  },
+  "events": [
+    {
+      "type": "response.created",
+      "response": {
+        "id": "resp-offline-collab-plaintext"
+      }
+    },
+    {
+      "type": "response.output_item.done",
+      "item": {
+        "type": "function_call",
+        "name": "spawn_agent",
+        "namespace": "collaboration",
+        "arguments": "{\"task_name\":\"offline-worker\",\"message\":\"offline plaintext task\"}",
+        "call_id": "call-offline-collab-plaintext"
+      }
+    },
+    {
+      "type": "response.completed",
+      "response": {
+        "id": "resp-offline-collab-plaintext",
+        "usage": {
+          "input_tokens": 0,
+          "input_tokens_details": null,
+          "output_tokens": 0,
+          "output_tokens_details": null,
+          "total_tokens": 0
+        }
+      }
+    }
+  ]
+}
