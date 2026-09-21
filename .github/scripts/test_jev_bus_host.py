@@ -58,7 +58,14 @@ RUST_ENV_NAMES = {
 
 
 def sample_request():
-    """One outgoing request with a repeated read, prose, and an opaque item."""
+    """One outgoing request with a repeated read, prose, and opaque items.
+
+    The duplicate read sits well before the current user turn and is followed by
+    a long opaque tail, so the host's own receipt enforcement can *prove* the
+    replacement instead of reverting it. That keeps this test pinned to the
+    boundary wiring while still exercising the accepted path end to end.
+    """
+    body = "FILE A BODY " + "x" * 300
     return {
         "model": "koffing",
         "instructions": "system",
@@ -77,7 +84,7 @@ def sample_request():
             {
                 "type": "function_call_output",
                 "call_id": "call_1",
-                "output": "FILE A BODY",
+                "output": body,
             },
             {
                 "type": "message",
@@ -93,13 +100,21 @@ def sample_request():
             {
                 "type": "function_call_output",
                 "call_id": "call_2",
-                "output": "FILE A BODY",
+                "output": body,
             },
+            *[
+                {
+                    "type": "reasoning",
+                    "id": f"r_{index}",
+                    "summary": [{"type": "summary_text", "text": f"think {index}"}],
+                    "encrypted_content": None,
+                }
+                for index in range(16)
+            ],
             {
-                "type": "reasoning",
-                "id": "r_1",
-                "summary": [{"type": "summary_text", "text": "think"}],
-                "encrypted_content": None,
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "now summarise"}],
             },
         ],
     }
@@ -153,8 +168,9 @@ class SwitchContractTests(unittest.TestCase):
             {isolated_env.switch_name(feature) for feature in self.plan["features"]},
         )
         for feature, enabled in self.plan["features"].items():
-            self.assertEqual(self.switch[isolated_env.switch_name(feature)],
-                             "1" if enabled else "0")
+            self.assertEqual(
+                self.switch[isolated_env.switch_name(feature)], "1" if enabled else "0"
+            )
 
     def test_the_projection_switches_are_readable_by_name(self):
         for feature in ("projection.dedup_receipts", "projection.fabric_views"):
@@ -200,14 +216,20 @@ class BoundaryChainTests(unittest.TestCase):
             report["applied"], ["jev-prune.dedup", "jev-context-fabric.view"]
         )
         outgoing = payload["request"]["input"]
-        # The earlier duplicate read is replaced; the retained copy is not.
-        self.assertTrue(outgoing[2]["output"].startswith("[jev-fixture]"))
-        self.assertEqual(outgoing[5]["output"], "FILE A BODY")
+        # The earlier duplicate read is replaced by a marker naming the retained
+        # witness; the witness copy itself is untouched.
+        self.assertTrue(outgoing[2]["output"].startswith("[Jev prune: repeated"))
+        self.assertIn("call_2", outgoing[2]["output"])
+        self.assertEqual(outgoing[5]["output"], canonical["input"][5]["output"])
         # Assistant prose carries the view marker; the opaque item is untouched.
-        self.assertTrue(outgoing[3]["content"][0]["text"].startswith("[jev-fixture view]"))
+        self.assertTrue(
+            outgoing[3]["content"][0]["text"].startswith("[jev-fixture view]")
+        )
         self.assertEqual(outgoing[6], canonical["input"][6])
-        # Order and membership are preserved, and the source request is not.
+        # Order and membership are preserved, the outgoing view is smaller, and
+        # the source request the caller handed over is untouched.
         self.assertEqual(len(outgoing), len(canonical["input"]))
+        self.assertLess(len(json.dumps(outgoing)), len(json.dumps(canonical["input"])))
         self.assertEqual(request, canonical)
 
     def test_each_applied_stage_writes_one_receipt(self):
@@ -218,15 +240,18 @@ class BoundaryChainTests(unittest.TestCase):
             {"projection.dedup_receipts": True, "projection.fabric_views": True},
         )
         receipts = outputs(result)["report"]["receipts"]
-        self.assertEqual([receipt["kind"] for receipt in receipts],
-                         ["projection_receipt", "projection_receipt"])
+        self.assertEqual(
+            [receipt["kind"] for receipt in receipts],
+            ["projection_receipt", "projection_receipt"],
+        )
         self.assertEqual([receipt["stage"] for receipt in receipts], [100, 200])
         self.assertEqual(
             [receipt["component"] for receipt in receipts],
             ["jev-prune-kit", "jev-context-fabric"],
         )
-        self.assertEqual([receipt["session_id"] for receipt in receipts],
-                         ["session-1", "session-1"])
+        self.assertEqual(
+            [receipt["session_id"] for receipt in receipts], ["session-1", "session-1"]
+        )
 
     def test_disabled_switches_never_register_a_stage(self):
         request = sample_request()
@@ -252,6 +277,10 @@ class BoundaryChainTests(unittest.TestCase):
         payload = outputs(result)
         self.assertEqual(payload["request"], request)
         self.assertEqual(payload["report"]["applied"], [])
+        # A stage that declined projected nothing, so it earns no receipt even
+        # though the bus still records that it was invoked.
+        self.assertEqual(payload["report"]["invoked"], ["jev-prune.dedup"])
+        self.assertEqual(payload["report"]["receipts"], [])
         self.assertEqual(
             [note["action"] for note in payload["report"]["notes"]], ["passthrough"]
         )

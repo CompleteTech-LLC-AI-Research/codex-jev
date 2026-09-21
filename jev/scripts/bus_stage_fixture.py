@@ -9,7 +9,10 @@ machine where the owning packages are not installed. It serves exactly one
 Modes (``JEV_BUS_FIXTURE_MODE``):
 
 ``dedup``    replace the *earlier* of two identical tool-result bodies with a
-             retained-evidence marker; the array length and order never change.
+             retained-evidence marker naming the later copy; the array length
+             and order never change. The marker is the real ``C3`` marker text,
+             because the stage only *proposes* a replacement: the host's own
+             receipt enforcement decides whether the request can prove it.
 ``view``     replace assistant prose with an approved-view marker.
 ``decline``  report ``ok: false``, which the bus must treat as passthrough.
 ``fail``     exit non-zero, which the bus must treat as passthrough.
@@ -32,11 +35,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import dedup_receipts
 import jev_bus
 
 TIER = "offline-fixture"
-DEDUP_MARKER = "[jev-fixture] duplicate read body retained at {index}"
-VIEW_MARKER = "[jev-fixture view] {text}"
+VIEW_MARKER = "[jev-fixture view]"
 
 
 def _fail(detail: str) -> int:
@@ -54,15 +57,35 @@ def _argv_mode(argv):
     return None
 
 
-def _tool_bodies(messages):
-    """Index every tool-result message that carries a text body."""
-    return [
-        (index, message.get("content"))
-        for index, message in enumerate(messages)
-        if isinstance(message, dict)
-        and message.get("_jev_shape") == "function_call_output"
-        and isinstance(message.get("content"), str)
-    ]
+def _read_pairs(messages):
+    """Group repeated reads by ``(tool, arguments, body)`` over their call ids.
+
+    The stage sees the bus view, so a call is its ``tool_calls`` entry and a
+    result is its text body keyed by ``tool_call_id``. Nothing here judges
+    eligibility: the protected turn, the recent tail, and the receipt proof are
+    the host's business, and a proposal the host cannot prove is reverted.
+    """
+    calls, results = {}, {}
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if message.get("_jev_shape") == "function_call":
+            for call in message.get("tool_calls") or []:
+                function = call.get("function") or {}
+                calls[call.get("id")] = (
+                    function.get("name", ""),
+                    function.get("arguments", ""),
+                )
+        elif message.get("_jev_shape") == "function_call_output":
+            call_id = message.get("tool_call_id")
+            if isinstance(call_id, str) and isinstance(message.get("content"), str):
+                results[call_id] = message["content"]
+    groups = {}
+    for call_id, body in results.items():
+        if call_id not in calls:
+            continue
+        groups.setdefault((*calls[call_id], body), []).append(call_id)
+    return groups
 
 
 def _dedup(messages):
@@ -71,22 +94,29 @@ def _dedup(messages):
     Length and order are preserved, which is what lets a downstream stage keep
     keying messages by position.
     """
-    seen = {}
+    position = {
+        message.get("tool_call_id"): index
+        for index, message in enumerate(messages)
+        if isinstance(message, dict)
+        and message.get("_jev_shape") == "function_call_output"
+    }
     replaced = []
-    for index, body in _tool_bodies(messages):
-        if body in seen:
-            earlier = seen[body]
-            messages[earlier] = {**messages[earlier]}
-            messages[earlier]["content"] = DEDUP_MARKER.format(index=index)
-            replaced.append(earlier)
-        else:
-            seen[body] = index
+    for members in _read_pairs(messages).values():
+        if len(members) < 2:
+            continue
+        ordered = sorted(members, key=lambda call_id: position[call_id])
+        witness = ordered[-1]
+        for call_id in ordered[:-1]:
+            index = position[call_id]
+            messages[index] = {**messages[index]}
+            messages[index]["content"] = dedup_receipts.MARKER.format(witness=witness)
+            replaced.append(index)
     if not replaced:
         return messages, {"action": "passthrough", "detail": "no duplicate read body"}
     return messages, {
         "action": "replaced duplicate read bodies",
         "count": len(replaced),
-        "detail": "earlier copies retained elsewhere in the transcript",
+        "detail": "earlier copies replaced by a retained-witness marker",
         "id": jev_bus.digest(jev_bus.dumps(sorted(replaced))),
     }
 
@@ -102,7 +132,7 @@ def _view(messages):
         ):
             messages[index] = {
                 **message,
-                "content": VIEW_MARKER.format(text=message["content"]),
+                "content": VIEW_MARKER,
             }
             viewed.append(index)
     if not viewed:
@@ -130,7 +160,9 @@ def serve(request: dict, mode: str) -> dict:
         }
     if mode == "decline":
         return {"ok": False, "detail": "fixture declined"}
-    produced, note = _dedup(list(messages)) if mode == "dedup" else _view(list(messages))
+    produced, note = (
+        _dedup(list(messages)) if mode == "dedup" else _view(list(messages))
+    )
     note["tier"] = TIER
     return {"ok": True, "messages": produced, "notes": [note]}
 

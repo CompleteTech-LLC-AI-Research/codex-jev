@@ -7,6 +7,11 @@ their own repositories and are consumed here at the exact revisions recorded in
 
 Tracking epic: [CompleteTech-LLC-AI-Research/codex-jev#2](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/2).
 
+One host-side native module lives outside this directory:
+`codex-rs/core/src/jev_bus.rs` is the boundary the host itself invokes, and
+`jev/patches/0002-jev-bus-boundary.patch` is the recorded source change that
+installs its call site. Everything else the integration owns is here.
+
 ## What is in here
 
 | Path | Purpose |
@@ -22,6 +27,7 @@ Tracking epic: [CompleteTech-LLC-AI-Research/codex-jev#2](https://github.com/Com
 | `scripts/retrieval.py` | Return budgeted, source-backed excerpts and hydrate exact references, marked untrusted and never authoritative. |
 | `scripts/bus_boundary.py` | The native request adapter and jev-bus boundary: normalize the host's `input` shapes and invoke the single bus owner (dedup stage 100, Fabric view stage 200). |
 | `scripts/jev_bus.py` | The `jev-bus.v1` contract, vendored byte-identically to the pinned component copies. |
+| `scripts/bus_stage_fixture.py` | A labelled `offline-fixture` jev-bus stage that stands in for a component, so the boundary can be exercised end to end where the owning packages are not installed. |
 | `scripts/dedup_receipts.py` | Host-side enforcement of the duplicate-read receipt contract (C3): keep only dedup replacements a receipt proves, revert every other edit. |
 | `scripts/fabric_views.py` | Approved, reversible Fabric prose views (C4): preview/apply/reset, bound to the post-dedup snapshot, with bytes and tokens reported separately. |
 | `scripts/sentinel_boundary.py` | The Sentinel hook boundary (C5): normalize and bound the prompt/pre-tool/post-tool events, run the pinned evaluator, record correlated incidents, and report effective coverage and activation. |

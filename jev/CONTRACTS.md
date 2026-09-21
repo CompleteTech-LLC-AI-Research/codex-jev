@@ -31,10 +31,17 @@ paths) calls exactly one bus owner, in order:
 Unsupported message shapes pass through untouched. The canonical transcript is
 never mutated; only the outgoing request payload is replaced.
 
-The host's carrier is `jev/scripts/bus_boundary.py`, which normalizes the
-supported `ResponseItem` shapes, invokes the vendored `jev-bus.v1` contract once,
-and asserts the stage order and owners against `events.stages`. See
-[`BUS_BOUNDARY.md`](BUS_BOUNDARY.md).
+The host's half of the boundary is the module `codex-rs/core/src/jev_bus.rs`,
+applied to the pinned base as the ordered patch `0002-jev-bus-boundary`. It is
+the only caller at the request-construction site: the outgoing array is handed
+to `jev/scripts/bus_boundary.py` at most once per request, and the returned
+array replaces the payload only when it still has the same item count. Every
+other outcome - a disabled switch, no registered stage, a missing adapter, a
+timeout, a non-zero exit, or output that is not the expected view - leaves the
+caller's input unchanged, so a boundary that cannot prove its own result never
+narrows the request. The adapter normalizes the supported `ResponseItem` shapes,
+invokes the vendored `jev-bus.v1` contract once, and asserts the stage order and
+owners against `events.stages`. See [`BUS_BOUNDARY.md`](BUS_BOUNDARY.md).
 
 ## C3 — Duplicate-read receipts
 

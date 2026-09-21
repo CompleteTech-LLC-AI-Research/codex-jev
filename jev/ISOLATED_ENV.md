@@ -114,6 +114,31 @@ Switches reach the runtime as `JEV_SWITCH_<NAME>` (`1`/`0`), for example
 `JEV_SWITCH_SENTINEL_SHADOW=0`. Later phases read that contract instead of
 guessing at upstream Codex flags.
 
+### The projection boundary's environment
+
+The projection switches are read by two processes: the host module
+`codex-rs/core/src/jev_bus.rs`, which decides whether to invoke the adapter, and
+`jev/scripts/bus_boundary.py`, which reads the same `JEV_SWITCH_*` names to
+decide which stages to register. `isolated_env.switch_env()` exports exactly the
+prefixed names both read - a plan's own `features` mapping is the bare-name view
+of the same state - and `isolated_env.bus_env()` adds the rest of the contract
+the launcher passes to the child:
+
+| Variable | Value |
+| --- | --- |
+| `JEV_BUS_ADAPTER` | `<checkout>/jev/scripts/bus_boundary.py`. |
+| `JEV_BUS_PYTHON` | The interpreter that runs the launcher, so the adapter matches the profile. |
+| `JEV_BUS_WORKSPACE` | The plan's `home`, so receipts carry the isolated workspace label. |
+
+`JEV_BUS_STAGE_DEDUP` and `JEV_BUS_STAGE_FABRIC_VIEW` are deliberately *not*
+set: a stage is registered only when the environment supplies its command, so an
+unconsummated profile registers nothing and the host passes the request through.
+Pointing them at installed component entry points is what turns the chain on;
+`JEV_BUS_TIMEOUT_MS` bounds one invocation and defaults to 15000 ms.
+
+`launch_isolated.py --dry-run` reports the resolved `switch_env` and `bus_env`,
+so the contract can be inspected without starting a binary.
+
 ## Fabric runtime and MCP binding
 
 Phase #4 binds the pinned context fabric to this environment with
