@@ -198,11 +198,18 @@ python3 jev/scripts/release_readiness.py record-platform \
   --codex <binary> --kit <jev-prune-kit-checkout>
 ```
 
-The gate marks a platform `stale` when the record's pinned-input digest no
-longer matches the tree, when the recorded revision is not an ancestor of `HEAD`
-(when the revision is resolvable), or when the record claims a `live-provider`
-tier. `release_ready` therefore stays `false` while any supported platform has no
-current run - that is the intended outcome, not a bug.
+The gate credits a platform only when its record is `verified`; every other
+outcome refuses it and is named in the gate detail:
+
+- `stale` - the pinned-input digest no longer matches the tree, or the recorded
+  revision resolves but is not an ancestor of `HEAD`;
+- `unverifiable` - the recorded revision does not resolve in this clone, so the
+  binding cannot be checked; an unresolvable revision is **not** a pass;
+- `fail` - the record claims a `live-provider` tier, records no harness result,
+  or omits a revision or a successful harness verdict.
+
+`release_ready` therefore stays `false` while any supported platform has no
+current, verifiable run - that is the intended outcome, not a bug.
 
 ## 9. Release gates
 
@@ -300,6 +307,13 @@ same revision produce the same bytes whatever the output path.
   workflow relies on is `repo-checks / build-test`.
 - `main` carries no branch protection, so there is no enforceable required-check
   rule; merges rely on the checks recorded in each PR.
+- Two follow-ups that weakened the gate bindings are now **fixed**: #97 by #99 —
+  a record whose `revision` is unresolvable in the local clone is refused as
+  `unverifiable` rather than credited; and #98 (this change) —
+  `gates --skip-roundtrip` emits the round-trip gate as `not-run` instead of
+  dropping it, so a `release_ready: true` document is no longer reachable with
+  the round trip never proven. Both are recorded in
+  [`evidence/release-phase-claim.md`](evidence/release-phase-claim.md).
 
 ## 13. Recorded evidence
 
@@ -308,6 +322,7 @@ same revision produce the same bytes whatever the output path.
 | [`evidence/platform-matrix.json`](evidence/platform-matrix.json)           | the recorded real-host platform run and the gates' freshness inputs |
 | [`VALIDATION.md`](VALIDATION.md)                                           | offline, real-host, and live-provider tiers                         |
 | [`END_TO_END.md`](END_TO_END.md)                                           | the composed regression harness and its tiers                       |
+| [`evidence/release-phase-claim.md`](evidence/release-phase-claim.md)       | the composed phase-6 release verdict and why it is `false` here      |
 | [`evidence/plaintext-pinned-build.md`](evidence/plaintext-pinned-build.md) | the plaintext collaboration host run                                |
 | [`evidence/projection-real-host.md`](evidence/projection-real-host.md)     | the projection and exact-reset host run                             |
 | [`ISOLATED_ENV.md`](ISOLATED_ENV.md)                                       | build and isolated-environment instructions                         |

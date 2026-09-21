@@ -744,8 +744,10 @@ def derive_pinned_inputs(repo_root: Path) -> dict:
 def revision_reachable(repo_root: Path, revision) -> bool | None:
     """Is ``revision`` present and an ancestor of HEAD?
 
-    ``None`` means the revision is not resolvable here (a shallow clone), so the
-    question cannot be answered rather than answered falsely.
+    ``None`` means the revision is not resolvable in this clone, so the question
+    cannot be answered here. ``None`` is **not** a verification: callers must
+    credit a record only on ``True`` and refuse it on anything else, so a shallow
+    or invented revision can never inherit a pass.
     """
     if not revision:
         return False
@@ -775,6 +777,43 @@ def revision_reachable(repo_root: Path, revision) -> bool | None:
     return ancestor.returncode == 0
 
 
+def classify_platform_record(
+    record: dict, current_inputs: str, reachable: bool | None
+) -> tuple[str, str]:
+    """Decide one platform record's row status from its evidence alone.
+
+    Returns ``(status, reason)``; only ``verified`` is evidence a release may
+    credit. ``reachable`` is the outcome of :func:`revision_reachable` for the
+    record's revision, and anything other than ``True`` refuses the record: a
+    revision that is not an ancestor of HEAD is ``stale``, and one that is not
+    resolvable in this clone is ``unverifiable`` - which is not a pass.
+    """
+    harness = record.get("harness") or {}
+    claims_live = any(
+        isinstance(entry, dict) and entry.get("tier") == TIER_LIVE
+        for entry in harness.values()
+    )
+    if not harness or claims_live:
+        return "fail", "claims a live-provider tier or records no harness result"
+    if record.get("pinned_inputs_digest") != current_inputs:
+        return "stale", "the record predates the current pinned inputs"
+    if reachable is False:
+        return "stale", "the recorded revision is not an ancestor of HEAD"
+    if reachable is None:
+        return (
+            "unverifiable",
+            "the recorded revision is not resolvable in this clone; fetch the "
+            "object or re-record the run before release",
+        )
+    ok = bool(record.get("revision")) and all(
+        isinstance(entry, dict) and entry.get("ok") is True
+        for entry in harness.values()
+    )
+    if ok:
+        return "verified", "revision reachable, pinned inputs current, harness ok"
+    return "fail", "the record is missing a revision or a harness result is not ok"
+
+
 def evaluate_platform_gate(repo_root: Path, manifest: dict) -> dict:
     supported = manifest["host"]["platforms"]["supported"]
     reference = manifest["host"]["platforms"]["reference"]
@@ -785,6 +824,7 @@ def evaluate_platform_gate(repo_root: Path, manifest: dict) -> dict:
     blockers: list[str] = []
     malformed: list[str] = []
     stale: list[str] = []
+    unverifiable: list[str] = []
     verified: list[str] = []
     for name in supported:
         record = None
@@ -811,34 +851,22 @@ def evaluate_platform_gate(repo_root: Path, manifest: dict) -> dict:
             "revision": record.get("revision"),
             "binary_sha256": record.get("binary_sha256"),
         }
-        claims_live = any(
-            isinstance(entry, dict) and entry.get("tier") == TIER_LIVE
-            for entry in harness.values()
+        status, reason = classify_platform_record(
+            record,
+            current_inputs,
+            revision_reachable(repo_root, record.get("revision")),
         )
-        if not harness or claims_live:
-            malformed.append(name)
-            blockers.append(name)
-            rows.append({**row, "status": "fail"})
-            continue
-        if record.get("pinned_inputs_digest") != current_inputs:
-            stale.append(name)
-            blockers.append(name)
-            rows.append({**row, "status": "stale"})
-            continue
-        if revision_reachable(repo_root, record.get("revision")) is False:
-            stale.append(name)
-            blockers.append(name)
-            rows.append({**row, "status": "stale"})
-            continue
-        ok = bool(record.get("revision")) and all(
-            isinstance(entry, dict) and entry.get("ok") is True
-            for entry in harness.values()
-        )
-        rows.append({**row, "status": "verified" if ok else "fail"})
-        if ok:
+        rows.append({**row, "status": status, "reason": reason})
+        if status == "verified":
             verified.append(name)
+            continue
+        blockers.append(name)
+        if status == "stale":
+            stale.append(name)
+        elif status == "unverifiable":
+            unverifiable.append(name)
         else:
-            blockers.append(name)
+            malformed.append(name)
     if malformed:
         status = "fail"
         detail = "; ".join(
@@ -848,8 +876,16 @@ def evaluate_platform_gate(repo_root: Path, manifest: dict) -> dict:
     elif stale:
         status = "not-run"
         detail = (
-            "recorded run predates the current pinned inputs for "
-            f"{', '.join(stale)}; re-record it before release"
+            "the recorded run for "
+            f"{', '.join(stale)} is stale (pinned inputs changed or the revision "
+            "is not an ancestor of HEAD); re-record it before release"
+        )
+    elif unverifiable:
+        status = "not-run"
+        detail = (
+            "the recorded revision for "
+            f"{', '.join(unverifiable)} is not resolvable in this clone; fetch the "
+            "object or re-record the run before release"
         )
     elif blockers:
         status = "not-run"
@@ -1031,6 +1067,20 @@ def evaluate_gates(
             if owned_scratch:
                 shutil.rmtree(scratch, ignore_errors=True)
         gates.append(roundtrip_record["gate"])
+    else:
+        # A skipped round trip is not a pass and not an omission: it is emitted
+        # as `not-run`, so it blocks `release_ready` instead of disappearing from
+        # the conjunction (issue #98). The flag's own contract is "not-run".
+        gates.append(
+            _gate(
+                "isolated.roundtrip",
+                "A fresh isolated setup reproduces the validated configuration and rolls back.",
+                "not-run",
+                "not-run",
+                TIER_OFFLINE,
+                "the round trip was skipped (--skip-roundtrip); run it before crediting release readiness",
+            )
+        )
 
     candidate_record = evaluate_candidate_gate(repo_root)
     gates.append(candidate_record["gate"])
