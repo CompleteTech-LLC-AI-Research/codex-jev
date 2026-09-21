@@ -83,7 +83,14 @@ FORBIDDEN_PATTERNS = (
     ".netrc",
     "tokens.json",
 )
-FORBIDDEN_SEGMENTS = (".git", ".jev", "__pycache__", "node_modules", "rollouts", "sessions")
+FORBIDDEN_SEGMENTS = (
+    ".git",
+    ".jev",
+    "__pycache__",
+    "node_modules",
+    "rollouts",
+    "sessions",
+)
 
 # Lengths are deliberately conservative: only a realistically long value is
 # treated as a credential, so a short illustrative token in documentation is not
@@ -95,7 +102,10 @@ SECRET_PATTERNS = (
     ("aws_key_id", re.compile(r"AKIA[0-9A-Z]{16}")),
     ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("bearer", re.compile(r"[Bb]earer [A-Za-z0-9._~+/-]{48,}")),
-    ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{24,}")),
+    (
+        "jwt",
+        re.compile(r"\beyJ[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{24,}"),
+    ),
 )
 
 # A match that carries one of these is a labelled fixture, not a credential.
@@ -291,7 +301,9 @@ def release_record(root, manifest, payloads, exempt):
         "manifest_sha256": sha256_bytes(payloads["jev/compatibility-manifest.json"]),
         "member_count": len(payloads),
         "members_note": "sha256 of every archived member except this record itself",
-        "members": {path: sha256_bytes(data) for path, data in sorted(payloads.items())},
+        "members": {
+            path: sha256_bytes(data) for path, data in sorted(payloads.items())
+        },
         "exclusions": {
             "rule": "only git-tracked paths are eligible; the deny-list fails closed",
             "forbidden_patterns": list(FORBIDDEN_PATTERNS),
@@ -535,7 +547,9 @@ def verify(archive, expect_revision=None):
         try:
             manifest = json.loads(manifest_bytes.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            errors.append(f"E_ARTIFACT_MANIFEST: the manifest is not valid JSON: {error}")
+            errors.append(
+                f"E_ARTIFACT_MANIFEST: the manifest is not valid JSON: {error}"
+            )
         else:
             base = (manifest.get("host") or {}).get("base_commit")
             pinned = (record.get("host") or {}).get("base_commit")

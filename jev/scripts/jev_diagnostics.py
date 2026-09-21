@@ -33,7 +33,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import isolated_env
 import jev_manifest
-import offline_fixtures
 import release_artifact
 
 DIAGNOSTICS_VERSION = 1
@@ -254,7 +253,8 @@ def evaluate(document, expect_patch_state=None, expect_native_adapter=None):
         )
     if not document["manifest"]["ok"]:
         failures += [
-            f"E_DIAGNOSTICS_MANIFEST: {error}" for error in document["manifest"]["errors"]
+            f"E_DIAGNOSTICS_MANIFEST: {error}"
+            for error in document["manifest"]["errors"]
         ]
     for profile in document["profiles"]:
         if not profile["ok"]:

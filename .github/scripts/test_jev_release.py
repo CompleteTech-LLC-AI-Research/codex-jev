@@ -154,7 +154,9 @@ class CandidateArtifactTests(unittest.TestCase):
                 REPO_ROOT / "jev" / "compatibility-manifest.json", "manifest"
             )["host"]["base_commit"],
         )
-        self.assertEqual(self.result["source_revision"], git(REPO_ROOT, "rev-parse", "HEAD").strip())
+        self.assertEqual(
+            self.result["source_revision"], git(REPO_ROOT, "rev-parse", "HEAD").strip()
+        )
 
     def test_verify_refuses_a_revision_the_caller_did_not_expect(self):
         errors = release_artifact.verify(self.archive, expect_revision="0" * 40)
@@ -170,7 +172,10 @@ class CandidateArtifactTests(unittest.TestCase):
             self.assertFalse(path.startswith(".jev/"), path)
             self.assertNotIn("/target/", path)
             self.assertNotIn("__pycache__", path)
-        self.assertEqual(self.record["manifest_sha256"], self.record["members"]["jev/compatibility-manifest.json"])
+        self.assertEqual(
+            self.record["manifest_sha256"],
+            self.record["members"]["jev/compatibility-manifest.json"],
+        )
 
     def test_a_synthetic_allowance_is_only_ever_a_fixture_or_a_harness(self):
         # A product file must never need an allowance: the scan's escape hatch is
@@ -180,7 +185,9 @@ class CandidateArtifactTests(unittest.TestCase):
             self.assertTrue(entry["path"].startswith(allowed_roots), entry["path"])
             self.assertIn(entry["marker"], release_artifact.SYNTHETIC_MARKERS)
             self.assertGreaterEqual(entry["occurrences"], 1)
-            self.assertIn(entry["pattern"], [name for name, _ in release_artifact.SECRET_PATTERNS])
+            self.assertIn(
+                entry["pattern"], [name for name, _ in release_artifact.SECRET_PATTERNS]
+            )
 
     def test_the_candidate_is_byte_reproducible(self):
         other = Path(self.work.name) / "again.tar.gz"
@@ -238,14 +245,15 @@ class CandidateArtifactTests(unittest.TestCase):
 
     def test_the_cli_reports_ok_and_not_ok(self):
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(
-                release_artifact.main(["verify", str(self.archive)]), 0
-            )
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
-            io.StringIO()
+            self.assertEqual(release_artifact.main(["verify", str(self.archive)]), 0)
+        with (
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
         ):
             self.assertEqual(
-                release_artifact.main(["verify", str(self.archive), "--expect-revision", "0" * 40]),
+                release_artifact.main(
+                    ["verify", str(self.archive), "--expect-revision", "0" * 40]
+                ),
                 1,
             )
 
@@ -253,7 +261,9 @@ class CandidateArtifactTests(unittest.TestCase):
 class ArtifactRefusalTests(unittest.TestCase):
     def test_a_tracked_credential_by_name_is_refused(self):
         with scratch() as work:
-            root = write_fake_repo(Path(work), tracked={"jev/scripts/auth.json": "{}\n"})
+            root = write_fake_repo(
+                Path(work), tracked={"jev/scripts/auth.json": "{}\n"}
+            )
             with self.assertRaises(release_artifact.ArtifactError) as caught:
                 release_artifact.build(root, Path(work) / "out.tar.gz")
             self.assertIn("E_ARTIFACT_FORBIDDEN", str(caught.exception))
@@ -280,11 +290,15 @@ class ArtifactRefusalTests(unittest.TestCase):
         with scratch() as work:
             root = write_fake_repo(
                 Path(work),
-                tracked={"jev/scripts/fake.py": 'KEY = "sk-FIXTURE-NOT-A-REAL-KEY-0000"\n'},
+                tracked={
+                    "jev/scripts/fake.py": 'KEY = "sk-FIXTURE-NOT-A-REAL-KEY-0000"\n'
+                },
             )
             result = release_artifact.build(root, Path(work) / "out.tar.gz")
             allowances = result["record"]["exclusions"]["synthetic_findings"]
-            self.assertEqual([entry["path"] for entry in allowances], ["jev/scripts/fake.py"])
+            self.assertEqual(
+                [entry["path"] for entry in allowances], ["jev/scripts/fake.py"]
+            )
             self.assertEqual(release_artifact.verify(Path(work) / "out.tar.gz"), [])
 
     def test_untracked_state_never_enters_the_candidate(self):
@@ -303,10 +317,18 @@ class ArtifactRefusalTests(unittest.TestCase):
 
     def test_the_cli_refuses_with_exit_one(self):
         with scratch() as work:
-            root = write_fake_repo(Path(work), tracked={"jev/scripts/auth.json": "{}\n"})
+            root = write_fake_repo(
+                Path(work), tracked={"jev/scripts/auth.json": "{}\n"}
+            )
             with contextlib.redirect_stderr(io.StringIO()):
                 exit_code = release_artifact.main(
-                    ["build", "--root", str(root), "--out", str(Path(work) / "out.tar.gz")]
+                    [
+                        "build",
+                        "--root",
+                        str(root),
+                        "--out",
+                        str(Path(work) / "out.tar.gz"),
+                    ]
                 )
             self.assertEqual(exit_code, 1)
 
@@ -317,7 +339,9 @@ class DiagnosticsTests(unittest.TestCase):
         cls.document = jev_diagnostics.report(REPO_ROOT)
 
     def test_the_report_is_clean_for_this_checkout(self):
-        self.assertTrue(self.document["manifest"]["ok"], self.document["manifest"]["errors"])
+        self.assertTrue(
+            self.document["manifest"]["ok"], self.document["manifest"]["errors"]
+        )
         self.assertTrue(self.document["profiles"])
         for profile in self.document["profiles"]:
             self.assertTrue(profile["ok"], (profile["id"], profile["errors"]))
@@ -331,14 +355,17 @@ class DiagnosticsTests(unittest.TestCase):
             sorted(self.document["ambient_home"]), ["config_present", "exists", "path"]
         )
         self.assertLessEqual(
-            set(self.document["isolated_env"]), {"env_dir", "present", "status", "error"}
+            set(self.document["isolated_env"]),
+            {"env_dir", "present", "status", "error"},
         )
 
     def test_the_report_never_reads_the_ambient_home_contents(self):
         with scratch() as work:
             home = Path(work) / "ambient-codex-home"
             home.mkdir()
-            (home / "config.toml").write_text(f'api_key = "{PLANTED_KEY}"\n', encoding="utf-8")
+            (home / "config.toml").write_text(
+                f'api_key = "{PLANTED_KEY}"\n', encoding="utf-8"
+            )
             with mock.patch.dict(os.environ, {"CODEX_HOME": str(home)}):
                 document = jev_diagnostics.report(REPO_ROOT)
         text = json.dumps(document, sort_keys=True)
@@ -354,7 +381,9 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("E_DIAGNOSTICS_REDACTION", codes(failures))
 
     def test_the_check_honours_an_explicit_expected_state(self):
-        expected = "absent" if self.document["patches"]["state"] == "applied" else "applied"
+        expected = (
+            "absent" if self.document["patches"]["state"] == "applied" else "applied"
+        )
         failures = jev_diagnostics.evaluate(self.document, expect_patch_state=expected)
         self.assertIn("E_DIAGNOSTICS_EXPECT", codes(failures))
 
@@ -378,7 +407,9 @@ class DiagnosticsTests(unittest.TestCase):
                 "local",
             )
             document = jev_diagnostics.report(REPO_ROOT, components_root=components)
-        self.assertIn("E_DIAGNOSTICS_COMPONENT", codes(jev_diagnostics.evaluate(document)))
+        self.assertIn(
+            "E_DIAGNOSTICS_COMPONENT", codes(jev_diagnostics.evaluate(document))
+        )
 
 
 class ReleaseDocumentTests(unittest.TestCase):
