@@ -42,7 +42,7 @@ is incomplete, even when a concurrency slot is free.
 | #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | — | open; CI lane |
 | #70 | Run the real host binary to show projected outgoing content and exact reset | — | open; from #5 criterion 3 |
 | #19–#20 | Sentinel veto precedence, retrieval screening, incident operations | — | open; blocked by #18 |
-| #21 | Port and compile the pinned native approval adapter | — | in review |
+| #21 | Port and compile the pinned native approval adapter | #72 | in review |
 | #22–#23 | Action binding and freshness, shadow comparison | — | open; blocked by #21 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
 
