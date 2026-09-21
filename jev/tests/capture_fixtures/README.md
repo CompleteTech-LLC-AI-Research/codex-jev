@@ -21,6 +21,7 @@ rollout is tier `real-host-rollout`.
 | `07-truncated.jsonl` | A transcript truncated mid-write must be reported as a capture gap, not silently ignored. |
 | `08-orphan-tool-result.jsonl` | A tool result whose call is absent must be reported as a capture gap. |
 | `09-injected-context.jsonl` | Injected user-role context (AGENTS.md instructions, world state) is not operator speech and must not become an event. |
+| `10-hostile-instruction.jsonl` | A captured user turn carrying a prompt-injection instruction, so the retrieval and screening path can be exercised on captured bytes instead of a swapped-in candidate text. |
 
 The credential values in `04-secret-bearing.jsonl` are deliberately
 non-functional placeholders (`sk-FIXTURE-NOT-A-REAL-KEY-0000`,
