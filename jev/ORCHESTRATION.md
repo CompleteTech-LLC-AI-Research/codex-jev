@@ -25,7 +25,7 @@ is incomplete, even when a concurrency slot is free.
 | #5 | Native Codex context projection through jev-bus (phase 3) | #47, #63, #64, #75, #79 | complete; issue closed |
 | #6 | Sentinel boundary checks and veto precedence (phase 4) | #60, #68, #80, #84, #91, #92 | complete; issue closed. Phase claim composed in #91 (`real-component`) and exercised through a launched host binary in #92 (`real-host-binary`) |
 | #7 | Native JEV approval preflight with Guardian fallback (phase 5) | #72, #74, #81 | complete; issue closed; follow-up #85 filed |
-| #8 | Validate and release the combined JEV Codex stack (phase 6) | #24, #25, #26, #101 | in progress; #24, #25, and #26 merged and closed; the composed phase claim is in review as #101. The verdict it records is `release_ready: false` with `platform.matrix` `not-run`, because `macos-aarch64` and `windows-x86_64` have no current recorded run - readiness follows the evidence, not the closed sub-issues |
+| #8 | Validate and release the combined JEV Codex stack (phase 6) | #24, #25, #26, #101 | complete; all three sub-issues merged and closed, and the composed phase claim landed as #101. The verdict it records stays `release_ready: false` with `platform.matrix` `not-run`, because `macos-aarch64` and `windows-x86_64` have no current recorded run - readiness follows the evidence, not the closed sub-issues |
 | #9 | Compatibility manifest and integration contracts | #28, #31 | merged; issue closed |
 | #10 | Plaintext collaboration in the pinned build | #32, #37 | merged; issue closed |
 | #11 | Isolated build and integration profile | #35 | merged; issue closed |
@@ -43,7 +43,7 @@ is incomplete, even when a concurrency slot is free.
 | #23 | Shadow comparison and controlled enforcement configuration | #81 | merged; issue closed; duplicate #83 closed, follow-up #85 filed |
 | #24 | Composed end-to-end regression harness | #89 | merged; issue closed |
 | #25 | Isolated offline and performance validation record | #90 | merged; issue closed |
-| #26 | Package compatibility, upgrade, and rollback workflow | #95 | merged; issue closed; follow-ups #97 and #98 filed |
+| #26 | Package compatibility, upgrade, and rollback workflow | #95 | merged; issue closed; follow-up #97 fixed by #99 and closed, follow-up #98 open |
 | #41 | Verify the fabric checkout revision against the pinned component | #44 | merged; issue closed |
 | #49 | Canonical capture CLI: report a zero-event capture gap | #64 | merged; issue closed |
 | #52 | Host proof is weaker than the component's own receipt validator | #65 | merged; issue closed by independent verification of the merge `f9ba672eeb` (the body closed the gaps; the issue was closed separately once that was verified) |
@@ -57,14 +57,17 @@ is incomplete, even when a concurrency slot is free.
 | #78 | The host exposes an eligible read tool: prove the pair can arise during a turn | #79 | merged; issue closed |
 | #82 | repo-checks is red on `main`: prettier wants the README entry-point table realigned | #77 | merged; issue closed |
 | #85 | Bind the approval gate to the frozen holdout it was measured on | #88 | merged; issue closed; filed from #23 |
+| #97 | The platform gate credits a record whose revision is unresolvable in the local clone | #99 | merged; issue closed - the gate now treats an unresolvable revision as a stale record |
+| #98 | `--skip-roundtrip` removes the round-trip gate instead of emitting it as `not-run`, so `release_ready: true` is possible with the round trip never proven | — | open; filed from the phase-6 review |
 
 State above is the GitHub state of each issue and PR, not a local plan.
 
 ## Merged commits
 
 The reviewed commit is the head that passed review; the merge commit is what
-landed on `main`. Phases 3 to 5 are complete and phase 6 is partly merged: #24
-and #25 landed, and #26 is in flight.
+landed on `main`. Phases 3 to 6 are complete and merged: #24, #25, #26, and the
+phase-6 roll-up #101 all landed, and the phase-6.3 follow-up #97 was fixed by
+#99.
 
 | Issue | PR | Reviewed commit | Merge commit |
 | --- | --- | --- | --- |
@@ -98,6 +101,8 @@ and #25 landed, and #26 is in flight.
 | #6 | #91 | `259aacd12d` | `3ddf7345a9` |
 | #6 | #92 | `5a739b70e6` | `ed60a5b0e4` |
 | #26 | #95 | `82a6225e0c` | `c312d4aaea` |
+| #8 | #101 | `4bae92664b` | `e987070cea` |
+| #97 | #99 | `8e08df38f6` | `30f04eecba` |
 
 ## Pinned revisions
 
