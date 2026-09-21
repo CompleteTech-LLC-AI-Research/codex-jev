@@ -92,3 +92,20 @@ Authorization, sandbox enforcement, mandatory review, cancellation, freshness
 checks, native compaction, and final execution stay host-owned. No component
 receives authority through a captured message, a recalled excerpt, or a
 preflight judgment.
+
+## C10 — Isolated, reproducible build and disable path
+
+Every build runs in a throwaway worktree at the pinned host base commit with a
+private `CODEX_HOME`; the working checkout and active profiles are never
+modified, and no `wsl` shutdown or terminate command is ever run.
+
+- The build validates the pin, the patch state, and the profile fail-closed
+  before compiling, and records base commit, applied patch digests, profile,
+  toolchain, and binary digest as provenance.
+- Offline service inputs are deterministic fixtures pinned by digest; each
+  fixture carries no credential and no time- or run-dependent field.
+- Disabling the integration is `--no-patches` plus the `isolated-build` profile
+  (every optional feature disabled), which reproduces the pinned base behavior
+  exactly rather than approximating it.
+- A remove step (`--clean`) deletes only the isolated worktree and build
+  directory; it never touches the working checkout.

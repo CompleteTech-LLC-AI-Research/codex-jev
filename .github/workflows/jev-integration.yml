@@ -46,9 +46,14 @@ jobs:
         shell: bash
         run: |
           ${{ matrix.python }} jev/scripts/verify-manifest.py --json
+          ${{ matrix.python }} jev/scripts/verify-manifest.py --profile jev/profiles/isolated-build.json
           ${{ matrix.python }} jev/scripts/verify-manifest.py --profile jev/profiles/baseline.json
           ${{ matrix.python }} jev/scripts/verify-manifest.py --profile jev/profiles/integrated-offline.json
           ${{ matrix.python }} jev/scripts/verify-manifest.py --profile jev/profiles/enforcement-eval.json
+
+      - name: Validate the deterministic offline fixtures and isolated CODEX_HOME
+        shell: bash
+        run: ${{ matrix.python }} jev/scripts/run-offline-fixtures.py
 
       - name: Reject an unsupported combination explicitly
         shell: bash
@@ -85,3 +90,51 @@ jobs:
           git worktree add --detach /tmp/pristine-base "$BASE"
           cp -r jev /tmp/pristine-base/jev
           python3 jev/scripts/verify-manifest.py --repo-root /tmp/pristine-base --patch-state absent
+
+  isolated-build-plan:
+    name: isolated build plan and fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository with history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate the integrated build plan
+        shell: bash
+        run: jev/scripts/build-pinned-codex.sh --check --verify-fixtures
+
+      - name: Validate the disable path (pinned base without patches)
+        shell: bash
+        run: jev/scripts/build-pinned-codex.sh --no-patches --check --verify-fixtures
+
+  # A full isolated compile is expensive, so it runs on demand rather than on
+  # every push. Dispatch it to reproduce the "isolated binary launches" evidence.
+  isolated-build:
+    name: isolated compile and launch smoke
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository with history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build the isolated binary and launch it
+        shell: bash
+        run: jev/scripts/build-pinned-codex.sh --verify-fixtures
+
+      - name: Confirm the disable path compiles from the pinned base
+        shell: bash
+        run: jev/scripts/build-pinned-codex.sh --no-patches --verify-fixtures
+
+      - name: Upload build provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jev-build-provenance
+          path: .jev-build/provenance.json
+          if-no-files-found: error

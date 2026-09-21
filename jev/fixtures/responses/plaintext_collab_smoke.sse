@@ -1,0 +1,26 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp-plaintext-1"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call-spawn-1","namespace":"collaboration","name":"spawn_agent","arguments":"{\"task_name\":\"child-1\",\"message\":\"Summarize the launch plan in two lines.\"}"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp-plaintext-1","usage":{"input_tokens":11,"input_tokens_details":null,"output_tokens":7,"output_tokens_details":null,"total_tokens":18}}}
+
+event: response.created
+data: {"type":"response.created","response":{"id":"resp-plaintext-2"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call-followup-1","namespace":"collaboration","name":"followup_task","arguments":"{\"task_name\":\"child-1\",\"message\":\"Add the rollout date.\"}"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp-plaintext-2","usage":{"input_tokens":19,"input_tokens_details":null,"output_tokens":5,"output_tokens_details":null,"total_tokens":24}}}
+
+event: response.created
+data: {"type":"response.created","response":{"id":"resp-plaintext-3"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","id":"msg-plaintext-1","content":[{"type":"output_text","text":"Delegated to child-1 as plaintext and will report back."}]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp-plaintext-3","usage":{"input_tokens":26,"input_tokens_details":null,"output_tokens":12,"output_tokens_details":null,"total_tokens":38}}}

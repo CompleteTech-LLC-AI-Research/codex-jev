@@ -41,7 +41,12 @@ class ManifestBaselineTests(unittest.TestCase):
     def test_shipped_manifest_and_profiles_are_supported(self):
         manifest = load_manifest()
         self.assertEqual(jev_manifest.validate_manifest(manifest), [])
-        for name in ("baseline", "integrated-offline", "enforcement-eval"):
+        for name in (
+            "isolated-build",
+            "baseline",
+            "integrated-offline",
+            "enforcement-eval",
+        ):
             with self.subTest(profile=name):
                 self.assertEqual(
                     jev_manifest.validate_manifest(manifest, profile=load_profile(name)), []
@@ -351,6 +356,37 @@ class CheckoutTests(unittest.TestCase):
                 component_root, "rev-parse", "HEAD"
             ).stdout.strip()
             self.assertEqual(jev_manifest.check_component_revisions(manifest, root), [])
+
+class IsolatedBuildTests(unittest.TestCase):
+    """The isolated profile and the deterministic offline fixtures stay honest."""
+
+    def test_isolated_profile_disables_every_feature(self):
+        manifest = load_manifest()
+        profile = load_profile("isolated-build")
+        self.assertEqual(set(profile["features"]), set(manifest["features"]))
+        self.assertTrue(all(value is False for value in profile["features"].values()))
+        self.assertEqual(jev_manifest.validate_manifest(manifest, profile=profile), [])
+
+    def test_shipped_fixtures_match_their_recorded_digest(self):
+        fixtures_root = REPO_ROOT / "jev" / "fixtures"
+        registry = json.loads(
+            (fixtures_root / "manifest.json").read_text(encoding="utf-8")
+        )
+        for entry in registry["fixtures"]:
+            with self.subTest(fixture=entry["id"]):
+                path = fixtures_root / entry["path"]
+                self.assertTrue(path.is_file())
+                self.assertEqual(jev_manifest.sha256_file(path), entry["sha256"])
+                self.assertEqual(entry["tier"], "offline fixture")
+
+    def test_fixture_runner_accepts_the_shipped_fixtures(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "run-offline-fixtures.py"), "--quiet"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

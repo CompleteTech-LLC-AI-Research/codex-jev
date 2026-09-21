@@ -1,0 +1,31 @@
+# Isolated CODEX_HOME profile for the JEV integration.
+#
+# This file carries no credentials and names no remote provider. It exists so an
+# isolated run starts from a known, inert baseline: every optional product
+# feature that could reach the network or change host behavior is turned off,
+# and the caller supplies the mock service base URL explicitly when the
+# "real host, mocked service" tier is exercised.
+#
+# Optional JEV integration features are switched here only through the
+# compatibility profiles in jev/profiles/; nothing in this file enables them.
+
+check_for_update_on_startup = false
+hide_agent_reasoning = false
+
+[features]
+apps = false
+browser_use = false
+chronicle = false
+computer_use = false
+connectors = false
+goals = false
+image_generation = false
+memories = false
+memory_tool = false
+plugins = false
+realtime_conversation = false
+remote_control = false
+search_tool = false
+standalone_web_search = false
+telepathy = false
+web_search = false

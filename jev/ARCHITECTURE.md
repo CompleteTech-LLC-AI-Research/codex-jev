@@ -77,9 +77,31 @@ Preserved behavior:
   remain unreadable.
 
 Disable: build the pinned base without patches
-(`jev/scripts/build-pinned-codex.sh --no-patches`) and run the baseline profile.
-Removing the patch layer restores the upstream markers and expectations instead
-of approximating them.
+(`jev/scripts/build-pinned-codex.sh --no-patches`), which selects the
+`isolated-build` profile. Removing the patch layer restores the upstream markers
+and expectations instead of approximating them.
+
+## Isolated build
+
+Every build is isolated: it runs in a throwaway worktree at the pinned host base
+commit with a private `CODEX_HOME`, so no user configuration, credential, or
+session is read and the working checkout is never modified. The build records
+the base commit, applied patch digests, profile, toolchain, and binary digest in
+a provenance file (`jev/BUILD.md`).
+
+Profiles are the single switch for optional behavior:
+
+| Profile | Use |
+| --- | --- |
+| `isolated-build` | Isolation baseline: every optional feature disabled. Pairs with `--no-patches`. |
+| `baseline` | Manifest defaults: capture and budgeted retrieval on; projection, Sentinel, approval, and remote inference off. |
+| `integrated-offline` | Full local integration with enforcement still observational. |
+| `enforcement-eval` | Controlled enforcement evaluation. Remote inference stays off. |
+
+Disabling the integration is `--no-patches` plus the `isolated-build` profile; it
+reproduces the pinned base behavior exactly. Offline service inputs are the
+deterministic fixtures under `jev/fixtures/`, labelled at the **offline fixture**
+tier.
 
 ## Evidence tiers
 

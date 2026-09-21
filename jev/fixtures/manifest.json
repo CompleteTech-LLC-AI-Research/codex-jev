@@ -1,0 +1,31 @@
+{
+  "fixture_manifest_version": 1,
+  "tier": "offline fixture",
+  "note": "Deterministic recorded service responses for the isolated build. No live provider is contacted; no credentials, timestamps, or run-dependent ids appear in any fixture.",
+  "fixtures": [
+    {
+      "id": "plaintext-collab-smoke",
+      "kind": "sse",
+      "tier": "offline fixture",
+      "path": "responses/plaintext_collab_smoke.sse",
+      "sha256": "37deb0117fb2699b7896624bfe36992f9d48fe8d416fa9756f4e93f26c38df34",
+      "description": "Parent turn that delegates with plaintext spawn_agent and followup_task arguments and then answers."
+    },
+    {
+      "id": "encrypted-collab-replay",
+      "kind": "sse",
+      "tier": "offline fixture",
+      "path": "responses/encrypted_collab_replay.sse",
+      "sha256": "1e1d6b8d45653e78df53c71e1764cba4a87f57617692d2f42ff4b5c22acfa7cf",
+      "description": "A returned collaboration call that still carries encrypted_function_args, proving the encrypted transport path stays reachable."
+    },
+    {
+      "id": "isolated-codex-home",
+      "kind": "config",
+      "tier": "offline fixture",
+      "path": "codex-home/config.toml",
+      "sha256": "d64eb01142895f7d81a63a3146cd296e5cbd66351b7148b453f4e5ab7ea73a0a",
+      "description": "Isolated CODEX_HOME profile with every optional product feature disabled and no credential."
+    }
+  ]
+}

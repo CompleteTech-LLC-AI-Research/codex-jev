@@ -13,10 +13,14 @@ Tracking epic: [CompleteTech-LLC-AI-Research/codex-jev#2](https://github.com/Com
 | --- | --- |
 | `compatibility-manifest.json` | Machine-readable pins, patch order, interface versions, feature switches, events, credentials, and ownership. |
 | `profiles/` | Integration profiles. Each profile declares the feature switches for one supported configuration. |
+| `scripts/build-pinned-codex.sh` | Build the pinned fork in an isolated worktree and `CODEX_HOME`; record provenance; `--no-patches` is the disable path. |
 | `scripts/verify-manifest.py` | Fail-closed validator for the manifest, a profile, the patch state, and the checkout pin. |
+| `scripts/run-offline-fixtures.py` | Validate the deterministic offline fixtures (digest, format, determinism, no credentials). |
 | `scripts/jev_manifest.py` | The validation rules, importable from tests. |
+| `fixtures/` | Deterministic offline service fixtures and the isolated `CODEX_HOME` profile. |
 | `tests/` | Focused tests for every validation rule. |
 | `patches/` | Ordered, digest-pinned patches applied to the pinned host source. |
+| `BUILD.md` | Isolated build, disable path, provenance, and rollback instructions. |
 
 ## Scope
 
@@ -32,6 +36,7 @@ Tracking epic: [CompleteTech-LLC-AI-Research/codex-jev#2](https://github.com/Com
 ```sh
 python3 jev/scripts/verify-manifest.py --patch-state applied --json
 python3 jev/scripts/verify-manifest.py --profile jev/profiles/integrated-offline.json
+python3 jev/scripts/run-offline-fixtures.py
 python3 -m unittest discover -s jev/tests -t jev/tests
 ```
 
@@ -44,3 +49,4 @@ explicitly instead of silently building.
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — where each component sits in the request lifecycle.
 - [`CONTRACTS.md`](CONTRACTS.md) — the cross-component contracts and the invariants they enforce.
+- [`BUILD.md`](BUILD.md) — isolated build, disable path, provenance, and rollback.

@@ -94,3 +94,6 @@ CHANGELOG.ignore.md
 # Python bytecode files
 __pycache__/
 *.pyc
+
+# JEV isolated build directory (jev/scripts/build-pinned-codex.sh)
+.jev-build/

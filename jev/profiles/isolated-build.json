@@ -1,0 +1,17 @@
+{
+  "profile_version": 1,
+  "id": "isolated-build",
+  "description": "Isolation baseline: every optional feature is explicitly disabled. Use with a pinned base built without patches (jev/scripts/build-pinned-codex.sh --no-patches) so the integrated behavior is reproduced exactly, not approximated. Features are switched on one at a time as later phases land.",
+  "features": {
+    "capture.canonical_evidence": false,
+    "retrieval.budgeted_hydration": false,
+    "projection.dedup_receipts": false,
+    "projection.fabric_views": false,
+    "sentinel.shadow": false,
+    "sentinel.enforcement": false,
+    "approval.preflight": false,
+    "approval.enforcement": false,
+    "collab.plaintext_messages": false,
+    "remote_inference.enabled": false
+  }
+}
