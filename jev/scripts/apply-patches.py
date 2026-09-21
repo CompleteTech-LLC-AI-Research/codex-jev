@@ -64,7 +64,9 @@ def patch_state(repo_root, patch_file):
 def main(argv=None):
     args = parse_args(argv if argv is not None else sys.argv[1:])
     repo_root = (
-        Path(args.repo_root).resolve() if args.repo_root else jev_manifest.repository_root()
+        Path(args.repo_root).resolve()
+        if args.repo_root
+        else jev_manifest.repository_root()
     )
     manifest_path = (
         Path(args.manifest).resolve()
@@ -126,7 +128,11 @@ def main(argv=None):
         for entry in results:
             print(
                 f"{entry['id']}: {entry['state']}"
-                + (f" ({entry['action']})" if entry.get("action") not in (None, "none") else "")
+                + (
+                    f" ({entry['action']})"
+                    if entry.get("action") not in (None, "none")
+                    else ""
+                )
                 + (f" - {entry['detail']}" if entry.get("detail") else "")
             )
     return 0 if not failed else 1

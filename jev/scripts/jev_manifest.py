@@ -168,10 +168,14 @@ def _validate_structure(manifest):
         )
     missing = sorted(REQUIRED_TOP_LEVEL_KEYS - set(manifest))
     if missing:
-        errors.append(f"E_MANIFEST_SCHEMA: missing top-level keys: {', '.join(missing)}")
+        errors.append(
+            f"E_MANIFEST_SCHEMA: missing top-level keys: {', '.join(missing)}"
+        )
     unknown = sorted(set(manifest) - TOP_LEVEL_KEYS)
     if unknown:
-        errors.append(f"E_MANIFEST_SCHEMA: unsupported top-level keys: {', '.join(unknown)}")
+        errors.append(
+            f"E_MANIFEST_SCHEMA: unsupported top-level keys: {', '.join(unknown)}"
+        )
     return errors
 
 
@@ -186,12 +190,18 @@ def _validate_host(manifest):
             f"E_HOST_PIN: host.base_commit must be a 40-character lowercase hex commit, found {pinned!r}"
         )
     if not host.get("rust_toolchain"):
-        errors.append("E_HOST_SCHEMA: host.rust_toolchain must record the pinned Rust toolchain")
+        errors.append(
+            "E_HOST_SCHEMA: host.rust_toolchain must record the pinned Rust toolchain"
+        )
     if not host.get("python_requirement"):
-        errors.append("E_HOST_SCHEMA: host.python_requirement must record the required interpreter")
+        errors.append(
+            "E_HOST_SCHEMA: host.python_requirement must record the required interpreter"
+        )
     platforms = host.get("platforms", {})
     if not platforms.get("supported"):
-        errors.append("E_HOST_SCHEMA: host.platforms.supported must list supported platforms")
+        errors.append(
+            "E_HOST_SCHEMA: host.platforms.supported must list supported platforms"
+        )
     if platforms.get("reference") not in (platforms.get("supported") or []):
         errors.append(
             "E_HOST_SCHEMA: host.platforms.reference must be one of host.platforms.supported"
@@ -295,7 +305,9 @@ def _validate_components(manifest):
         if isinstance(repository, str):
             seen_repositories[repository] = component_id
     if "codex-jev" not in seen_ids:
-        errors.append("E_COMPONENT_SCHEMA: components must declare the codex-jev host component")
+        errors.append(
+            "E_COMPONENT_SCHEMA: components must declare the codex-jev host component"
+        )
     return errors
 
 
@@ -315,8 +327,12 @@ def _validate_ownership(manifest):
             peers.append((component.get("id"), owned))
     errors += _validate_interface_owners(manifest, components)
     host = next((c for c in components if c.get("id") == "codex-jev"), None)
-    if host is not None and not _component_owns(host, "jev/compatibility-manifest.json"):
-        errors.append("E_OWNERSHIP_HOST: the host component must own the jev/ integration tree")
+    if host is not None and not _component_owns(
+        host, "jev/compatibility-manifest.json"
+    ):
+        errors.append(
+            "E_OWNERSHIP_HOST: the host component must own the jev/ integration tree"
+        )
     return errors
 
 
@@ -448,7 +464,9 @@ def _validate_features(manifest):
                     f"E_FEATURE_UNKNOWN_REQUIREMENT: feature {name} requires unknown feature {required}"
                 )
             if required == name:
-                errors.append(f"E_FEATURE_UNKNOWN_REQUIREMENT: feature {name} requires itself")
+                errors.append(
+                    f"E_FEATURE_UNKNOWN_REQUIREMENT: feature {name} requires itself"
+                )
         for component in spec["components"]:
             if component not in components:
                 errors.append(
@@ -479,7 +497,9 @@ def _validate_credentials(manifest):
         return ["E_CREDENTIAL_SCHEMA: credentials must be a non-empty JSON object"]
     for name, spec in credentials.items():
         if not isinstance(spec, dict):
-            errors.append(f"E_CREDENTIAL_SCHEMA: credential {name} must be a JSON object")
+            errors.append(
+                f"E_CREDENTIAL_SCHEMA: credential {name} must be a JSON object"
+            )
             continue
         if not isinstance(spec.get("consent"), (bool, str)):
             errors.append(
@@ -549,16 +569,22 @@ def _validate_profile(manifest, profile):
         )
     missing = sorted({"profile_version", "id", "features"} - set(profile))
     if missing:
-        errors.append(f"E_PROFILE_SCHEMA: profile is missing keys: {', '.join(missing)}")
+        errors.append(
+            f"E_PROFILE_SCHEMA: profile is missing keys: {', '.join(missing)}"
+        )
     unknown = sorted(set(profile) - PROFILE_KEYS)
     if unknown:
-        errors.append(f"E_PROFILE_SCHEMA: unsupported profile keys: {', '.join(unknown)}")
+        errors.append(
+            f"E_PROFILE_SCHEMA: unsupported profile keys: {', '.join(unknown)}"
+        )
     features = profile.get("features", {})
     if not isinstance(features, dict):
         return errors + ["E_PROFILE_SCHEMA: profile features must be a JSON object"]
     for name, enabled in features.items():
         if name not in manifest.get("features", {}):
-            errors.append(f"E_PROFILE_UNKNOWN_FEATURE: profile sets unknown feature {name}")
+            errors.append(
+                f"E_PROFILE_UNKNOWN_FEATURE: profile sets unknown feature {name}"
+            )
         if not isinstance(enabled, bool):
             errors.append(f"E_PROFILE_SCHEMA: profile feature {name} must be a boolean")
     effective = _effective_features(manifest, profile)
@@ -570,7 +596,9 @@ def _validate_profile(manifest, profile):
 def check_patch_state(manifest, repo_root, expected):
     """Check that the working tree matches ``expected`` (``applied`` or ``absent``)."""
     errors = []
-    for patch in sorted(manifest.get("patches", []), key=lambda item: item.get("order", 0)):
+    for patch in sorted(
+        manifest.get("patches", []), key=lambda item: item.get("order", 0)
+    ):
         patch_file = Path(repo_root) / patch["file"]
         if not patch_file.is_file():
             errors.append(f"E_PATCH_HASH: patch file is missing: {patch['file']}")

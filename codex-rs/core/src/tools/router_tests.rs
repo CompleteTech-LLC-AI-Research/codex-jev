@@ -649,3 +649,50 @@ fn namespace_function_names(specs: &[ToolSpec], namespace_name: &str) -> Vec<Str
         })
         .unwrap_or_default()
 }
+
+#[test]
+fn collaboration_calls_are_plaintext_only_when_nothing_is_encrypted() {
+    let call = |name: &str, encrypted_function_args: Option<Vec<String>>| {
+        ToolRouter::build_tool_call(ResponseItem::FunctionCall {
+            id: None,
+            name: name.to_string(),
+            namespace: Some("collaboration".to_string()),
+            arguments: "{\"message\":\"readable\"}".to_string(),
+            encrypted_function_args,
+            call_id: format!("call-{name}"),
+            internal_chat_message_metadata_passthrough: None,
+        })
+        .expect("function_call should produce a tool call")
+        .expect("a function call is always a tool call")
+    };
+
+    for name in ["spawn_agent", "send_message", "followup_task"] {
+        // These tools no longer advertise an encrypted `message` parameter, so a
+        // backend that reports nothing encrypted - omitted field or empty list -
+        // must deliver a readable payload to the recipient.
+        assert_eq!(
+            call(name, None).direct_source(),
+            ToolCallSource::DirectPlaintextMessage,
+            "{name} with no reported encrypted arguments"
+        );
+        assert_eq!(
+            call(name, Some(Vec::new())).direct_source(),
+            ToolCallSource::DirectPlaintextMessage,
+            "{name} with an empty encrypted-arguments list"
+        );
+        // Arguments that really are encrypted keep travelling untouched: they are
+        // never decrypted and never reclassified as plaintext.
+        assert_eq!(
+            call(name, Some(vec!["message".to_string()])).direct_source(),
+            ToolCallSource::Direct,
+            "{name} with encrypted arguments"
+        );
+    }
+
+    // Only the three message-carrying collaboration tools are reclassified.
+    assert_eq!(
+        call("list_agents", None).direct_source(),
+        ToolCallSource::Direct,
+        "list_agents does not carry a message payload"
+    );
+}

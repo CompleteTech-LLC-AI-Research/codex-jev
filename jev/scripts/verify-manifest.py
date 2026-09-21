@@ -48,13 +48,19 @@ def parse_args(argv):
         help="Assert that HEAD is the pinned host base commit.",
     )
     parser.add_argument("--json", action="store_true", help="Emit a JSON report.")
-    parser.add_argument("--quiet", action="store_true", help="Print nothing on success.")
+    parser.add_argument(
+        "--quiet", action="store_true", help="Print nothing on success."
+    )
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv if argv is not None else sys.argv[1:])
-    repo_root = Path(args.repo_root).resolve() if args.repo_root else jev_manifest.repository_root()
+    repo_root = (
+        Path(args.repo_root).resolve()
+        if args.repo_root
+        else jev_manifest.repository_root()
+    )
     manifest_path = (
         Path(args.manifest).resolve()
         if args.manifest
@@ -64,13 +70,17 @@ def main(argv=None):
     try:
         manifest = jev_manifest.load_json(manifest_path, "compatibility manifest")
         profile = (
-            jev_manifest.load_json(args.profile, "integration profile") if args.profile else None
+            jev_manifest.load_json(args.profile, "integration profile")
+            if args.profile
+            else None
         )
     except jev_manifest.ManifestError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
-    errors = jev_manifest.validate_manifest(manifest, repo_root=repo_root, profile=profile)
+    errors = jev_manifest.validate_manifest(
+        manifest, repo_root=repo_root, profile=profile
+    )
     if args.patch_state:
         errors += jev_manifest.check_patch_state(manifest, repo_root, args.patch_state)
     if args.check_checkout:
