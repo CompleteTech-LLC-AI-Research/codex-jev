@@ -255,6 +255,7 @@
       "projection_receipt"
     ],
     "stages": [
+      {"order": 0, "id": "capture", "owner": "codex-jev"},
       {"order": 100, "id": "dedup", "owner": "jev-prune-kit"},
       {"order": 200, "id": "fabric_view", "owner": "jev-context-fabric"}
     ],
