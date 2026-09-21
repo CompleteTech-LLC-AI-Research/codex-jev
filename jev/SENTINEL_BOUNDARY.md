@@ -5,7 +5,11 @@ This document records the host half of contract `C5` in
 post-tool boundaries, starts in local shadow mode, and reports exactly which
 tools and event paths are covered; installation alone is never reported as
 activation. It backs issue
-[#18](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/18).
+[#18](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/18) and,
+since the host carrier became the wired command,
+[#61](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/61). The
+veto precedence and session latch it feeds are the same contract `C5`
+([`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md), `#19`).
 
 ## Where the boundary is
 
@@ -33,6 +37,11 @@ The evaluation is the component's; the host only carries it.
 - **Host (`jev/scripts/sentinel_boundary.py`)** owns the native envelope, the
   correlation identity (`session_id`/`turn_id`/`tool_call_id`), the payload
   bound, the incident envelope, and the coverage/activation claim.
+- **Host carrier (`sentinel_boundary.py hook`)** is the wired command on the
+  live path (`#61`): Codex runs it as the hook and its stdout *is* the native
+  response. `install-hooks` merges it into `hooks.json`; the verdict still comes
+  only from the component through `sentinel_veto.handle` →
+  `sentinel_boundary.observe` → `launch.py check`.
 
 Because the host must bound and correlate a payload *before* it hands it over,
 and must know which response keys are supported, it vendors the *serialization*
@@ -94,6 +103,46 @@ render. No Codex response path carries an output replacement: the pinned
 so the post-tool path is feedback plus the component's subsequent-action latch,
 never replacement. A regression that starts emitting one is a boundary error.
 
+## The wired command is the host carrier
+
+`install-hooks` merges the host carrier into the profile's `hooks.json`:
+
+```
+<python> -I <…>/sentinel_boundary.py hook --harness codex --event <event> \
+  --profile <profile> --policy <policy.json> --state-dir <state> --component <checkout>
+```
+
+Codex runs that command as the hook, so **its stdout is the native hook
+response**. `hook` reads one payload under the component's own stdin bound,
+resolves the host identity (the payload's `session_id`/`turn_id`/`tool_call_id`
+first, then the flags), and calls `sentinel_veto.handle`, which observes through
+`sentinel_boundary.observe` and runs the component's own `launch.py check`. The
+host renders nothing the component did not decide.
+
+Three properties are load-bearing:
+
+- **Merge, never replace.** Only entries whose command names this carrier are
+  replaced or removed; every unrelated entry (the Fabric capture hooks) and every
+  unrelated key in `hooks.json` is preserved.
+- **Gated on the switches.** With `sentinel.shadow` and `sentinel.enforcement`
+  both off, `install-hooks` writes nothing and refuses with `E_SWITCH_OFF`, so a
+  dark integration never puts a command in the host's path. `--remove` always
+  works, because unwiring must not depend on a switch.
+- **The `--state-dir` contract.** The carrier writes its host journal
+  (`codex-jev-incidents.jsonl`) under the `--state-dir` pinned into the command,
+  and `install-hooks` appends one record to
+  `<state_dir>/codex-jev-sentinel-hooks.json`. The probe reads the correlated
+  incident from that exact directory, so a carrier wired without it - or with a
+  different one - is not credited as active. `--dry-run` reports the record and
+  writes nothing.
+
+**The carrier fails open at the process level.** A hook that exits non-zero shows
+the operator a hard error, so the carrier prints a JSON response and exits `0` on
+every path; when the boundary cannot decide it prints `{}` (no judge). The
+fail-closed decision, where one is owed, is already carried by the response the
+gate renders and by the durable session latch - never by a process exit code the
+host does not read.
+
 ## Effective coverage
 
 `coverage` reads the profile's real `hooks.json` and reports, per stage:
@@ -120,6 +169,12 @@ because a shadow response is `{}` and the audit row is the only difference — a
 the unique session means a stale row from an earlier run cannot either. A
 saturated scan (100 rows, none matching) reports `inconclusive`, not "inactive".
 
+When the wired command is the host carrier, an audit row alone is not enough: the
+path must **also** show the host's own correlated incident (same `session_ref` and
+`content_sha256`) in the carrier's `--state-dir`. A carrier that reached the
+component without the host boundary between them is not activation — which is
+exactly what wiring the carrier is for.
+
 ## Incidents
 
 The host records one correlated `sentinel_incident` envelope per observed event
@@ -134,8 +189,10 @@ in `<state_dir>/codex-jev-incidents.jsonl`:
 - `redaction: "content_sha256_only"` — the raw prompt/result text is **never**
   written to an incident.
 
-`parent_event_id` is `null` this phase; chaining an incident to its cause is
-`#19`/`#20`.
+`parent_event_id` is `null` on the first event of a session and carries the
+latched event's id once the session is latched, so a veto's cause is knowable; the
+latch and its precedence are the same contract `C5`
+([`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md), `#19`).
 
 ## Bypass surfaces
 
@@ -171,27 +228,25 @@ reproduces the original behavior: nothing is evaluated and nothing vetoes.
 | Tier | Artifact | Result |
 | --- | --- | --- |
 | `component-fixture` | `jev/tests/sentinel_fixtures/codex-translation.json` | 26 goldens captured from `jev-sentinel @ 4ecd748d` (9 `normalize`, 5 refusal, 12 `render`), with a provenance block. |
-| `component-stub` | `.github/scripts/test_jev_sentinel.py` | 31 tests, ok, against a hermetic `launch.py` stub that speaks the documented wire only (`hook`/`check`/`outbox`). |
-| `real-component` | `jev/tests/test_sentinel_boundary.py` | 8 tests, ok against the pinned checkout (skipped when no checkout resolves): goldens match live, shadow records and never vetoes, enforce vetoes each stage, oversize refuses before the component runs, probe finds a correlated audit row per path, installation alone is not activation. |
+| `component-stub` | `.github/scripts/test_jev_sentinel.py` | 41 tests, ok, against a hermetic `launch.py` stub that speaks the documented wire only (`hook`/`check`/`outbox`): the carrier install merge/remove/dry-run and its `E_SWITCH_OFF` gate, the wired response and correlated incident, the fail-closed bound, and the process-level fail-open. |
+| `real-component` | `jev/tests/test_sentinel_boundary.py` | 13 tests, ok against the pinned checkout (skipped when no checkout resolves): goldens match live, shadow records and never vetoes, enforce vetoes each stage, oversize refuses before the component runs, probe finds a correlated audit row per path, installation alone is not activation, and the wired carrier vetoes while writing both the host incident and the component audit row. |
 
-Required CI (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) is 185
-tests, ok; `jev/tests` is 93 tests, ok. The vendored adapter is equal to the
+Required CI (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) is 346
+tests, ok; `jev/tests` is 164 tests, ok. The vendored adapter is equal to the
 pinned component on every golden case; it is a faithful translation rather than a
 byte-identical copy, because the host module layout differs.
 
 ## Known limits
 
-- **The host carrier is not the wired command.** The live path is the
-  component's installed hook (`launch.py hook`), which evaluates and writes the
-  component's audit store; the host carrier (`sentinel_boundary.py`) is the
-  boundary the host owns, driven by `coverage`/`canary`/`observe`. Its `observe`
-  output is a host record, not a native hook response, so making the host own the
-  envelope on the live hook path is not part of this change. What is proved about
-  the live path here is that the installed wiring evaluates (the activation
-  probe) and exactly what it covers.
-- **No host-side hook installer.** The component's installer writes the
-  `hooks.json` entries; the host reads and reports that wiring, it does not
-  create it. A profile that predicates Sentinel on the host's own wiring would
-  need the corresponding installer first.
-- **`parent_event_id` is unset.** Chaining an incident to its cause and latching
-  a veto for the subsequent action are `#19`/`#20`.
+- **Host trust approval is unverifiable.** Codex demands a per-hook trust
+  decision that no file records; `activation` can show the command ran and
+  correlated, never that the operator trusted it (`host_trust_unverified`).
+- **The carrier speaks Codex only.** Its event map is the Codex adapter's
+  (`--harness codex`); another harness is refused and the response is `{}`.
+- **A payload over the stdin bound records no incident.** The carrier refuses it
+  before it reaches the component and hashes nothing to correlate, so under
+  enforcement it returns the `REVIEW` shape but writes no correlated row — the
+  same choice the component's own hook makes.
+- **The component's installer is still the component's.** The host ships
+  `install-hooks` for its own carrier; wiring the component's `launch.py` directly
+  still uses the component's installer.

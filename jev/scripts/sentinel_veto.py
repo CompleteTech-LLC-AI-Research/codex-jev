@@ -697,16 +697,12 @@ def _read_request(path):
 
 
 def _load_policy_fail_closed(path: Path) -> dict:
-    """A corrupt or missing policy must not silently disable the gate."""
-    try:
-        return sb.load_policy(path)
-    except sb.BoundaryError:
-        return {
-            "mode": "enforce",
-            "backend": "local",
-            "max_content_bytes": 65536,
-            "fail_closed": True,
-        }
+    """A corrupt or missing policy must not silently disable the gate.
+
+    The host boundary owns this fail-closed reading (#18); the veto carrier
+    shares it rather than keeping a second copy that could drift away from it.
+    """
+    return sb.load_policy_fail_closed(path)
 
 
 def main(argv=None) -> int:

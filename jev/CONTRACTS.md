@@ -86,6 +86,13 @@ timeout, a malformed response, a cancellation, or a policy failure. See
 [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) and
 [`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md).
 
+The live path runs the host carrier itself: `sentinel_boundary.py hook` is the
+command in `hooks.json`, so its stdout is the native hook response, while the
+component's `launch.py check` stays the only verdict source. `install-hooks`
+merges the three carrier entries into `hooks.json` (preserving every unrelated
+entry), is gated on the declared switches (`E_SWITCH_OFF` when both are off),
+and pins the `--state-dir` the host journal is read back from.
+
 ## C6 — Approval preflight and Guardian fallback
 
 Preflight runs only inside eligible synchronous review attempts. Requests are
