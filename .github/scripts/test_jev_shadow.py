@@ -135,6 +135,242 @@ class RawContentRefusalTests(unittest.TestCase):
         self.assertIn("raw", result.stderr.lower())
 
 
+def holdout_rows(count=10):
+    return [
+        {
+            "request_id": f"rev-{index}",
+            "label": "allow" if index % 2 else "deny",
+            "scenario_family": f"fam-{index}",
+        }
+        for index in range(1, count + 1)
+    ]
+
+
+class HoldoutBindingCliTests(unittest.TestCase):
+    """#85 through the real command surface: ``gate --split`` and ``correlate --split``.
+
+    The threshold criteria are deliberately not met by ten rows, so none of these
+    verdicts permits; what they pin is that the *binding* happens - the holdout is
+    checked, drift is named, and a calibration-measured report is refused - rather
+    than that a ten-row fixture authorises enforcement.
+    """
+
+    def write_labels(self, tmp, rows=None):
+        labels = Path(tmp) / "labels.jsonl"
+        labels.write_text(
+            "\n".join(json.dumps(row) for row in (rows or holdout_rows())) + "\n",
+            encoding="utf-8",
+        )
+        return labels
+
+    def write_streams(self, tmp, selected):
+        jev = Path(tmp) / "jev.jsonl"
+        jev.write_text(
+            "\n".join(
+                json.dumps(
+                    {
+                        "request_id": row["request_id"],
+                        "candidate": "allow",
+                        "decision": "defer",
+                        "scenario_family": row["scenario_family"],
+                    }
+                )
+                for row in selected
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        guardian = Path(tmp) / "guardian.jsonl"
+        guardian.write_text(
+            "\n".join(
+                json.dumps(
+                    {
+                        "request_id": row["request_id"],
+                        "decision": "allow",
+                        "elapsed_ms": 5.0,
+                    }
+                )
+                for row in selected
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return jev, guardian
+
+    def freeze(self, tmp, labels, *, fraction="0.4", seed="3"):
+        path = Path(tmp) / f"split-{fraction}-{seed}.json"
+        result = run_cli(
+            "split",
+            "--labels",
+            str(labels),
+            "--holdout-fraction",
+            fraction,
+            "--seed",
+            seed,
+            "--out",
+            str(path),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return path, json.loads(path.read_text(encoding="utf-8"))
+
+    def test_the_cli_binds_a_report_to_the_declared_holdout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = holdout_rows()
+            labels = self.write_labels(tmp, rows)
+            split_path, split = self.freeze(tmp, labels)
+            self.assertEqual(shadow.split_digest(split), split["split_digest"])
+            holdout = [
+                row
+                for row in rows
+                if row["scenario_family"] in set(split["holdout_families"])
+            ]
+            jev, guardian = self.write_streams(tmp, holdout)
+            report = Path(tmp) / "report.json"
+            produced = run_cli(
+                "correlate",
+                "--jev",
+                str(jev),
+                "--guardian",
+                str(guardian),
+                "--labels",
+                str(labels),
+                "--split",
+                str(split_path),
+                "--out",
+                str(report),
+            )
+            self.assertEqual(produced.returncode, 0, produced.stderr)
+            document = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(
+                document["evaluation_split"]["split_digest"], split["split_digest"]
+            )
+            self.assertTrue(document["enforcement"]["holdout"]["checked"])
+            self.assertEqual(document["enforcement"]["holdout"]["unmeasured"], 0)
+            self.assertNotIn("holdout_incomplete", document["enforcement"]["reasons"])
+
+            gated = run_cli("gate", "--report", str(report), "--split", str(split_path))
+            self.assertEqual(gated.returncode, 1)
+            verdict = json.loads(gated.stdout)
+            self.assertTrue(verdict["holdout"]["checked"])
+            self.assertEqual(verdict["split"]["seed"], 3)
+            self.assertFalse(verdict["enforcement_enabled"])
+
+    def test_the_cli_reports_drift_when_the_split_changes_after_freezing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = holdout_rows()
+            labels = self.write_labels(tmp, rows)
+            split_path, _ = self.freeze(tmp, labels)
+            jev, guardian = self.write_streams(tmp, rows)
+            report = Path(tmp) / "report.json"
+            self.assertEqual(
+                run_cli(
+                    "correlate",
+                    "--jev",
+                    str(jev),
+                    "--guardian",
+                    str(guardian),
+                    "--labels",
+                    str(labels),
+                    "--out",
+                    str(report),
+                ).returncode,
+                0,
+            )
+            mutated = json.loads(split_path.read_text(encoding="utf-8"))
+            mutated["holdout_members"] = mutated["holdout_members"][:-1]
+            split_path.write_text(json.dumps(mutated), encoding="utf-8")
+            gated = run_cli("gate", "--report", str(report), "--split", str(split_path))
+            self.assertEqual(gated.returncode, 1)
+            verdict = json.loads(gated.stdout)
+            self.assertIn("split_drift", verdict["reasons"])
+            self.assertFalse(verdict["permitted"])
+            self.assertFalse(verdict["enforcement_enabled"])
+            self.assertNotEqual(
+                verdict["drift"]["expected"], verdict["drift"]["observed"]
+            )
+
+    def test_the_cli_refuses_a_report_measured_on_the_calibration_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = holdout_rows()
+            labels = self.write_labels(tmp, rows)
+            split_path, split = self.freeze(tmp, labels)
+            calibration = [
+                row
+                for row in rows
+                if row["scenario_family"] in set(split["calibration_families"])
+            ]
+            jev, guardian = self.write_streams(tmp, calibration)
+            report = Path(tmp) / "report.json"
+            self.assertEqual(
+                run_cli(
+                    "correlate",
+                    "--jev",
+                    str(jev),
+                    "--guardian",
+                    str(guardian),
+                    "--labels",
+                    str(labels),
+                    "--out",
+                    str(report),
+                ).returncode,
+                0,
+            )
+            gated = run_cli("gate", "--report", str(report), "--split", str(split_path))
+        self.assertEqual(gated.returncode, 1)
+        self.assertIn(shadow.E_HOLDOUT_REQUIRED, gated.stderr)
+        self.assertEqual(gated.stdout, "")
+
+    def test_the_cli_refuses_a_split_that_lost_its_binding_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            labels = self.write_labels(tmp)
+            split_path, split = self.freeze(tmp, labels)
+            jev, guardian = self.write_streams(tmp, holdout_rows())
+            report = Path(tmp) / "report.json"
+            run_cli(
+                "correlate",
+                "--jev",
+                str(jev),
+                "--guardian",
+                str(guardian),
+                "--labels",
+                str(labels),
+                "--out",
+                str(report),
+            )
+            broken = {k: v for k, v in split.items() if k != "split_digest"}
+            split_path.write_text(json.dumps(broken), encoding="utf-8")
+            gated = run_cli("gate", "--report", str(report), "--split", str(split_path))
+        self.assertEqual(gated.returncode, 1)
+        self.assertIn(shadow.E_HOLDOUT_SPLIT, gated.stderr)
+
+    def test_gate_without_a_split_is_unchanged_and_says_the_holdout_was_not_checked(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            labels = self.write_labels(tmp)
+            jev, guardian = self.write_streams(tmp, holdout_rows())
+            report = Path(tmp) / "report.json"
+            self.assertEqual(
+                run_cli(
+                    "correlate",
+                    "--jev",
+                    str(jev),
+                    "--guardian",
+                    str(guardian),
+                    "--labels",
+                    str(labels),
+                    "--out",
+                    str(report),
+                ).returncode,
+                0,
+            )
+            gated = run_cli("gate", "--report", str(report))
+        self.assertEqual(gated.returncode, 1)
+        verdict = json.loads(gated.stdout)
+        self.assertFalse(verdict["holdout"]["checked"])
+        self.assertNotIn("split_drift", verdict["reasons"])
+
+
 class EnforcementGateTests(unittest.TestCase):
     def test_manifest_declares_the_gated_switches(self):
         features = load_manifest()["features"]

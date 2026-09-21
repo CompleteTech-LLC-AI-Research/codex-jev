@@ -304,6 +304,157 @@ class EvaluationSplitTests(unittest.TestCase):
         self.assertEqual(split["freeze"], {"model": "jev-1.13.0"})
 
 
+def split_rows(count=10):
+    return [
+        {
+            "request_id": f"rev-{index}",
+            "label": "allow" if index % 2 else "deny",
+            "scenario_family": f"fam-{index}",
+        }
+        for index in range(1, count + 1)
+    ]
+
+
+def holdout_report(split, *, members=None, label_digest=None):
+    """A report that already satisfies every declared criterion, measured on ``split``."""
+    report = passing_report()
+    report["independent_labels"].update(
+        {
+            "families": sorted(split["holdout_families"]),
+            "label_records_digest": (
+                split["labelled_rows_digest"] if label_digest is None else label_digest
+            ),
+            "measured_members": sorted(
+                split["holdout_members"] if members is None else members
+            ),
+        }
+    )
+    return report
+
+
+class HoldoutBindingTests(unittest.TestCase):
+    """#85: a permission has to be reproducible from the declared holdout alone."""
+
+    def setUp(self):
+        self.split = shadow.freeze_split(split_rows(), holdout_fraction=0.4, seed=3)
+        self.criteria = shadow.declared_criteria(shadow.load_manifest())
+
+    def test_a_frozen_split_verifies_against_its_own_digest(self):
+        self.assertEqual(shadow.split_digest(self.split), self.split["split_digest"])
+        self.assertTrue(self.split["holdout_members"])
+        self.assertEqual(
+            len(self.split["holdout_members"]), self.split["holdout_count"]
+        )
+        # The row identities are digests, never the rows themselves.
+        for identity in self.split["holdout_members"]:
+            self.assertNotIn("rev-", identity)
+
+    def test_a_permitted_verdict_names_the_split_its_seed_and_its_digest(self):
+        verdict = shadow.gate(
+            holdout_report(self.split), self.criteria, split=self.split
+        )
+        self.assertTrue(verdict["permitted"], verdict["reasons"])
+        self.assertEqual(verdict["split"]["seed"], 3)
+        self.assertEqual(verdict["split"]["split_digest"], self.split["split_digest"])
+        self.assertEqual(
+            verdict["split"]["labelled_rows_digest"],
+            self.split["labelled_rows_digest"],
+        )
+        self.assertEqual(
+            verdict["split"]["holdout_families"], self.split["holdout_families"]
+        )
+        self.assertTrue(verdict["holdout"]["checked"])
+        self.assertEqual(verdict["holdout"]["unmeasured"], 0)
+        self.assertFalse(verdict["enforcement_enabled"])
+
+    def test_a_report_measured_on_the_calibration_split_is_refused(self):
+        calibration = [
+            shadow.member(
+                {
+                    "request_id": f"rev-{index}",
+                    "scenario_family": f"fam-{index}",
+                }
+            )
+            for index in range(1, 11)
+            if f"fam-{index}" in set(self.split["calibration_families"])
+        ]
+        self.assertTrue(calibration)
+        with self.assertRaises(shadow.ShadowError) as caught:
+            shadow.gate(
+                holdout_report(self.split, members=calibration),
+                self.criteria,
+                split=self.split,
+            )
+        # A refusal, not a verdict that merely says "not permitted": the numbers
+        # came from the split that was tuned on.
+        self.assertEqual(caught.exception.code, shadow.E_HOLDOUT_REQUIRED)
+        self.assertIn("outside the declared holdout", caught.exception.detail)
+
+    def test_a_split_mutated_after_freezing_stops_permitting_enforcement(self):
+        report = holdout_report(self.split)
+        self.assertTrue(
+            shadow.gate(report, self.criteria, split=self.split)["permitted"]
+        )
+        mutated = json.loads(json.dumps(self.split))
+        moved = mutated["holdout_families"].pop()
+        mutated["calibration_families"] = sorted(
+            set(mutated["calibration_families"]) | {moved}
+        )
+        verdict = shadow.gate(report, self.criteria, split=mutated)
+        # Drift is reported, not raised: "this split changed" is a finding.
+        self.assertFalse(verdict["permitted"])
+        self.assertIn("split_drift", verdict["reasons"])
+        self.assertFalse(verdict["enforcement_enabled"])
+        self.assertEqual(verdict["drift"]["observed"], mutated["split_digest"])
+        self.assertNotEqual(verdict["drift"]["expected"], verdict["drift"]["observed"])
+        self.assertFalse(verdict["holdout"]["checked"])
+
+    def test_a_split_substituted_from_other_rows_is_refused(self):
+        other = shadow.freeze_split(split_rows(count=4), holdout_fraction=0.4, seed=3)
+        self.assertNotEqual(
+            other["labelled_rows_digest"], self.split["labelled_rows_digest"]
+        )
+        with self.assertRaises(shadow.ShadowError) as caught:
+            shadow.gate(holdout_report(self.split), self.criteria, split=other)
+        self.assertEqual(caught.exception.code, shadow.E_HOLDOUT_REQUIRED)
+        self.assertIn("different labelled rows", caught.exception.detail)
+
+    def test_an_incomplete_holdout_does_not_permit_and_names_the_reason(self):
+        members = self.split["holdout_members"][:-1]
+        verdict = shadow.gate(
+            holdout_report(self.split, members=members),
+            self.criteria,
+            split=self.split,
+        )
+        self.assertFalse(verdict["permitted"])
+        self.assertIn("holdout_incomplete", verdict["reasons"])
+        self.assertTrue(verdict["holdout"]["checked"])
+        self.assertEqual(verdict["holdout"]["unmeasured"], 1)
+
+    def test_a_report_with_no_measured_rows_cannot_be_bound_to_a_holdout(self):
+        report = passing_report()
+        report["independent_labels"].pop("scenario_families", None)
+        with self.assertRaises(shadow.ShadowError) as caught:
+            shadow.gate(report, self.criteria, split=self.split)
+        self.assertEqual(caught.exception.code, shadow.E_HOLDOUT_REQUIRED)
+
+    def test_a_split_without_its_binding_fields_is_a_usage_error(self):
+        broken = json.loads(json.dumps(self.split))
+        del broken["split_digest"]
+        with self.assertRaises(shadow.ShadowError) as caught:
+            shadow.gate(holdout_report(self.split), self.criteria, split=broken)
+        self.assertEqual(caught.exception.code, shadow.E_HOLDOUT_SPLIT)
+
+    def test_a_gate_without_a_split_still_works_and_says_so(self):
+        plain = shadow.gate(holdout_report(self.split, members=[]), self.criteria)
+        self.assertTrue(plain["permitted"])
+        self.assertFalse(plain["holdout"]["checked"])
+        self.assertFalse(plain["enforcement_enabled"])
+        # The pre-#85 verdict surface is unchanged for callers that pass no split.
+        self.assertEqual(plain["gate_schema"], shadow.GATE_SCHEMA)
+        self.assertEqual(plain["shadow_switch"], shadow.SHADOW_SWITCH)
+
+
 class RepositoryFixtureTests(unittest.TestCase):
     def test_the_shipped_fixture_is_not_permitted(self):
         report = shadow.correlate(
