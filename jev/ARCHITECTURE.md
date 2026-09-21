@@ -25,7 +25,8 @@ flowchart TD
 | `jev_bus` stage ordering and single invocation | `jev-prune-kit` contract, hosted by the native adapter in this repository | Stage 100 is duplicate-read dedup; stage 200 is the approved Fabric view. |
 | Event envelope and correlation identifiers | this repository | Other components emit envelopes; only the host defines the schema. |
 | Memory tools and retrieval | `jev-context-fabric` | Capture happens before projection; retrieval is budgeted and source-backed. |
-| Boundary observation and vetoes | `jev-sentinel` | Prompt, pre-tool, and post-tool; shadow first; enforcement only where a veto is representable. Host carrier in [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md). |
+| Boundary observation and vetoes | `jev-sentinel` | Prompt, pre-tool, and post-tool; shadow first; enforcement only where a veto is representable. Host carriers in [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) and [`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md). |
+| Veto precedence, the session latch, and concurrent-action handling | this repository (host) | The host orders the finding's severity against the session latch, never downgrades a veto, serializes one session's evaluations, and fails closed. The component still owns detection. |
 | Approval preflight | `jev-codex-approval` | Eligible review attempts only; failure or uncertainty defers to the existing reviewer. |
 | Authorization, sandbox, cancellation, compaction, final execution | this repository (host) | Never delegated to a component. |
 

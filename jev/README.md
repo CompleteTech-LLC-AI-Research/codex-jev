@@ -31,6 +31,7 @@ installs its call site. Everything else the integration owns is here.
 | `scripts/dedup_receipts.py` | Host-side enforcement of the duplicate-read receipt contract (C3): keep only dedup replacements a receipt proves, revert every other edit. |
 | `scripts/fabric_views.py` | Approved, reversible Fabric prose views (C4): preview/apply/reset, bound to the post-dedup snapshot, with bytes and tokens reported separately. |
 | `scripts/sentinel_boundary.py` | The Sentinel hook boundary (C5): normalize and bound the prompt/pre-tool/post-tool events, run the pinned evaluator, record correlated incidents, and report effective coverage and activation. |
+| `scripts/sentinel_veto.py` | Host veto precedence (C5): map `REVIEW`/`BLOCK`/`QUARANTINE` onto the veto each stage supports, latch a session so a later approval or `DEFER` cannot clear it, serialize concurrent evaluations, and fail closed on every failure path. |
 | `scripts/jev_sentinel_adapter.py` | The Codex hook translation vendored from the pinned `jev-sentinel`: `EVENTS`, `normalize`, `render`, the decisions, and the input bound. |
 | `scripts/verify-manifest.py --native-adapter` | Assert that the declared native approval adapter is installed and wired where the manifest says it is, or gone again after a rollback. |
 | `scripts/build_provenance.py` | Build the pinned CLI with the repository recipe and record provenance. |
@@ -76,5 +77,6 @@ explicitly instead of silently building.
 - [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) — what the dedup stage may replace, the receipt the host proves, and the edits it reverts.
 - [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md) — the approved prose view, its snapshot binding, the reversible controls, and the byte/token split.
 - [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) — the Sentinel hook wiring, effective coverage, the activation proof, the incident envelope, and the bypass surfaces.
+- [`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md) — the decision lattice, the per-session latch, the supported veto per stage, concurrent-action handling, the fail-closed paths, and the unavoidable races.
 - [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) — the native approval preflight, its environment contract, eligibility and deferral, the answer binding and freshness rules, and the guarded host blobs.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.
