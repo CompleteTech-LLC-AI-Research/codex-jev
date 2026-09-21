@@ -1,12 +1,12 @@
 <div align="center">
 
-# Codex · JEV Research
+# Codex | JEV Research
 
 **A research fork of the Codex coding agent.**
 
 ![Codebase: Rust](https://img.shields.io/badge/Codebase-Rust-b45309?style=flat-square) [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-64748b?style=flat-square)](LICENSE)
 
-[Fork checkout](#work-with-this-fork) · [Build guide](docs/install.md) · [Contributing](docs/contributing.md) · [Agent guidelines](AGENTS.md) · [Upstream](https://github.com/openai/codex)
+[Fork checkout](#work-with-this-fork) | [Build guide](docs/install.md) | [Contributing](docs/contributing.md) | [Agent guidelines](AGENTS.md) | [Upstream](https://github.com/openai/codex)
 
 </div>
 
