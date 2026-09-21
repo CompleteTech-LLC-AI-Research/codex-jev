@@ -71,6 +71,7 @@ def run(env_dir, passthrough, dry_run=False, port_override=None, timeout=None):
                 "fixture_base_url": f"http://127.0.0.1:{port}/v1",
                 "features": plan["features"],
                 "switch_env": isolated_env.switch_env(plan),
+                "bus_env": isolated_env.bus_env(plan),
             }
         if not binary.is_file():
             raise isolated_env.EnvError(
@@ -82,6 +83,10 @@ def run(env_dir, passthrough, dry_run=False, port_override=None, timeout=None):
         child_env["JEV_ISOLATED_ENV"] = "1"
         child_env["JEV_FIXTURE_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
         child_env.update(isolated_env.switch_env(plan))
+        # The projection boundary is resolved by the host from this contract;
+        # the stage commands come from the environment so that a stage without
+        # a command is never registered.
+        child_env.update(isolated_env.bus_env(plan))
         started = time.time()
         completed = subprocess.run(command, env=child_env, timeout=timeout, check=False)
         record = {

@@ -56,12 +56,15 @@ class IsolatedPlanTests(unittest.TestCase):
     def test_switch_contract_is_derived_from_features(self):
         plan = isolated_env.resolve_plan(root=REPO_ROOT)
         switch = isolated_env.switch_env(plan)
-        self.assertEqual(switch["SENTINEL_SHADOW"], "0")
-        self.assertEqual(switch["APPROVAL_PREFLIGHT"], "0")
-        self.assertEqual(switch["REMOTE_INFERENCE_ENABLED"], "0")
-        self.assertEqual(switch["COLLAB_PLAINTEXT_MESSAGES"], "1")
+        # The exported names carry the documented prefix, because these are the
+        # variables a launched host reads.
+        self.assertEqual(switch["JEV_SWITCH_SENTINEL_SHADOW"], "0")
+        self.assertEqual(switch["JEV_SWITCH_APPROVAL_PREFLIGHT"], "0")
+        self.assertEqual(switch["JEV_SWITCH_REMOTE_INFERENCE_ENABLED"], "0")
+        self.assertEqual(switch["JEV_SWITCH_COLLAB_PLAINTEXT_MESSAGES"], "1")
         self.assertEqual(
-            set(switch), {name.upper().replace(".", "_") for name in plan["features"]}
+            set(switch),
+            {isolated_env.switch_name(name) for name in plan["features"]},
         )
 
 
@@ -253,7 +256,7 @@ class LaunchPlanTests(unittest.TestCase):
             result = launch_isolated.run(env_dir, ["exec", "hello"], dry_run=True)
             self.assertTrue(result["dry_run"])
             self.assertIn("exec", result["command"])
-            self.assertEqual(result["switch_env"]["SENTINEL_SHADOW"], "0")
+            self.assertEqual(result["switch_env"]["JEV_SWITCH_SENTINEL_SHADOW"], "0")
             self.assertEqual(result["codex_home"], str(env_dir / "home"))
 
 

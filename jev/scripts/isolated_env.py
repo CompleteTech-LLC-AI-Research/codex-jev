@@ -152,11 +152,38 @@ def config_toml(plan):
     return "\n".join(lines) + "\n"
 
 
+def switch_name(feature):
+    """The environment name one feature switch is read under."""
+    return "JEV_SWITCH_" + feature.upper().replace(".", "_")
+
+
 def switch_env(plan):
-    """The ``JEV_SWITCH_*`` environment contract for one plan."""
+    """The ``JEV_SWITCH_*`` environment contract for one plan.
+
+    These are the variables a launched host reads, so they carry the full
+    documented prefix: the plan's own ``features`` mapping is the plain-name
+    view of the same state.
+    """
     return {
-        feature.upper().replace(".", "_"): ("1" if enabled else "0")
+        switch_name(feature): ("1" if enabled else "0")
         for feature, enabled in plan["features"].items()
+    }
+
+
+def bus_env(plan, root=None):
+    """The jev-bus boundary variables an isolated host runs under.
+
+    The host invokes the repository's adapter exactly once per outgoing request
+    when a projection switch above is on; the adapter itself reads the
+    ``JEV_SWITCH_*`` state. Stage commands are not invented here: a stage is
+    only registered when the environment supplies its command, so an
+    unconsummated profile registers nothing.
+    """
+    root = Path(root or repository_root())
+    return {
+        "JEV_BUS_ADAPTER": str(root / "jev" / "scripts" / "bus_boundary.py"),
+        "JEV_BUS_PYTHON": sys.executable or "python3",
+        "JEV_BUS_WORKSPACE": str(plan.get("home") or ""),
     }
 
 
