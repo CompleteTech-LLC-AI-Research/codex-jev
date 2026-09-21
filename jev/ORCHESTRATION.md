@@ -33,8 +33,8 @@ is incomplete, even when a concurrency slot is free.
 | #16 | Duplicate-read proof receipts | #50 | merged; issue closed |
 | #17 | Approved Fabric views and reversible controls | #53 | merged; issue closed |
 | #18 | Wire Sentinel hooks and effective coverage reporting | #60 | merged; issue closed |
-| #19 | Sentinel veto precedence and concurrent-action handling | #68 | in review |
-| #20 | Retrieval screening and incident operations | — | open; this branch |
+| #19 | Sentinel veto precedence and concurrent-action handling | #68 | merged; issue closed |
+| #20 | Retrieval screening and incident operations | #80 | in review; this branch |
 | #49 | Canonical capture CLI: report a zero-event capture gap | #64 | merged; issue closed |
 | #55 | Invoke the bus boundary from the host request path | #63 | merged; issue closed |
 | #58 | Reconcile the host's item-count fallback with the approved-view removal | — | open; filed from #55 |
@@ -43,8 +43,8 @@ is incomplete, even when a concurrency slot is free.
 | #66 | repo-checks is red on `main`: root `README.md` asciicheck | #71 | merged; issue closed |
 | #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | — | open; CI lane, unmasked by #71 |
 | #70 | Run the real host binary to show projected outgoing content and exact reset | #75 | merged; issue closed |
-| #19 | Sentinel veto precedence and the subsequent-action latch | #68 | in review; filed from #18 |
-| #20 | Retrieval screening and incident operations | — | open; blocked by #18 |
+| #19 | Sentinel veto precedence and the subsequent-action latch | #68 | merged; issue closed |
+| #20 | Retrieval screening and incident operations | #80 | in review; filed from #18 |
 | #21 | Port and compile the pinned native approval adapter | #72 | merged; issue closed |
 | #22 | Verify action binding, freshness, and fallback | — | in review; filed from #21 |
 | #23 | Shadow comparison and controlled enforcement configuration | — | open; blocked by #22 |
@@ -74,6 +74,7 @@ merged.
 | #21 | #72 | `1e03adbaa` | `8ca45b6a7a` |
 | #66 | #71 | `aab06717a6` | `997b33da76` |
 | #70 | #75 | `89615fdaab` | `220c6e5023` |
+| #19 | #68 | `6a0ec2a841` | `660bab6c89` |
 
 ## Pinned revisions
 
@@ -136,6 +137,11 @@ ever added as a component.
 | Concurrent evaluations of one session are serialized, and the guarantee is no stale read and no lost raise. | A per-session `threading.Lock` plus an `flock(2)` file lock serialize the read-modify-write of the latch. Arrival order is not observable to the host, so an event evaluated before the veto exists legitimately inherits nothing; what is enforced is that no call reads a pre-veto ledger and no raise is dropped. |
 | Every failure path fails closed and never turns into an allow. | A timeout, a malformed response, a malformed verdict, a non-zero exit, an unboundable payload, a malformed native payload, a corrupt policy, and a cancellation all produce the component's own `failure_result` shape (`REVIEW`, `route=security_review`, `backend=unavailable`) and latch the session. A corrupt or missing policy is treated as *enforcing*, so editing a policy file can never silently open the gate; a cancellation is latched before the interrupt propagates. |
 | The host latch and the component's taint are separate stores, and clearing one does not clear the other. | The component taints its own session in its audit store; the host keeps an append-only latch ledger keyed by the component's own `session_ref`. Clearing the host latch leaves the component's taint vetoing on its own findings, which is the demo that the host has not reimplemented detection. Bounded replay of the ledger tail is lossless: the state is "the strongest escalation since the last clear". |
+| A host owns what it can prove, and only that; a component finding is not a fact. | Retrieved context is screened by the pinned component's real `context` stage and a proposed write by its real `memory` stage, so no host code classifies content. The host nevertheless withholds **unconditionally** on the facts it already holds (`not_canonical_evidence`, `unproven_origin`, `cross_workspace`, `redaction_regression`, `duplicate_of_accepted`, `over_budget`, `over_bound`, an uncleared #19 session veto), because no switch can make a fact the host proved safe to inject; a *component* finding withholds only when `screening.enforcement` is on and the screening policy's exact `withhold_on` set names the decision, and otherwise injects and records the shadow signal `would_withhold`. |
+| Two screening switches, and switching off is not a fourth decision. | `screening.retrieval` decides whether the component is consulted; `screening.enforcement` decides whether a finding withholds and is declared only behind retrieval, because there is nothing to enforce without an assessment. Off, every row carries `assessed: false` rather than a `DEFER` the component never returned, and a genuine component `DEFER` is recorded as `component_defer`. Both default to false, so the isolated profile starts dark and no fixture can be mistaken for a screening result. |
+| A withheld candidate is still evidence. | Withholding is never erasure: the row is a metadata pointer into the canonical store, and `verify_withheld` re-proves each row against the captured content it names and reports any row it cannot resolve, so a withheld excerpt can be audited without being re-injected. A memory write is refused when its target is not named in the host's own policy whatever the switches say, which keeps authorization a host rule rather than a component opinion. |
+| Incident operations are bounded, read-only, and report by identifier, never by content. | Every row is validated against the manifest's declared envelope fields plus the documented host fields; a digest must be a digest, a metadata string must stay inside its byte bound, and no string may still match the capture layer's credential rules. A failing row is reported by identifier and failing check only and never printed, so a careless writer cannot launder content into a report; reads cap at the component's own `outbox --limit` ceiling and a saturated scan says so. `disable` prints the exact commands (`executes: false`) and the module never writes, so asking what disabling would do can never itself disable anything; a correlation names the key that matched and leaves a non-match unmatched; and the policy view is confined to the isolated profile root so an operator is never shown a policy a launch would not use. |
+| A later phase resolves its own switches through one rule. | `sentinel_boundary.feature_switches_for` is the single rule - an unset `JEV_SWITCH_*` means the manifest's declared default, never "off" - and `feature_switches` is now that rule applied to Sentinel's pair. Screening declares its two switches in the manifest behind `screening.retrieval` and `sentinel.enforcement`, so the same resolution and the same fail-closed default cover every phase rather than each reimplementing it. |
 
 ## Evidence
 
@@ -153,6 +159,8 @@ ever added as a component.
 | [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) | The Sentinel hook boundary: the three events, the two switches, the payload bound and refusal, effective coverage, the activation probe, the incident envelope, and the bypass surfaces (#18). |
 | [`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md) | Veto precedence and the subsequent-action latch: the decision lattice, the stage mapping, the per-session latch and its operator controls, concurrent-action handling, every fail-closed path, and the unavoidable races (#19). |
 | [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) | The ported native approval adapter: the guarded host blobs, the environment and switch contract, eligibility and deferral, the accepted answer's binding to this exact request and policy, the freshness re-derivation, and the offline-fixture plus static host compile evidence (#21, #22). |
+| [`RETRIEVAL_SCREENING.md`](RETRIEVAL_SCREENING.md) | Screening retrieved context before injection and authorizing memory writes: the division of labour, the two independent switches, the unconditionally-withholding host facts and the exact-set `withhold_on` rule, the shadow signal, `verify_withheld`, and the real-component tier (#20). |
+| [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md) | Bounded, read-only, metadata-only incident operations: the validated field set and the credential-rule refusal, the identifier-only failure report, the bounded scan and its saturation signal, correlation by content or identity, the non-executing disable plan, and the isolated-root policy view (#20). |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being
