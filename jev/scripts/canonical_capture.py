@@ -20,6 +20,12 @@ this bridge reads it - and only it - and emits the integration's envelope:
 Capture runs before any projection: this module never rewrites the transcript it
 reads, and it writes only under the isolated environment directory.
 
+Stored content is content-addressed and append-only, and is never deleted. A
+capture is a function of the rollouts it is given, so narrowing the rollout set
+leaves the bytes of the events the store no longer lists in ``capture/content``;
+``status`` and ``verify`` report those orphans rather than destroying the only
+stored copy of evidence.
+
 Subcommands:
 
 ``capture``    read one or more rollouts into the canonical store;
@@ -539,11 +545,35 @@ def read_jsonl(path):
     path = Path(path)
     if not path.is_file():
         return []
-    return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    records = []
+    for number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError as error:
+            raise CaptureError(
+                f"{path} line {number} is not valid JSON ({error.msg}): the store is "
+                "corrupt or incomplete, so nothing can be re-derived; re-run capture"
+            ) from error
+    return records
+
+
+def content_orphans(env_dir, events):
+    """Content-addressed files that no event in the store refers to.
+
+    Reported, never deleted: the file may be the only stored copy of bytes whose
+    originating rollout is no longer part of the capture set.
+    """
+    content = capture_root(env_dir) / "content"
+    if not content.is_dir():
+        return []
+    referenced = {event["capture_id"] for event in events}
+    return sorted(
+        path.name for path in content.glob("*.txt") if path.stem not in referenced
+    )
 
 
 def capture_rollout(store, rollout, tier):
@@ -672,7 +702,7 @@ def capture_rollout(store, rollout, tier):
     )
 
 
-def capture(env_dir, rollouts, root=None):
+def capture(env_dir, rollouts, root=None, sessions_dir=None):
     env_dir = Path(env_dir)
     isolated_env.read_env(env_dir)
     if not rollouts:
@@ -710,6 +740,17 @@ def capture(env_dir, rollouts, root=None):
         "sessions": sorted({event["session_id"] for event in store.events}),
         "turns": sorted({f"{e['session_id']}:{e['turn_id']}" for e in store.events}),
     }
+    if sessions_dir is not None:
+        matched = len(rollout_paths(sessions_dir))
+        summary["sessions_dir"] = {
+            "directory": str(sessions_dir),
+            "rollouts_matched": matched,
+        }
+        if matched == 0:
+            summary["sessions_dir"]["note"] = (
+                "no rollout-*.jsonl matched, so only the --rollout files given were "
+                "captured"
+            )
     store.write(summary)
     return summary
 
@@ -732,6 +773,10 @@ def status(env_dir):
         read_jsonl(capture_root(env_dir) / "duplicates.jsonl")
     )
     summary["gaps_recorded"] = len(read_jsonl(capture_root(env_dir) / "gaps.jsonl"))
+    orphans = content_orphans(env_dir, events)
+    summary["content_files_orphaned"] = len(orphans)
+    summary["orphaned_content_files"] = orphans
+    summary["store_incomplete"] = bool(summary.get("events")) and not events
     summary["ambient_home"] = isolated_env.ambient_home_fingerprint()
     return summary
 
@@ -743,9 +788,23 @@ def verify(env_dir, root=None):
     duplicates = read_jsonl(capture_root(env_dir) / "duplicates.jsonl")
     gaps = read_jsonl(capture_root(env_dir) / "gaps.jsonl")
     index_path = capture_root(env_dir) / "index.json"
-    if not events or not index_path.is_file():
-        raise CaptureError("nothing captured yet; run capture first")
+    if not index_path.is_file():
+        raise CaptureError(
+            f"nothing captured yet at {capture_root(env_dir)}; run capture first"
+        )
     index = json.loads(index_path.read_text(encoding="utf-8"))
+    recorded = index.get("events")
+    if recorded and not events:
+        raise CaptureError(
+            f"the store index records {recorded} event(s) but events.jsonl holds none: "
+            "the store is incomplete, so nothing can be re-derived; re-run capture"
+        )
+    if not events and not gaps:
+        raise CaptureError(
+            "no evidence was captured: the store holds no events and recorded no gap, "
+            "so there is no claim to re-derive; the transcript carried no prompt, tool "
+            "call, or tool result this store treats as evidence"
+        )
 
     traces = 0
     for event in events:
@@ -785,11 +844,14 @@ def verify(env_dir, root=None):
         )
         if canonical is None:
             continue
-        view, applied = redact(
-            (
-                capture_root(env_dir) / "content" / f"{canonical['capture_id']}.txt"
-            ).read_text(encoding="utf-8")
+        content_path = (
+            capture_root(env_dir) / "content" / f"{canonical['capture_id']}.txt"
         )
+        if not content_path.is_file():
+            # Absent content is reported by stored_content_matches_the_recorded_hash
+            # and makes this check fail; it must not abort the report.
+            continue
+        view, applied = redact(content_path.read_text(encoding="utf-8"))
         if view == record["text"] and applied == record["redaction"]["rules"]:
             derived += 1
 
@@ -846,7 +908,7 @@ def verify(env_dir, root=None):
         "tool_calls_and_results_are_paired": tool_pairs == calls,
         "no_capture_gaps": not gaps,
     }
-    return {
+    report = {
         "store_version": STORE_VERSION,
         "env_dir": str(env_dir),
         "tiers": index.get("tiers"),
@@ -854,9 +916,17 @@ def verify(env_dir, root=None):
         "retrieval_records": len(retrieval),
         "duplicates": len(duplicates),
         "gaps": gaps,
+        "orphaned_content_files": content_orphans(env_dir, events),
         "checks": checks,
         "ok": all(checks.values()),
     }
+    if not events:
+        report["empty_capture_note"] = (
+            "capture ran and the transcript yielded no events, but it recorded "
+            f"{len(gaps)} gap(s); the recorded gap is reported below and by the "
+            "no_capture_gaps check, and nothing was dropped silently"
+        )
+    return report
 
 
 def trace(env_dir, event_id=None, tool_call_id=None):
@@ -957,14 +1027,22 @@ def main(argv=None):
     try:
         if args.command == "capture":
             rollouts = list(args.rollout)
+            sessions_dir = None
             if args.sessions_dir or not rollouts:
-                sessions = (
+                sessions_dir = (
                     Path(args.sessions_dir)
                     if args.sessions_dir
                     else default_rollouts_dir(env_dir)
                 )
-                rollouts += [str(path) for path in rollout_paths(sessions)]
-            result = capture(env_dir, rollouts, root=args.root)
+                found = [str(path) for path in rollout_paths(sessions_dir)]
+                if not found and not rollouts:
+                    raise CaptureError(
+                        f"no rollout-*.jsonl under {sessions_dir}: the rollout-*.jsonl "
+                        "pattern matched nothing and no --rollout was given, so there "
+                        "is no transcript to capture"
+                    )
+                rollouts += found
+            result = capture(env_dir, rollouts, root=args.root, sessions_dir=sessions_dir)
         elif args.command == "status":
             result = status(env_dir)
         elif args.command == "verify":

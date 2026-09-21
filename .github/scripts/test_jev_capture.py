@@ -9,6 +9,8 @@ records, gaps are reported instead of skipped, and credentials are absent from
 the retrieval view.
 """
 
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -253,6 +255,116 @@ class DedupAndGapTests(CaptureTestCase):
         self.assertEqual(first["events"], second["events"])
         self.assertEqual(ids, [event["event_id"] for event in self.events()])
 
+    def test_a_zero_event_capture_with_a_gap_is_reported_not_refused(self):
+        self.capture("07-truncated.jsonl")
+        report = canonical_capture.verify(self.env_dir, root=REPO_ROOT)
+        self.assertEqual(report["events"], 0)
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["checks"]["no_capture_gaps"])
+        self.assertTrue(report["gaps"])
+        self.assertEqual(len(report["checks"]), 11)
+        self.assertIn("no events", report["empty_capture_note"])
+        self.assertIn("gap", report["empty_capture_note"])
+
+    def test_a_zero_event_capture_without_a_gap_says_no_evidence_was_captured(self):
+        self.capture("09-injected-context.jsonl")
+        with self.assertRaises(canonical_capture.CaptureError) as caught:
+            canonical_capture.verify(self.env_dir, root=REPO_ROOT)
+        message = str(caught.exception)
+        self.assertIn("no evidence was captured", message)
+        self.assertNotIn("nothing captured yet", message)
+
+    def test_verify_before_a_capture_keeps_the_nothing_captured_message(self):
+        with tempfile.TemporaryDirectory() as work:
+            env_dir = Path(work) / "isolated"
+            isolated_env.init_env(env_dir=env_dir, root=REPO_ROOT)
+            with self.assertRaises(canonical_capture.CaptureError) as caught:
+                canonical_capture.verify(env_dir, root=REPO_ROOT)
+            message = str(caught.exception)
+            self.assertIn("nothing captured yet", message)
+            self.assertNotIn("no evidence was captured", message)
+
+    def test_a_store_whose_index_outlives_its_events_is_reported_incomplete(self):
+        self.capture("02-tool-call.jsonl")
+        index_path = canonical_capture.capture_root(self.env_dir) / "index.json"
+        recorded = json.loads(index_path.read_text(encoding="utf-8"))["events"]
+        self.assertTrue(recorded)
+        events_path = canonical_capture.capture_root(self.env_dir) / "events.jsonl"
+        kept = events_path.read_text(encoding="utf-8")
+        events_path.unlink()
+        try:
+            with self.assertRaises(canonical_capture.CaptureError) as caught:
+                canonical_capture.verify(self.env_dir, root=REPO_ROOT)
+            message = str(caught.exception)
+            self.assertIn(f"records {recorded} event(s)", message)
+            self.assertIn("incomplete", message)
+            # A truncated store must not be described as a transcript with no evidence.
+            self.assertNotIn("no evidence was captured", message)
+            self.assertTrue(canonical_capture.status(self.env_dir)["store_incomplete"])
+        finally:
+            events_path.write_text(kept, encoding="utf-8")
+        self.assertFalse(canonical_capture.status(self.env_dir)["store_incomplete"])
+        self.assertTrue(canonical_capture.verify(self.env_dir, root=REPO_ROOT)["ok"])
+
+    def test_a_corrupt_store_line_is_reported_instead_of_raising_a_decode_error(self):
+        self.capture("02-tool-call.jsonl")
+        events_path = canonical_capture.capture_root(self.env_dir) / "events.jsonl"
+        kept = events_path.read_text(encoding="utf-8")
+        lines = kept.splitlines(keepends=True)
+        # Truncate the last record mid-string: the store is now unreadable.
+        events_path.write_text("".join(lines[:-1]) + lines[-1][:40], encoding="utf-8")
+        try:
+            with self.assertRaises(canonical_capture.CaptureError) as caught:
+                canonical_capture.verify(self.env_dir, root=REPO_ROOT)
+            message = str(caught.exception)
+            self.assertIn("is not valid JSON", message)
+            self.assertIn("events.jsonl line", message)
+            self.assertIn("re-run capture", message)
+        finally:
+            events_path.write_text(kept, encoding="utf-8")
+        self.assertTrue(canonical_capture.verify(self.env_dir, root=REPO_ROOT)["ok"])
+
+    def test_missing_content_fails_the_checks_instead_of_aborting_the_report(self):
+        self.capture("02-tool-call.jsonl")
+        content = canonical_capture.capture_root(self.env_dir) / "content"
+        missing = sorted(content.glob("*.txt"))[0]
+        kept = missing.read_bytes()
+        missing.unlink()
+        try:
+            report = canonical_capture.verify(self.env_dir, root=REPO_ROOT)
+            self.assertFalse(report["ok"])
+            self.assertFalse(report["checks"]["stored_content_matches_the_recorded_hash"])
+            self.assertFalse(
+                report["checks"]["retrieval_view_derives_from_canonical_content"]
+            )
+            # A missing file is an absent referent, not an unreferenced file, so it
+            # is never listed as orphaned. (This store is shared across the class, so
+            # other orphans may exist; only this one matters here.)
+            self.assertNotIn(missing.name, report["orphaned_content_files"])
+            self.assertEqual(len(report["checks"]), 11)
+        finally:
+            missing.write_bytes(kept)
+        self.assertTrue(canonical_capture.verify(self.env_dir, root=REPO_ROOT)["ok"])
+
+    def test_orphaned_content_is_reported_and_the_bytes_are_kept(self):
+        self.capture("01-simple-turn.jsonl", "02-tool-call.jsonl", "06-gap.jsonl")
+        content = canonical_capture.capture_root(self.env_dir) / "content"
+        self.capture("01-simple-turn.jsonl")
+        referenced = {event["capture_id"] for event in self.events()}
+        orphans = sorted(
+            path.name for path in content.glob("*.txt") if path.stem not in referenced
+        )
+        self.assertTrue(orphans)
+        report = canonical_capture.status(self.env_dir)
+        self.assertEqual(report["content_files_orphaned"], len(orphans))
+        self.assertEqual(report["orphaned_content_files"], orphans)
+        verified = canonical_capture.verify(self.env_dir, root=REPO_ROOT)
+        self.assertEqual(verified["orphaned_content_files"], orphans)
+        self.assertEqual(len(verified["checks"]), 11)
+        # Reported, never pruned: the orphaned bytes are still on disk.
+        for name in orphans:
+            self.assertTrue((content / name).is_file())
+
 
 class BoundaryTests(CaptureTestCase):
     def test_injected_user_role_context_is_not_operator_speech(self):
@@ -328,6 +440,90 @@ class BoundaryTests(CaptureTestCase):
         index = json.loads((root / "index.json").read_text(encoding="utf-8"))
         self.assertEqual(index["store_version"], canonical_capture.STORE_VERSION)
         self.assertEqual(index["env_dir"], str(self.env_dir))
+
+
+class SessionsDirectoryTests(CaptureTestCase):
+    """A directory that matches nothing names itself and the pattern it searched."""
+
+    def sessions_dir(self, work):
+        directory = Path(work) / "sessions" / "2026" / "09" / "21"
+        directory.mkdir(parents=True)
+        (directory / "transcript.jsonl").write_text("{}\n", encoding="utf-8")
+        return Path(work) / "sessions"
+
+    def isolated_env(self, work):
+        env_dir = Path(work) / "isolated"
+        isolated_env.init_env(env_dir=env_dir, root=REPO_ROOT)
+        return env_dir
+
+    def run_capture(self, env_dir, *extra):
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors), contextlib.redirect_stdout(io.StringIO()):
+            code = canonical_capture.main(
+                ["--env-dir", str(env_dir), "capture", *extra]
+            )
+        return code, errors.getvalue()
+
+    def test_rollout_paths_reports_an_empty_match_as_an_empty_list(self):
+        with tempfile.TemporaryDirectory() as work:
+            sessions = self.sessions_dir(work)
+            self.assertEqual([], canonical_capture.rollout_paths(sessions))
+
+    def test_capture_names_the_directory_and_the_pattern_instead_of_a_missing_flag(self):
+        with tempfile.TemporaryDirectory() as work:
+            env_dir = self.isolated_env(work)
+            sessions = self.sessions_dir(work)
+            code, message = self.run_capture(
+                env_dir, "--sessions-dir", str(sessions)
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("rollout-*.jsonl", message)
+            self.assertIn(str(sessions), message)
+            self.assertIn("no --rollout was given", message)
+            self.assertNotIn("capture needs at least one", message)
+
+    def test_an_empty_directory_does_not_discard_explicit_rollouts(self):
+        with tempfile.TemporaryDirectory() as work:
+            env_dir = self.isolated_env(work)
+            sessions = self.sessions_dir(work)
+            code, message = self.run_capture(
+                env_dir,
+                "--rollout",
+                str(fixture("01-simple-turn.jsonl")),
+                "--sessions-dir",
+                str(sessions),
+            )
+            self.assertEqual(code, 0, message)
+            summary = canonical_capture.status(env_dir)
+            self.assertEqual(summary["events_present"], 2)
+            self.assertEqual(
+                canonical_capture.capture_root(env_dir).joinpath("index.json").is_file(),
+                True,
+            )
+            index = json.loads(
+                (canonical_capture.capture_root(env_dir) / "index.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                {"directory": str(sessions), "rollouts_matched": 0}, 
+                {k: v for k, v in index["sessions_dir"].items() if k != "note"},
+            )
+            self.assertIn("no rollout-*.jsonl matched", index["sessions_dir"]["note"])
+
+    def test_a_sessions_directory_still_captures_every_rollout_it_holds(self):
+        with tempfile.TemporaryDirectory() as work:
+            env_dir = self.isolated_env(work)
+            sessions = self.sessions_dir(work)
+            (sessions / "2026" / "09" / "21" / "rollout-one.jsonl").write_bytes(
+                fixture("01-simple-turn.jsonl").read_bytes()
+            )
+            summary = canonical_capture.capture(
+                env_dir, canonical_capture.rollout_paths(sessions), root=REPO_ROOT
+            )
+            # The user turn and the assistant reply are both evidence.
+            self.assertEqual(summary["events"], 2)
+            self.assertNotIn("sessions_dir", summary)
 
 
 if __name__ == "__main__":
