@@ -115,6 +115,23 @@ class GeneratedHomeTests(unittest.TestCase):
             isolated_env.init_env(env_dir=env_dir, root=REPO_ROOT, force=True)
 
 
+class StatusTests(unittest.TestCase):
+    def test_missing_binary_is_reported_as_unmatched(self):
+        # A binary that is not on disk must never report as matching the plan,
+        # even though the plan itself recorded no hash before the build ran.
+        with tempfile.TemporaryDirectory() as work:
+            env_dir = Path(work) / "isolated"
+            isolated_env.init_env(env_dir=env_dir, root=REPO_ROOT)
+            record_path = env_dir / "isolated-env.json"
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            record["binary"] = str(Path(work) / "absent-codex")
+            record["binary_sha256"] = "0" * 64
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+            status = isolated_env.status(env_dir)
+            self.assertFalse(status["binary_present"])
+            self.assertFalse(status["binary_matches_plan"])
+
+
 class RollbackTests(unittest.TestCase):
     def test_rollback_moves_only_the_environment(self):
         with tempfile.TemporaryDirectory() as work:

@@ -235,14 +235,17 @@ def status(env_dir=None, root=None):
     env_dir = Path(env_dir) if env_dir else default_env_dir(root)
     plan = read_env(env_dir)
     binary = Path(plan["binary"])
-    current_sha = jev_manifest.sha256_file(binary) if binary.is_file() else None
+    present = binary.is_file()
+    # A binary that is not on disk cannot match the plan, even when the plan
+    # recorded no hash because the build had not run yet.
+    current_sha = jev_manifest.sha256_file(binary) if present else None
     return {
         "env_dir": str(env_dir),
         "profile": plan["profile"],
         "host_commit": plan["host_commit"],
         "binary": plan["binary"],
-        "binary_present": binary.is_file(),
-        "binary_matches_plan": current_sha == plan.get("binary_sha256"),
+        "binary_present": present,
+        "binary_matches_plan": present and current_sha == plan.get("binary_sha256"),
         "optional_features_enabled": plan["optional_features_enabled"],
         "remote_inference_enabled": plan["remote_inference"]["enabled"],
     }
