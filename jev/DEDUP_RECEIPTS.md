@@ -38,7 +38,20 @@ all of the following hold:
 - the witness is a **later** retained copy than the source (`witness_not_retained`
   when it is not forward);
 - neither sits in the **protected** current user turn or the recent tail
-  (`protected_turn` / `protected_tail`).
+  (`protected_turn` / `protected_tail`);
+- the marker is **strictly shorter** than the body it replaces
+  (`non_reducing_marker`), so a replacement is always a reduction; and
+- no receipt in the batch names a **witness that is also a source**
+  (`receipt_dependency_conflict`), which the pinned component refuses as
+  "Receipt dependencies conflict".
+
+The first five are the proof that a replacement is truthful; the last two make
+the host's guard no weaker than the component's own validator. A receipt whose
+witness body the same request has just replaced is not re-derivable from the
+request it accompanies, and a marker longer than its body saves nothing. The
+component's 256-byte floor is a **candidate-selection policy**, not a validation
+rule, so it is deliberately not mirrored here: `enforce` mirrors the component's
+`project`, which requires only that the marker is shorter.
 
 The proof is recorded as a receipt binding both native identities to their
 argument hash and body hash:
@@ -73,17 +86,25 @@ recording a stable reason:
 | `witness_not_retained` | the witness is not a later copy than the source |
 | `protected_turn` / `protected_tail` | the source is inside the current turn or recent tail |
 | `non_read_tool` | the call is not one of the read tools |
+| `non_reducing_marker` | the marker is not strictly shorter than the body it replaces |
+| `receipt_dependency_conflict` | the batch names a witness that is also a source |
 | `not_a_result` / `output_shape_changed` | the item is not a tool result, or the proposal changed the count, order, or shape |
 
 Only the `output` string of a `function_call_output` may change. A proposal that
 changes the number, order, or shape of the items is refused whole
 (`ReceiptError`), and the request is returned unchanged. The caller's request and
-the stage's proposal are never mutated in place.
+the stage's proposal are never mutated in place. Items that are **not** tool
+results are taken exactly as proposed: those shapes belong to other stages, and
+this module does not own them.
 
 ## Invariants
 
 - **Evidence is never removed.** Only an eligible body with an identical retained
   copy is ever replaced; a unique result keeps its body.
+- **Never an expansion.** An accepted replacement is strictly smaller than the
+  body it replaces, so no accepted projection grows the request.
+- **Every receipt is re-derivable.** No accepted receipt names a witness whose
+  body the emitted request no longer carries.
 - **Idempotent.** Enforcing an already-enforced request is a no-op, and the
   accepted set is stable.
 - **Bounded and non-sensitive.** The report holds indices, reasons, and hashes;
@@ -94,7 +115,10 @@ the stage's proposal are never mutated in place.
 `bus_boundary.py` runs `dedup_receipts.enforce` only when the dedup stage
 actually applied, records the outcome under `report["dedup"]`, and adds a
 `reverted` note per refused item. A `ReceiptError` becomes a `refused` note and
-the original request is returned.
+the original request is returned. Reachability note: `_rebuild` refuses a count,
+order, or shape change before `enforce` can see it, so through `project()` the
+`ReceiptError` branch is belt-and-braces rather than a live path - it remains
+reachable when `enforce` is driven directly, which is how the suite tests it.
 
 ## Evidence
 

@@ -325,7 +325,8 @@ class ReceiptEnforcementTests(unittest.TestCase):
     """The dedup stage may only replace a body that a receipt proves (contract C3)."""
 
     def _long_request(self):
-        body = "FILE A BODY"
+        # Long enough that the retained-witness marker is strictly shorter.
+        body = "FILE A BODY " * 40
         items = [
             {
                 "type": "function_call",
@@ -389,7 +390,7 @@ class ReceiptEnforcementTests(unittest.TestCase):
         self.assertEqual(report["dedup"]["accepted"], [1])
         self.assertEqual(report["dedup"]["receipts"][0]["witness"]["id"], "call_2")
         self.assertEqual(
-            request["input"][1]["output"], "FILE A BODY"
+            request["input"][1]["output"], "FILE A BODY " * 40
         )  # caller untouched
 
 
