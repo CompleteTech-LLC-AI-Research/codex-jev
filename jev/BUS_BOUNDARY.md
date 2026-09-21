@@ -175,6 +175,25 @@ that checkout is present.
   exercise the subprocess transport without the component repositories checked
   out. Every such run is tier `bus-stage-stub`. The real stage semantics remain
   owned by `jev-prune-kit` and `jev-context-fabric`.
+- **Each projected turn pays a process cost nothing has measured yet.** With the
+  switches on, the host runs the adapter as one `python3` process per outgoing
+  payload, and the adapter runs one more process per registered stage
+  (`JEV_BUS_STAGE_*` is a command line executed by `_subprocess_invoke`), so the
+  two-stage chain is three processes and a re-serialized round trip per turn.
+  The chain is serial, the payload handed over is bounded at 8 MiB
+  (`MAX_INPUT_BYTES`), and the whole call is cut off at `JEV_BUS_TIMEOUT_MS`
+  (default 15000, clamped to 120000) with the child killed. No run here measures
+  that latency — [#25](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/25)
+  owns the performance validation, and no measurement has been taken on a real
+  host turn ([#70](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/70)).
+  With the switches off — the declared default and every profile — the cost is
+  exactly zero, because no process is spawned.
+- **The reduction is proved on fixtures, never by a running host.** Every row
+  below drives the module, the adapter, or the transport directly; none compiles
+  or launches a `codex` binary, so no run yet shows a launched host reaching the
+  boundary. The harness that could (`jev/smoke/`) exists and runs a real binary
+  against a loopback mock for #10, and the gap is filed as
+  [#70](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/70).
 
 ## Evidence
 

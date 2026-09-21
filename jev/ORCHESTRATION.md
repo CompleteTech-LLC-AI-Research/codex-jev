@@ -32,9 +32,15 @@ is incomplete, even when a concurrency slot is free.
 | #15 | Native request adapter and bus boundary | #47 | merged; issue closed |
 | #16 | Duplicate-read proof receipts | #50 | merged; issue closed |
 | #17 | Approved Fabric views and reversible controls | #53 | merged; issue closed |
-| #18 | Wire Sentinel hooks and effective coverage reporting | #60 | in review |
-| #55 | Invoke the bus boundary from the host request path | — | in review |
+| #18 | Wire Sentinel hooks and effective coverage reporting | #60 | merged; issue closed |
+| #49 | Canonical capture CLI: report a zero-event capture gap | #64 | merged; issue closed |
+| #55 | Invoke the bus boundary from the host request path | #63 | merged; issue closed |
 | #58 | Reconcile the host's item-count fallback with the approved-view removal | — | open; filed from #55 |
+| #52 | Host proof is weaker than the component's own receipt validator | #65 | PR merged; issue left open (the body closes the gaps, not the issue) |
+| #57 | Reconcile C4's package-approval semantics with the host-owned view control | #62 | in review; filed from #17 |
+| #66 | repo-checks is red on `main`: root `README.md` asciicheck | — | open; CI lane |
+| #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | — | open; CI lane |
+| #70 | Run the real host binary to show projected outgoing content and exact reset | — | open; from #5 criterion 3 |
 | #19–#20 | Sentinel veto precedence, retrieval screening, incident operations | — | open; blocked by #18 |
 | #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
@@ -56,6 +62,10 @@ merged.
 | #15 | #47 | `916ec10cae` | `f444b1066a` |
 | #16 | #50 | `d5276641dc` | `a7949e368e` |
 | #17 | #53 | `2bfb977a23` | `013ba38df8` |
+| #18 | #60 | `45cfc93210` | `f9076fb7bc` |
+| #49 | #64 | `842d99d216` | `186198d3fe` |
+| #55 | #63 | `0c10851a79` | `dad9e5ad1e` |
+| #52 | #65 | `0ad456b527` | `f9ba672eeb` |
 
 ## Pinned revisions
 
@@ -109,6 +119,7 @@ ever added as a component.
 | Installation is not activation, and only a probe can show activation. | Codex requires per-hook trust approval that no file on disk records, so a present `hooks.json`, a resolvable launcher, and a matching revision are necessary but never sufficient. `coverage --probe` runs the *wired command itself* and requires an audit row whose `content_sha256` and `session_ref` match a per-run-unique canary session, so neither a stale row nor a launcher that merely echoes `{}` can be mistaken for activation. |
 | A payload the host cannot bound is refused, never truncated. | A normalized event above the component's own input limit (`MAX_INPUT`) or content above the policy's `max_content_bytes` is not forwarded; the host records a fail-closed `REVIEW` incident (`backend="host_boundary"`) instead, because a shortened prompt would be assessed as if complete. |
 | Bypass surfaces are reported, not assumed away. | `coverage.bypass_surfaces` names each observed way a finding is skipped or an action left ungated — `native_disable_all_hooks`, `hook_not_wired`, `launcher_unreachable`, `tools_outside_matcher`/`matcher_opaque`, `post_tool_replacement_unsupported`, `ingress_scope_is_prompt_only`, `local_rules_only`, `host_trust_unverified`, `component_revision_mismatch`, `integration_switch_off` — so the uncovered space is explicit. Only a canary through the wired command can show a hook is active, because a shadow response is `{}`. |
+| The manifest pin names the pre-patch base; merged revisions are recorded in this ledger. | The `codex-jev` manifest `revision` is the tree the ordered patches apply to, so it must equal `host.base_commit`. A merged revision already contains patch `0002`, so pinning it would make `apply-patches.py` fail and invalidate every profile. Merged revisions therefore live in the *Merged commits* table, and the applied tree is proved by `verify-manifest.py --patch-state applied`. |
 
 ## Evidence
 
@@ -136,5 +147,7 @@ spawned, so both are recorded. The live-provider tier remains untouched.
 | A live-model parent/child smoke requires the same consent. | #10 | Open for the live tier only; a real parent/child turn against a loopback mock now runs in `jev/smoke/` and is recorded in `jev/evidence/`. |
 | Every session authenticates to GitHub as one account, so "author ≠ reviewer" cannot be met with a second identity. | all | Open; reviews are recorded as self-review comments backed by reproducible automated checks. |
 | The private key for the GitHub-verified commits in this repository is not on this machine. | all | Open; commits are pushed unsigned and GitHub reports them unverified. |
-| `repo-checks` `just fmt-check` is red on `main`: the vendored `jev/scripts/jev_bus.py` is not ruff-formatted while `ruff format --check .` covers `jev/scripts/`, and #54 left `jev/scripts/bus_boundary.py` in the same state. | all | Open. The vendored file must stay byte-identical to the pinned component copy (a test asserts its digest), so it cannot be reformatted here; excluding it is the fix, and that belongs to whoever owns the vendored-file rule. `bus_boundary.py` is not vendored, so it can simply be formatted — left alone here to keep this branch clear of a file the parallel session is actively editing. |
+| `repo-checks` `just fmt-check` is red on `main`: `ruff format --check .` would reformat ten files under `jev/`. It is currently **masked** — step 17 (README asciicheck, #66) fails first, so steps 18–21 never run. | all | Open; filed as #69. Nine are ordinary debt (`test_jev_bus.py`, `test_jev_capture.py`, `test_jev_sentinel.py`, `bus_boundary.py`, `canonical_capture.py`, `jev_sentinel_adapter.py`, `sentinel_boundary.py`, `bus_stage_stub/view.py`, `test_sentinel_boundary.py`). The tenth, `jev/scripts/jev_bus.py`, must stay byte-identical to the pinned component copy (a digest test asserts it), so it needs a `ruff.toml` exclusion rather than a reformat. |
+| Codespell is red on `main` on three files under `codex-rs/`. | all | Open; inherited, not JEV. The findings are in upstream files carried in by the `openai:main` merge (`tui/src/markdown_render/math_tests.rs`, `tui/src/markdown_render/math/render.rs`, `exec-server/src/no_follow/unix.rs`), so the fix is an ignore entry or an upstream fix, not an integration change. |
 | The host path reduces bytes but never items, and passes no view to the carrier. | #55, #17 | Open; filed as #58. `codex-rs/core/src/jev_bus.rs` refuses any changed item count (required by #55) and passes no `--view`, so an approved view cannot shrink the outgoing array from a real Codex run yet. |
+| The projection boundary has no `real-host-binary` run. | #5, #55, #17 | Open; filed as #70. #55's strongest evidence drives the adapter over the `subprocess` transport, and `BUS_BOUNDARY.md` states the tests do not compile or run a Codex binary, so #5's third acceptance item ("a real Codex run demonstrates reduced outgoing content and exact reset") has no run behind it yet. |
