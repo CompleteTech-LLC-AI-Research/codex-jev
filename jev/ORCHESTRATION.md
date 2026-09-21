@@ -32,9 +32,12 @@ is incomplete, even when a concurrency slot is free.
 | #15 | Native request adapter and bus boundary | #47 | merged; issue closed |
 | #16 | Duplicate-read proof receipts | #50 | merged; issue closed |
 | #17 | Approved Fabric views and reversible controls | #53 | merged; issue closed |
-| #18 | Wire Sentinel hooks and effective coverage reporting | #60 | in review |
-| #55 | Invoke the bus boundary from the host request path | — | in review |
+| #18 | Wire Sentinel hooks and effective coverage reporting | #60 | merged; issue closed |
+| #49 | Canonical capture CLI: report a zero-event capture gap | #64 | merged; issue closed |
+| #55 | Invoke the bus boundary from the host request path | #63 | merged; issue closed |
 | #58 | Reconcile the host's item-count fallback with the approved-view removal | — | open; filed from #55 |
+| #52 | Host proof is weaker than the component's own receipt validator | #65 | in review; filed from #16 |
+| #57 | Reconcile C4's package-approval semantics with the host-owned view control | #62 | in review; filed from #17 |
 | #19–#20 | Sentinel veto precedence, retrieval screening, incident operations | — | open; blocked by #18 |
 | #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
@@ -56,6 +59,9 @@ merged.
 | #15 | #47 | `916ec10cae` | `f444b1066a` |
 | #16 | #50 | `d5276641dc` | `a7949e368e` |
 | #17 | #53 | `2bfb977a23` | `013ba38df8` |
+| #18 | #60 | `45cfc93210` | `f9076fb7bc` |
+| #49 | #64 | `842d99d216` | `186198d3fe` |
+| #55 | #63 | `0c10851a79` | `dad9e5ad1e` |
 
 ## Pinned revisions
 
@@ -109,6 +115,7 @@ ever added as a component.
 | Installation is not activation, and only a probe can show activation. | Codex requires per-hook trust approval that no file on disk records, so a present `hooks.json`, a resolvable launcher, and a matching revision are necessary but never sufficient. `coverage --probe` runs the *wired command itself* and requires an audit row whose `content_sha256` and `session_ref` match a per-run-unique canary session, so neither a stale row nor a launcher that merely echoes `{}` can be mistaken for activation. |
 | A payload the host cannot bound is refused, never truncated. | A normalized event above the component's own input limit (`MAX_INPUT`) or content above the policy's `max_content_bytes` is not forwarded; the host records a fail-closed `REVIEW` incident (`backend="host_boundary"`) instead, because a shortened prompt would be assessed as if complete. |
 | Bypass surfaces are reported, not assumed away. | `coverage.bypass_surfaces` names each observed way a finding is skipped or an action left ungated — `native_disable_all_hooks`, `hook_not_wired`, `launcher_unreachable`, `tools_outside_matcher`/`matcher_opaque`, `post_tool_replacement_unsupported`, `ingress_scope_is_prompt_only`, `local_rules_only`, `host_trust_unverified`, `component_revision_mismatch`, `integration_switch_off` — so the uncovered space is explicit. Only a canary through the wired command can show a hook is active, because a shadow response is `{}`. |
+| The manifest pin names the pre-patch base; merged revisions are recorded in this ledger. | The `codex-jev` manifest `revision` is the tree the ordered patches apply to, so it must equal `host.base_commit`. A merged revision already contains patch `0002`, so pinning it would make `apply-patches.py` fail and invalidate every profile. Merged revisions therefore live in the *Merged commits* table, and the applied tree is proved by `verify-manifest.py --patch-state applied`. |
 
 ## Evidence
 
