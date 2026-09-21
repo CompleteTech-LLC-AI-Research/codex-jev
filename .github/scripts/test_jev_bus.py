@@ -119,13 +119,18 @@ def registry(state=None):
 
 
 class Recorder:
-    """A stage spy that records invocation order and returns what it was given."""
+    """A stage spy that records invocation order and returns what it was given.
 
-    def __init__(self, transform=None, fail=None, notes=None):
+    `decline` names a stage whose response omits `ok`; the bus rejects any such
+    response, throws its array away, and records the stage as a passthrough.
+    """
+
+    def __init__(self, transform=None, fail=None, notes=None, decline=None):
         self.calls = []
         self._transform = transform
         self._fail = fail
         self._notes = notes or {}
+        self._decline = decline
 
     def __call__(self, stage, request, workspace, budget_ms):
         name = stage["name"]
@@ -135,7 +140,10 @@ class Recorder:
         messages = request["messages"]
         if self._transform is not None:
             messages = self._transform(name, messages)
-        return {"ok": True, "messages": messages, "notes": list(self._notes.get(name, []))}
+        response = {"messages": messages, "notes": list(self._notes.get(name, []))}
+        if name != self._decline:
+            response["ok"] = True
+        return response
 
 
 def prove(source_index, witness="call_2"):
@@ -262,12 +270,32 @@ class CanonicalTranscriptTests(unittest.TestCase):
             outgoing["input"][6]["content"], [{"type": "output_text", "text": "viewed"}]
         )
 
-    def test_reorder_or_removal_is_refused_and_discards_every_stage(self):
+    def test_reorder_is_refused_and_discards_every_stage(self):
         def transform(name, messages):
             if name == DEDUP:
                 messages[1], messages[2] = messages[2], messages[1]
-            elif name == VIEW:
-                return messages[:-1]
+            return messages
+
+        request = sample_request()
+        outgoing, report = bus_boundary.project(
+            request, registry=registry(), invoke=Recorder(transform)
+        )
+        self.assertEqual(outgoing, request)
+        self.assertTrue(
+            any(note.get("action") == "refused" for note in report["notes"])
+        )
+
+    def test_growth_is_refused_and_discards_every_stage(self):
+        """The array may shrink by whole items, but it may never grow.
+
+        A dropped index is restored and its removal is left to the approved-view
+        filter, so growth and duplication are the structural violations that
+        remain refused outright.
+        """
+
+        def transform(name, messages):
+            if name == VIEW:
+                return messages + [copy.deepcopy(messages[0])]
             return messages
 
         request = sample_request()
@@ -414,6 +442,53 @@ class ReceiptRuleTests(unittest.TestCase):
         self.assertEqual(report["applied"], [VIEW])
         self.assertEqual([r["stage"] for r in report["receipts"]], [200])
         self.assertEqual(outgoing, request)
+
+    def test_a_declined_response_cannot_earn_a_receipt(self):
+        """The bus accepts an array only from a response that says `ok: true`.
+
+        `run_chain` declines anything else, keeps that stage's own input and
+        records the decline as a passthrough, so an edit carried in the rejected
+        array never reached the wire. Counting it would hand the stage a receipt
+        for a projection that the bus threw away.
+        """
+
+        def edit(name, messages):
+            updated = copy.deepcopy(messages)
+            if name == DEDUP:
+                updated[2]["content"] = marker("call_2")
+            return updated
+
+        request = sample_request()
+        outgoing, report = bus_boundary.project(
+            request,
+            registry=registry(),
+            invoke=Recorder(
+                edit,
+                decline=DEDUP,
+                notes={VIEW: [{"action": "passthrough", "detail": "no approved view"}]},
+            ),
+        )
+        self.assertEqual(outgoing, request)
+        self.assertEqual(report["applied"], [])
+        self.assertEqual(report["receipts"], [])
+
+    def test_a_declined_removal_cannot_earn_a_receipt(self):
+        def drop(name, messages):
+            return messages[:-1] if name == VIEW else messages
+
+        request = sample_request()
+        outgoing, report = bus_boundary.project(
+            request,
+            registry=registry(),
+            invoke=Recorder(
+                drop,
+                decline=VIEW,
+                notes={DEDUP: [{"action": "passthrough", "detail": "no duplicates"}]},
+            ),
+        )
+        self.assertEqual(outgoing, request)
+        self.assertEqual(report["applied"], [])
+        self.assertEqual(report["receipts"], [])
 
     def test_receipt_carries_the_stage_identity(self):
         recorder = Recorder(

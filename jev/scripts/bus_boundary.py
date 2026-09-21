@@ -483,19 +483,30 @@ def project(
         note vocabulary: the ``action`` strings are another package's wording and
         the bus contract does not fix them, so a stage that substitutes bodies and
         also reports an unrelated ``passthrough`` note must still earn a receipt.
+
+        Only an array the bus itself accepts counts as that stage's output.
+        ``run_chain`` declines any response without ``ok: true`` -- and, for a
+        ``transform``, without a message list -- keeps that stage's own input, and
+        records the decline as a passthrough. Reading the rejected array here would
+        credit a stage for an edit the bus threw away, and hand it a receipt for a
+        projection that never reached the wire.
         """
         before = _fingerprints(stage_request.get("messages"))
         response = invoke(stage, stage_request, stage_workspace, budget_ms)
-        produced_messages = (
-            response.get("messages") if isinstance(response, dict) else None
-        )
-        after = _fingerprints(produced_messages)
+        after = before
+        if (
+            op == "transform"
+            and isinstance(response, dict)
+            and response.get("ok") is True
+            and isinstance(response.get("messages"), list)
+        ):
+            after = _fingerprints(response["messages"])
         moved = {
             index
             for index, (was, now) in enumerate(zip(before, after))
             if was != now
         }
-        if len(before) != len(after) or not isinstance(produced_messages, list):
+        if len(before) != len(after):
             moved.add(-1)  # a structural change no single position can describe
         changed[stage["name"]] = moved
         return response

@@ -57,6 +57,11 @@ typed items.
    wording and the `jev-bus.v1` contract does not fix them, so the array the
    stage returned is the evidence that decides: a stage that substitutes bodies
    and also reports an unrelated passthrough keeps its receipt.
+   Only an array the bus itself accepted counts: `run_chain` declines any
+   response without `ok: true` (and, for a `transform`, without a message list),
+   keeps that stage's own input and records the decline as a passthrough, so a
+   mutation carried in a rejected array is never reported as an applied stage and
+   never earns a receipt.
    A stage whose every change the `C3` receipt enforcement reverts also loses
    its receipt, because a receipt records a projection that reached the wire;
    the refusal is recorded as a `reverted` note and in `report.dedup.reverted`.
@@ -118,7 +123,7 @@ call was made.
 | Check | Result |
 | --- | --- |
 | `jev/tests/test_bus_boundary.py` wire-request tests | 19 tests, ok: ordering, single invocation, no mutation, opaque retention, refusal, fallback, deadline, switches, receipts, bounds. |
-| `.github/scripts/test_jev_bus.py` — the required-CI home (`repo-checks` discovers `.github/scripts/test_jev_*.py`; it does not run `jev/tests`) | 25 tests, ok: the same invariants, the receipt rule, and three `bus-stage-stub` subprocess-transport runs. |
+| `.github/scripts/test_jev_bus.py` — the required-CI home (`repo-checks` discovers `.github/scripts/test_jev_*.py`; it does not run `jev/tests`) | 28 tests, ok: the same invariants, the receipt rule (including a declined response earning nothing), and three `bus-stage-stub` subprocess-transport runs. |
 | Required CI battery (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) | 139 tests, ok (114 before this change). |
 | `jev/tests` | 68 tests, ok. |
 | `verify-manifest.py --patch-state applied` | ok. |
