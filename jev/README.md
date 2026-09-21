@@ -33,6 +33,7 @@ installs its call site. Everything else the integration owns is here.
 | `scripts/sentinel_boundary.py` | The Sentinel hook boundary (C5): normalize and bound the prompt/pre-tool/post-tool events, run the pinned evaluator, record correlated incidents, and report effective coverage and activation. |
 | `scripts/sentinel_veto.py` | Host veto precedence (C5): map `REVIEW`/`BLOCK`/`QUARANTINE` onto the veto each stage supports, latch a session so a later approval or `DEFER` cannot clear it, serialize concurrent evaluations, and fail closed on every failure path. |
 | `scripts/jev_sentinel_adapter.py` | The Codex hook translation vendored from the pinned `jev-sentinel`: `EVENTS`, `normalize`, `render`, the decisions, and the input bound. |
+| `scripts/approval_shadow.py` | The approval shadow comparator and enforcement gate (C6): correlate typed judgments with the host's final decisions and observed timing, refuse raw content, account for every failure and deferral, and freeze a scenario-family calibration/holdout split. |
 | `scripts/verify-manifest.py --native-adapter` | Assert that the declared native approval adapter is installed and wired where the manifest says it is, or gone again after a rollback. |
 | `scripts/build_provenance.py` | Build the pinned CLI with the repository recipe and record provenance. |
 | `scripts/verify-manifest.py` | Fail-closed validator for the manifest, a profile, the patch state, and the checkout pin. |
@@ -81,4 +82,5 @@ explicitly instead of silently building.
 - [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) — the native approval preflight, its environment contract, eligibility and deferral, the answer binding and freshness rules, and the guarded host blobs.
 - [`RETRIEVAL_SCREENING.md`](RETRIEVAL_SCREENING.md) — screening retrieved context before injection, the two switches, the withholding rules, and memory-write authorization.
 - [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md) — bounded, metadata-only incident operations: validation, the read-only disable plan, correlation, and the policy view.
+- [`APPROVAL_SHADOW.md`](APPROVAL_SHADOW.md) — the shadow comparison by review id, the raw-content refusal, the every-failure accounting, the declared enforcement criteria, and why the gate never flips a switch.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.
