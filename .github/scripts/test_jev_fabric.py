@@ -10,9 +10,13 @@ and a report that escapes the environment fails closed.
 """
 
 import json
+import os
+import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from unittest import mock
 
@@ -24,6 +28,17 @@ import isolated_env  # noqa: E402
 
 STUB = REPO_ROOT / "jev" / "tests" / "fabric_stub" / "install.py"
 UNRELATED = 'model = "kestrel"\napproval_policy = "on-request"\n'
+
+
+def load_stub():
+    """Import the checked-in fabric stub to read the groups it installs."""
+    spec = spec_from_file_location("jev_fabric_stub_install", STUB)
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+STUB_HOOKS = load_stub().FABRIC_HOOKS
 
 
 class FabricBindingTests(unittest.TestCase):
@@ -152,6 +167,173 @@ class FabricBindingTests(unittest.TestCase):
             fabric_env.parse_args(
                 ["--env-dir", "/tmp/x", "verify", "--workspace", "/tmp/y"]
             )
+
+
+class CaptureBindingTests(unittest.TestCase):
+    """The host capture adapter is bound ahead of the fabric's own hooks."""
+
+    def setUp(self):
+        self.work = tempfile.TemporaryDirectory()
+        self.addCleanup(self.work.cleanup)
+        self.env_dir = Path(self.work.name) / "isolated"
+        isolated_env.init_env(env_dir=self.env_dir, root=REPO_ROOT)
+        self.home = Path(self.env_dir) / "home"
+        (self.home / "config.toml").write_text(UNRELATED, encoding="utf-8")
+        self.hooks = self.home / "hooks.json"
+
+    def install(self, **kwargs):
+        return fabric_env.install(self.env_dir, STUB.parent, root=REPO_ROOT, **kwargs)
+
+    def hooks_document(self):
+        return json.loads(self.hooks.read_text(encoding="utf-8"))["hooks"]
+
+    def groups_for(self, event):
+        return self.hooks_document().get(event, [])
+
+    def is_capture_group(self, group):
+        return any(
+            fabric_env.CAPTURE_HOOK_NAME in str(handler.get("command", ""))
+            for handler in group.get("hooks", [])
+        )
+
+    def test_capture_is_bound_ahead_of_the_fabric_hooks(self):
+        self.install()
+        for event in fabric_env.capture_events():
+            with self.subTest(event=event):
+                groups = self.groups_for(event)
+                self.assertTrue(groups, event)
+                self.assertTrue(self.is_capture_group(groups[0]), groups)
+                self.assertEqual(
+                    sum(1 for group in groups if self.is_capture_group(group)), 1
+                )
+        # The fabric's own groups are preserved exactly, just ordered after.
+        for event, groups in STUB_HOOKS.items():
+            with self.subTest(event=event):
+                for group in groups:
+                    self.assertIn(group, self.groups_for(event))
+        self.assertTrue(self.is_capture_group(self.groups_for("PostToolUse")[0]))
+        self.assertIn(STUB_HOOKS["PostToolUse"][0], self.groups_for("PostToolUse")[1:])
+
+    def test_reinstall_keeps_one_capture_group_per_event(self):
+        self.install()
+        before = self.hooks.read_bytes()
+        record = self.install()
+        self.assertEqual(record["changed_files"], [])
+        self.assertEqual(self.hooks.read_bytes(), before)
+        for event in fabric_env.capture_events():
+            groups = self.groups_for(event)
+            self.assertEqual(
+                sum(1 for group in groups if self.is_capture_group(group)), 1, event
+            )
+
+    def test_unbind_removes_only_the_capture_groups(self):
+        self.install()
+        plan = isolated_env.read_env(self.env_dir)
+        removed = fabric_env.unbind_capture_hooks(plan)
+        self.assertEqual(removed["events"], sorted(fabric_env.capture_events()))
+        for event in fabric_env.capture_events():
+            with self.subTest(event=event):
+                self.assertFalse(
+                    any(
+                        self.is_capture_group(group) for group in self.groups_for(event)
+                    ),
+                    event,
+                )
+        for event, groups in STUB_HOOKS.items():
+            with self.subTest(event=event):
+                for group in groups:
+                    self.assertIn(group, self.groups_for(event))
+        self.assertEqual(fabric_env.unbind_capture_hooks(plan)["events"], [])
+
+    def test_foreign_hooks_json_fails_closed_without_clobbering(self):
+        for name, foreign in (
+            ("not json", b"configuration\n"),
+            ("not an object", b"[1, 2, 3]\n"),
+        ):
+            with self.subTest(case=name):
+                with tempfile.TemporaryDirectory() as work:
+                    env_dir = Path(work) / "isolated"
+                    isolated_env.init_env(env_dir=env_dir, root=REPO_ROOT)
+                    hooks = Path(env_dir) / "home" / "hooks.json"
+                    hooks.write_bytes(foreign)
+                    with self.assertRaises(fabric_env.FabricError):
+                        fabric_env.install(env_dir, STUB.parent, root=REPO_ROOT)
+                    self.assertEqual(hooks.read_bytes(), foreign)
+                    self.assertFalse(fabric_env.record_path(env_dir).is_file())
+
+    def test_bind_refuses_a_non_object_hooks_entry(self):
+        self.hooks.write_text(json.dumps({"hooks": []}), encoding="utf-8")
+        plan = isolated_env.read_env(self.env_dir)
+        with self.assertRaises(fabric_env.FabricError):
+            fabric_env.bind_capture_hooks(plan)
+
+    def test_status_reports_the_capture_binding(self):
+        self.install()
+        capture = fabric_env.status(self.env_dir)["capture"]
+        self.assertIsNone(capture["hooks_error"])
+        self.assertEqual(
+            capture["hooks_bound"], [True] * len(fabric_env.capture_events())
+        )
+        self.assertEqual(capture["events"], list(fabric_env.capture_events()))
+
+    def test_status_reports_a_foreign_hooks_json_instead_of_failing(self):
+        self.install()
+        self.hooks.write_text("configuration\n", encoding="utf-8")
+        capture = fabric_env.status(self.env_dir)["capture"]
+        self.assertIn("not valid JSON", capture["hooks_error"])
+        self.assertEqual(
+            capture["hooks_bound"], [False] * len(fabric_env.capture_events())
+        )
+
+    def test_bound_command_writes_inside_the_environment(self):
+        self.install()
+        handler = self.groups_for("UserPromptSubmit")[0]["hooks"][0]
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in ("JEV_CAPTURE_DIR", "CODEX_HOME")
+        }
+        environment["CODEX_HOME"] = str(self.home)
+        completed = subprocess.run(
+            shlex.split(handler["command"]),
+            input=json.dumps(
+                {
+                    "session_id": "sess-bound",
+                    "turn_id": "turn-bound",
+                    "cwd": str(self.work.name),
+                    "hook_event_name": "UserPromptSubmit",
+                    "prompt": "bound command prompt",
+                }
+            ),
+            capture_output=True,
+            text=True,
+            env=environment,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout, "")
+        log = self.home / "capture" / "events.jsonl"
+        self.assertTrue(log.is_file())
+        body = [
+            json.loads(line)
+            for line in log.read_text("utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertEqual([item["envelope"]["kind"] for item in body], ["user_message"])
+        self.assertTrue(str(log.resolve()).startswith(str(self.env_dir.resolve())))
+
+    def test_capture_verify_proves_order_dedup_and_correlation(self):
+        self.install()
+        plan = isolated_env.read_env(self.env_dir)
+        report = fabric_env.capture_verify(plan, Path(self.work.name))
+        self.assertEqual(
+            report["captured_kinds"],
+            ["user_message", "tool_call", "tool_result", "assistant_message"],
+        )
+        self.assertTrue(report["replay_stored_no_duplicate"])
+        self.assertGreaterEqual(report["parents_resolved"], 2)
+        self.assertEqual(report["capture_gaps"], [])
+        self.assertEqual(report["stream_findings"], [])
 
 
 class FabricPinTests(unittest.TestCase):

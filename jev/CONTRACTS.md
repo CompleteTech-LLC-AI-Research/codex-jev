@@ -16,6 +16,9 @@ authorization.
   `occurred_at_ms`, `redaction`.
 - Manifest rule: `retrieval.budgeted_hydration` requires
   `capture.canonical_evidence`.
+- Host implementation: `jev/scripts/event_envelope.py` (schema, dedup,
+  correlation, gaps) and `jev/scripts/capture_hook.py` (the lifecycle-hook
+  adapter); see [`CANONICAL_CAPTURE.md`](CANONICAL_CAPTURE.md).
 
 ## C2 — One native adapter owns the jev-bus transformation boundary
 

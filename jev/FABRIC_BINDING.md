@@ -65,14 +65,32 @@ component and revision, the profile, the resolved runtime (harness, MCP server
 name, interpreter, interpreter requirement and whether it is satisfied), the
 workspace, and every changed file. `--dry-run` reports what would change
 without writing a record or a file. Re-running `install` is idempotent: a
-second run reports no changed files.
+second run reports no changed files, and the capture handlers are not added
+twice.
+
+## Capture ordering
+
+Canonical capture has to happen before any component projects context into an
+outgoing request, so `install` also binds `jev/scripts/capture_hook.py` as the
+**first** handler for every captured lifecycle event. The adapter's groups are
+prepended to `home/hooks.json`, ahead of the groups the fabric installer wrote,
+and every existing group is preserved exactly as it was (order included).
+`uninstall` removes only the adapter's groups.
+
+`hooks.json` is treated as owned by the fabric installer: a file that is not
+JSON, or not a JSON object, is never rewritten. Bind raises `FabricError`,
+install writes no record, and the file keeps its exact bytes; `status` reports
+the problem under `capture.hooks_error` instead of failing. See
+[CANONICAL_CAPTURE.md](CANONICAL_CAPTURE.md) for the envelope schema, the
+correlation rules, and the host hook-trust gate that must be satisfied before a
+real host will invoke the adapter.
 
 `status` reports the bound surfaces and whether the MCP entry, hooks, and skill
 are still present against the recorded file list. It fails closed when no
 binding exists.
 
 `verify` drives the **installed** copy of the fabric runtime (not the checkout)
-and asserts six properties:
+and asserts six fabric properties and five host-capture properties:
 
 | Check | Meaning |
 | --- | --- |
@@ -82,6 +100,11 @@ and asserts six properties:
 | `memory_home_inside_environment` | The SQLite database lives under `<env-dir>/fabric`. |
 | `ambient_memory_home_untouched` | `~/.jev-context-fabric` was never created. |
 | `status_reports_workspace` | The runtime reports the workspace it was bound to. |
+| `host_capture_records_every_kind` | Replaying the bound adapter records one envelope per captured kind, in order. |
+| `host_capture_replay_is_deduplicated` | A replayed delivery adds no record. |
+| `host_capture_resolves_correlation` | A result resolves to its call and a message to its prompt. |
+| `host_capture_stream_conforms` | The capture stream validates with no errors. |
+| `host_capture_has_no_gaps` | No missing-call or missing-prompt gap is reported. |
 
 `uninstall` runs the installer's `--uninstall`, which restores the exact
 pre-install bytes of every file it changed (including `config.toml`) and
@@ -118,6 +141,13 @@ Known limits:
   vendored into this repository.
 - `uninstall` needs the same checkout, because the removal logic belongs to the
   component rather than the host.
-- `verify` exercises capture, retrieval, and workspace identity. It does not
-  assert that the host's MCP client loads the server, which is phase #5 (#13)
-  onwards.
+- `verify` exercises capture, retrieval, workspace identity, and the bound
+  capture adapter. It does not assert that the host's MCP client loads the
+  server, or that a live session invokes the adapter; both need a real host
+  run (phase #8, #25).
+- The host runs a `hooks.json` handler only when the handler is trusted
+  (`hook_trust_status`); `hooks.json` starts `Untrusted`, so a real host will
+  not invoke the capture adapter until that trust is provisioned or the
+  launcher passes `--dangerously-bypass-hook-trust`. This is documented in
+  [CANONICAL_CAPTURE.md](CANONICAL_CAPTURE.md) and tracked as live-host
+  validation, not worked around here.

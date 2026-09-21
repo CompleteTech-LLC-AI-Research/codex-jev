@@ -42,15 +42,64 @@ def render_config(path):
     )
 
 
+# The real installer writes native lifecycle hooks as a JSON document. These
+# groups stand in for it: one on a captured event (so the driver's insertion
+# *ahead* of an existing group is observable) and one on an event the capture
+# adapter does not handle (so uninstall can be shown to leave it alone).
+FABRIC_HOOKS = {
+    "PostToolUse": [
+        {
+            "matcher": "*",
+            "hooks": [{"type": "command", "command": "stub-fabric-project-context"}],
+        }
+    ],
+    "SessionStart": [
+        {"hooks": [{"type": "command", "command": "stub-fabric-session-start"}]}
+    ],
+}
+
+
+def render_hooks(path):
+    """Merge the fabric's hook groups into a JSON hooks.json, additively.
+
+    A hooks.json this stub did not write (not JSON, or not an object) is left
+    byte-for-byte alone so the driver has to fail closed on it rather than
+    silently replace a file it does not own.
+    """
+    if path.exists():
+        try:
+            document = json.loads(path.read_text("utf-8"))
+        except json.JSONDecodeError:
+            return path.read_bytes()
+        if not isinstance(document, dict):
+            return path.read_bytes()
+    else:
+        document = {}
+    hooks = document.setdefault("hooks", {})
+    added = False
+    for event, groups in FABRIC_HOOKS.items():
+        existing = hooks.setdefault(event, [])
+        for group in groups:
+            if group not in existing:
+                existing.append(group)
+                added = True
+    if not added:
+        # The groups this installer manages are already present - possibly
+        # reordered around them by another writer - so report no change.
+        return path.read_bytes()
+    return (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
 def install(prefix, workspace, dry_run):
     home = Path(os.environ["HOME"])
     changes = []
     for path, purpose in planned_files(prefix, home).items():
-        after = (
-            render_config(path).encode("utf-8")
-            if path.suffix == ".toml"
-            else f"stub:{path.name}\n".encode("utf-8")
-        )
+        if path.suffix == ".toml":
+            after = render_config(path).encode("utf-8")
+        elif path.name == "hooks.json":
+            after = render_hooks(path)
+        else:
+            after = f"stub:{path.name}\n".encode("utf-8")
         before = path.read_bytes() if path.is_file() else None
         if before == after:
             continue

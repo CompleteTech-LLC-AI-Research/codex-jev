@@ -15,6 +15,11 @@ Subcommands:
 ``verify``    prove memory-home and workspace identity on the installed copy;
 ``uninstall`` remove the integration and confirm unrelated settings survived.
 
+``install`` also binds the host capture adapter (``capture_hook.py``) as the
+first handler for every captured lifecycle event. Canonical capture has to
+precede the components' own hooks, so the adapter is inserted ahead of the
+groups the fabric installer wrote and every existing group is left untouched.
+
 The runtime that is bound - component, revision, interpreter requirement,
 harness, and MCP server name - comes from the ``fabric`` pin in the integration
 profile, cross-checked against the manifest component table, so the profile and
@@ -34,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import event_envelope
 import isolated_env
 import jev_manifest
 
@@ -43,6 +49,8 @@ RECORD_NAME = "fabric-env.json"
 RECORD_VERSION = 1
 SKILL_REL = Path(".agents") / "skills" / "jev-context" / "SKILL.md"
 MCP_SERVER_NAME = "jev-context"
+CAPTURE_HOOK_NAME = "capture_hook.py"
+CAPTURE_TIMEOUT_SEC = 6
 REQUIREMENT_RE = re.compile(r"^>=\s*(\d+)\.(\d+)$")
 
 
@@ -199,6 +207,13 @@ def install(env_dir, fabric_root, workspace=None, dry_run=False, root=None):
     ensure_contained(changed, env_dir)
     roots = [harness.get("config_root") for harness in result.get("harnesses", [])]
     ensure_contained([entry for entry in roots if entry], env_dir)
+    capture = {"events": [], "hooks_json": None, "sha256": None, "bound": False}
+    if not dry_run:
+        capture = {
+            **bind_capture_hooks(plan),
+            "bound": True,
+            "capture_dir": str(capture_home(plan)),
+        }
     record = {
         "record_version": RECORD_VERSION,
         "component": FABRIC_COMPONENT,
@@ -231,6 +246,7 @@ def install(env_dir, fabric_root, workspace=None, dry_run=False, root=None):
                 for surface in harness.get("installed_surfaces", [])
             }
         ),
+        "capture": capture,
         "notes": result.get("notes", []),
         "tier": "real-fabric-installer",
         "recorded_at_unix_ms": int(time.time() * 1000),
@@ -244,6 +260,253 @@ def install(env_dir, fabric_root, workspace=None, dry_run=False, root=None):
 
 def codex_config(plan):
     return Path(plan["home"]) / "config.toml"
+
+
+def capture_home(plan):
+    """Where canonical capture records live; always inside the environment."""
+    return Path(plan["home"]) / "capture"
+
+
+def capture_hook_path():
+    return Path(__file__).resolve().parent / CAPTURE_HOOK_NAME
+
+
+def capture_events():
+    return tuple(event_envelope.HOOK_EVENT_KIND)
+
+
+def hooks_path(plan):
+    return Path(plan["home"]) / "hooks.json"
+
+
+def parse_hooks(plan):
+    """Return ``(document, error)`` for hooks.json without ever raising.
+
+    The capture adapter only ever *adds* a group to a file the fabric
+    installer wrote, so a hooks.json this driver did not write is treated as
+    foreign: it is reported, never rewritten. Read-only callers use this to
+    describe that state instead of failing.
+    """
+    path = hooks_path(plan)
+    if not path.is_file():
+        return {}, None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        return None, f"{path} is not valid JSON ({error}); refusing to rewrite it"
+    if not isinstance(document, dict):
+        return None, f"{path} does not contain a JSON object; refusing to rewrite it"
+    return document, None
+
+
+def read_hooks(plan):
+    """Strict read for the code paths that must edit hooks.json, so they fail
+    closed on a foreign file instead of clobbering it."""
+    document, error = parse_hooks(plan)
+    if error is not None:
+        raise FabricError(error)
+    return document
+
+
+def write_hooks(plan, document):
+    hooks_path(plan).write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+
+def capture_handler(event):
+    return {
+        "type": "command",
+        "command": f"{sys.executable} {capture_hook_path()} --event {event}",
+        "timeout": CAPTURE_TIMEOUT_SEC,
+    }
+
+
+def _is_capture_handler(handler):
+    return isinstance(handler, dict) and CAPTURE_HOOK_NAME in str(
+        handler.get("command", "")
+    )
+
+
+def _capture_bound(groups):
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        handlers = group.get("hooks")
+        if not isinstance(handlers, list):
+            continue
+        if any(_is_capture_handler(handler) for handler in handlers):
+            return True
+    return False
+
+
+def bind_capture_hooks(plan):
+    """Insert the capture adapter ahead of the existing handlers, additively.
+
+    The adapter is prepended so capture is ordered before any component hook
+    that projects context. Groups written by the fabric installer, and any
+    unrelated group a user added, are preserved exactly as they were.
+    """
+    document = read_hooks(plan)
+    hooks = document.get("hooks")
+    if hooks is None:
+        hooks = {}
+    if not isinstance(hooks, dict):
+        raise FabricError(f"{hooks_path(plan)} has a non-object 'hooks' entry")
+    bound = []
+    changed = False
+    for event in capture_events():
+        groups = hooks.get(event)
+        if groups is None:
+            groups = []
+        if not isinstance(groups, list):
+            raise FabricError(f"hooks.json {event} must be a list of groups")
+        if _capture_bound(groups):
+            bound.append(event)
+            continue
+        groups.insert(0, {"hooks": [capture_handler(event)]})
+        hooks[event] = groups
+        bound.append(event)
+        changed = True
+    if changed:
+        document["hooks"] = hooks
+        write_hooks(plan, document)
+    hooks_file = hooks_path(plan)
+    return {
+        "events": bound,
+        "hooks_json": str(hooks_file),
+        "sha256": jev_manifest.sha256_file(hooks_file)
+        if hooks_file.is_file()
+        else None,
+    }
+
+
+def unbind_capture_hooks(plan):
+    """Remove only the capture adapter's groups; leave every other hook alone."""
+    document = read_hooks(plan)
+    hooks = document.get("hooks")
+    if not isinstance(hooks, dict):
+        return {"events": [], "hooks_json": str(hooks_path(plan))}
+    removed = []
+    for event, groups in list(hooks.items()):
+        if not isinstance(groups, list):
+            continue
+        kept = [
+            group
+            for group in groups
+            if not (
+                isinstance(group, dict)
+                and isinstance(group.get("hooks"), list)
+                and any(_is_capture_handler(item) for item in group["hooks"])
+            )
+        ]
+        if len(kept) != len(groups):
+            removed.append(event)
+            if kept:
+                hooks[event] = kept
+            else:
+                del hooks[event]
+    if removed:
+        document["hooks"] = hooks
+        write_hooks(plan, document)
+    return {"events": sorted(removed), "hooks_json": str(hooks_path(plan))}
+
+
+def capture_status(plan):
+    log = capture_home(plan) / "events.jsonl"
+    records = event_envelope.CaptureLog(log).read() if log.is_file() else []
+    document, error = parse_hooks(plan)
+    hooks = document.get("hooks", {}) if isinstance(document, dict) else {}
+    if not isinstance(hooks, dict):
+        hooks = {}
+    return {
+        "adapter": str(capture_hook_path()),
+        "capture_dir": str(capture_home(plan)),
+        "events": list(capture_events()),
+        "hooks_error": error,
+        "hooks_bound": [
+            _capture_bound(hooks.get(event, [])) for event in capture_events()
+        ],
+        "records": len(records),
+    }
+
+
+def capture_verify(plan, workspace):
+    """Replay the installed adapter and prove capture order, dedup, and gaps."""
+    log = capture_home(plan) / "events.jsonl"
+    before = len(event_envelope.CaptureLog(log).read()) if log.is_file() else 0
+    session = f"jev-capture-verify-{int(time.time() * 1000)}"
+    turn = f"turn-{int(time.time() * 1000)}"
+    payloads = [
+        {
+            "session_id": session,
+            "turn_id": turn,
+            "cwd": str(workspace),
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "capture verification prompt",
+        },
+        {
+            "session_id": session,
+            "turn_id": turn,
+            "cwd": str(workspace),
+            "hook_event_name": "PreToolUse",
+            "tool_name": "shell",
+            "tool_input": {"command": "true"},
+            "tool_use_id": f"call-{session}",
+        },
+        {
+            "session_id": session,
+            "turn_id": turn,
+            "cwd": str(workspace),
+            "hook_event_name": "PostToolUse",
+            "tool_name": "shell",
+            "tool_input": {"command": "true"},
+            "tool_response": {"exit_code": 0},
+            "tool_use_id": f"call-{session}",
+        },
+        {
+            "session_id": session,
+            "turn_id": turn,
+            "cwd": str(workspace),
+            "hook_event_name": "Stop",
+            "last_assistant_message": "capture verification reply",
+        },
+    ]
+    environment = dict(os.environ)
+    environment["JEV_CAPTURE_DIR"] = str(capture_home(plan))
+    command = [sys.executable, str(capture_hook_path())]
+    for payload in payloads + payloads[:1]:
+        completed = subprocess.run(
+            command,
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            env=environment,
+            check=False,
+        )
+        if completed.returncode != 0 or completed.stdout:
+            raise FabricError(
+                "the capture adapter must stay silent and exit 0, got "
+                f"{completed.returncode}: {completed.stderr.strip()}"
+            )
+    records = event_envelope.CaptureLog(log).read()
+    stored = [
+        record["envelope"]
+        for record in records[before:]
+        if isinstance(record.get("envelope"), dict)
+        and record["envelope"].get("session_id") == session
+    ]
+    kinds = [envelope["kind"] for envelope in stored]
+    correlation = event_envelope.correlate(stored)
+    findings = event_envelope.validate_stream(
+        {"records": [record for record in records if "skipped" not in record]}
+    )
+    return {
+        "session": session,
+        "captured_kinds": kinds,
+        "replay_stored_no_duplicate": len(kinds) == len(payloads),
+        "parents_resolved": len(correlation["parents"]),
+        "capture_gaps": correlation["gaps"],
+        "stream_findings": [item for item in findings if item.startswith("E_")],
+    }
 
 
 def status(env_dir):
@@ -269,6 +532,7 @@ def status(env_dir):
         "changed_files_present": len(present),
         "changed_files_recorded": len(record["changed_files"]),
         "installed_surfaces": record["installed_surfaces"],
+        "capture": capture_status(plan),
         "ambient_home": isolated_env.ambient_home_fingerprint(),
     }
 
@@ -361,6 +625,11 @@ def verify(env_dir, workspace_a=None, workspace_b=None):
 
     database = Path(record["prefix"]) / "memory.sqlite3"
     ambient_home = Path(os.path.expanduser("~")) / ".jev-context-fabric"
+    capture = capture_verify(plan, work_a)
+    expected_kinds = [
+        event_envelope.HOOK_EVENT_KIND[event]
+        for event in ("UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop")
+    ]
     checks = {
         "capture_visible_in_own_workspace": marker_a in json.dumps(seen_a),
         "capture_hidden_from_other_workspace": marker_a not in json.dumps(seen_b),
@@ -370,6 +639,11 @@ def verify(env_dir, workspace_a=None, workspace_b=None):
         and str(database).startswith(str(env_dir)),
         "ambient_memory_home_untouched": not ambient_home.exists(),
         "status_reports_workspace": str(work_a) in json.dumps(status_a),
+        "host_capture_records_every_kind": capture["captured_kinds"] == expected_kinds,
+        "host_capture_replay_is_deduplicated": capture["replay_stored_no_duplicate"],
+        "host_capture_resolves_correlation": capture["parents_resolved"] >= 2,
+        "host_capture_stream_conforms": not capture["stream_findings"],
+        "host_capture_has_no_gaps": not capture["capture_gaps"],
     }
     return {
         "record_version": RECORD_VERSION,
@@ -377,6 +651,7 @@ def verify(env_dir, workspace_a=None, workspace_b=None):
         "workspaces": {"primary": str(work_a), "secondary": str(work_b)},
         "memory_home": str(Path(record["prefix"])),
         "database": str(database),
+        "host_capture": capture,
         "checks": checks,
         "ok": all(checks.values()),
     }
@@ -387,6 +662,7 @@ def uninstall(env_dir, fabric_root=None, root=None):
     record = read_record(env_dir)
     plan = isolated_env.read_env(env_dir)
     prefix = Path(record["prefix"])
+    removed = unbind_capture_hooks(plan)
     entry = Path(fabric_root) / "install.py" if fabric_root else None
     if entry is None or not entry.is_file():
         raise FabricError("uninstall needs --fabric pointing at the fabric checkout")
@@ -400,6 +676,7 @@ def uninstall(env_dir, fabric_root=None, root=None):
         "conflicts": sorted(
             item.get("path", "") for item in result.get("conflicts", [])
         ),
+        "capture_hooks_removed": removed["events"],
     }
     record_path(env_dir).write_text(
         json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"

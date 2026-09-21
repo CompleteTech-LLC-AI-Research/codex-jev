@@ -44,6 +44,8 @@ The environment contains:
 | `isolated-env.json` | The resolved plan: profile digest, host pin, features, binary, fixture port and catalog. |
 | `bin/codex-isolated` | Launcher wrapper. |
 | `logs/` | Fixture request record and one JSON line per invocation. |
+| `home/hooks.json` | Lifecycle hooks: the fabric's groups plus the host capture adapter, bound first. |
+| `home/capture/events.jsonl` | Canonical capture log (`event_id`, content digest, origin, correlation) written by `scripts/capture_hook.py`. |
 
 ## Launch
 
@@ -134,6 +136,18 @@ The install merges `[mcp_servers.jev-context]` into `home/config.toml`, writes
 the runtime and its SQLite database under `.jev/isolated/fabric`. Unrelated
 settings in `config.toml` are preserved, and `uninstall` restores them. See
 [FABRIC_BINDING.md](FABRIC_BINDING.md).
+
+Canonical capture (phase #4, #13) is bound at the same time: `capture_hook.py`
+becomes the first handler for the captured lifecycle events, and its records go
+to `home/capture/events.jsonl` via `JEV_CAPTURE_DIR`. Reading a capture back:
+
+```
+python3 jev/scripts/event_envelope.py validate .jev/isolated/home/capture/events.jsonl
+python3 jev/scripts/event_envelope.py correlate .jev/isolated/home/capture/events.jsonl
+```
+
+See [CANONICAL_CAPTURE.md](CANONICAL_CAPTURE.md), including the host hook-trust
+gate that has to be satisfied before a real session runs the adapter.
 
 ## Evidence tiers
 
