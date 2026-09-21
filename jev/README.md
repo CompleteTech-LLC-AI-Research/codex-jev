@@ -24,6 +24,8 @@ Tracking epic: [CompleteTech-LLC-AI-Research/codex-jev#2](https://github.com/Com
 | `scripts/jev_bus.py` | The `jev-bus.v1` contract, vendored byte-identically to the pinned component copies. |
 | `scripts/dedup_receipts.py` | Host-side enforcement of the duplicate-read receipt contract (C3): keep only dedup replacements a receipt proves, revert every other edit. |
 | `scripts/fabric_views.py` | Approved, reversible Fabric prose views (C4): preview/apply/reset, bound to the post-dedup snapshot, with bytes and tokens reported separately. |
+| `scripts/sentinel_boundary.py` | The Sentinel hook boundary (C5): normalize and bound the prompt/pre-tool/post-tool events, run the pinned evaluator, record correlated incidents, and report effective coverage and activation. |
+| `scripts/jev_sentinel_adapter.py` | The Codex hook translation vendored from the pinned `jev-sentinel`: `EVENTS`, `normalize`, `render`, the decisions, and the input bound. |
 | `scripts/build_provenance.py` | Build the pinned CLI with the repository recipe and record provenance. |
 | `scripts/verify-manifest.py` | Fail-closed validator for the manifest, a profile, the patch state, and the checkout pin. |
 | `scripts/jev_manifest.py` | The validation rules, importable from tests. |
@@ -66,4 +68,5 @@ explicitly instead of silently building.
 - [`BUS_BOUNDARY.md`](BUS_BOUNDARY.md) — the single request-construction boundary, the supported vs opaque shapes, and the bus invocation invariants.
 - [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) — what the dedup stage may replace, the receipt the host proves, and the edits it reverts.
 - [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md) — the approved prose view, its snapshot binding, the reversible controls, and the byte/token split.
+- [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) — the Sentinel hook wiring, effective coverage, the activation proof, the incident envelope, and the bypass surfaces.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.

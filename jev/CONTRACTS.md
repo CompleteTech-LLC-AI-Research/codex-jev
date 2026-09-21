@@ -65,6 +65,13 @@ latches for the subsequent action. Host permissions and sandbox enforcement
 remain in force, and unsupported output replacement or bypass surfaces are
 documented rather than assumed away.
 
+Findings are advisory until the declared enforcement switch is on: a finding is
+recorded and never vetoes, and enforcement follows the switch rather than the
+policy's `mode`, so a shadow policy cannot veto and an enforcing policy under an
+off switch cannot either. The host's carrier is
+`jev/scripts/sentinel_boundary.py`. See
+[`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md).
+
 ## C6 — Approval preflight and Guardian fallback
 
 Preflight runs only inside eligible synchronous review attempts. Requests are
