@@ -96,3 +96,159 @@ index c3526fee1..a5b233e9d 100644
          {
              ToolCallSource::DirectPlaintextMessage
          } else {
+diff --git a/codex-rs/core/src/tools/router_tests.rs b/codex-rs/core/src/tools/router_tests.rs
+index 05a1e2e65..729d57662 100644
+--- a/codex-rs/core/src/tools/router_tests.rs
++++ b/codex-rs/core/src/tools/router_tests.rs
+@@ -649,3 +649,50 @@ fn namespace_function_names(specs: &[ToolSpec], namespace_name: &str) -> Vec<Str
+         })
+         .unwrap_or_default()
+ }
++
++#[test]
++fn collaboration_calls_are_plaintext_only_when_nothing_is_encrypted() {
++    let call = |name: &str, encrypted_function_args: Option<Vec<String>>| {
++        ToolRouter::build_tool_call(ResponseItem::FunctionCall {
++            id: None,
++            name: name.to_string(),
++            namespace: Some("collaboration".to_string()),
++            arguments: "{\"message\":\"readable\"}".to_string(),
++            encrypted_function_args,
++            call_id: format!("call-{name}"),
++            internal_chat_message_metadata_passthrough: None,
++        })
++        .expect("function_call should produce a tool call")
++        .expect("a function call is always a tool call")
++    };
++
++    for name in ["spawn_agent", "send_message", "followup_task"] {
++        // These tools no longer advertise an encrypted `message` parameter, so a
++        // backend that reports nothing encrypted - omitted field or empty list -
++        // must deliver a readable payload to the recipient.
++        assert_eq!(
++            call(name, None).direct_source(),
++            ToolCallSource::DirectPlaintextMessage,
++            "{name} with no reported encrypted arguments"
++        );
++        assert_eq!(
++            call(name, Some(Vec::new())).direct_source(),
++            ToolCallSource::DirectPlaintextMessage,
++            "{name} with an empty encrypted-arguments list"
++        );
++        // Arguments that really are encrypted keep travelling untouched: they are
++        // never decrypted and never reclassified as plaintext.
++        assert_eq!(
++            call(name, Some(vec!["message".to_string()])).direct_source(),
++            ToolCallSource::Direct,
++            "{name} with encrypted arguments"
++        );
++    }
++
++    // Only the three message-carrying collaboration tools are reclassified.
++    assert_eq!(
++        call("list_agents", None).direct_source(),
++        ToolCallSource::Direct,
++        "list_agents does not carry a message payload"
++    );
++}
+diff --git a/codex-rs/core/tests/suite/subagent_notifications.rs b/codex-rs/core/tests/suite/subagent_notifications.rs
+index 2139d7588..1669e371f 100644
+--- a/codex-rs/core/tests/suite/subagent_notifications.rs
++++ b/codex-rs/core/tests/suite/subagent_notifications.rs
+@@ -2197,14 +2197,26 @@ async fn spawned_multi_agent_v2_child_inherits_parent_developer_context() -> Res
+     Ok(())
+ }
+ 
+-#[test_case(None, false; "encrypted")]
+-#[test_case(None, true; "plaintext")]
+-#[test_case(Some("gpt-5.6-luna"), false; "luna encrypted leaf")]
+-#[test_case(Some("gpt-5.5"), false; "legacy encrypted leaf")]
++/// How the backend described the encryption of the `message` argument.
++#[derive(Clone, Copy, Debug)]
++enum MessageEncryption {
++    /// The response item omitted `encrypted_function_args` entirely.
++    Omitted,
++    /// The response item reported an empty list: nothing was encrypted.
++    EmptyList,
++    /// The response item reported the `message` argument as encrypted.
++    Encrypted,
++}
++
++#[test_case(None, MessageEncryption::Omitted; "omitted encrypted args are readable")]
++#[test_case(None, MessageEncryption::EmptyList; "empty encrypted args are readable")]
++#[test_case(None, MessageEncryption::Encrypted; "encrypted")]
++#[test_case(Some("gpt-5.6-luna"), MessageEncryption::Encrypted; "luna encrypted leaf")]
++#[test_case(Some("gpt-5.5"), MessageEncryption::Encrypted; "legacy encrypted leaf")]
+ #[tokio::test]
+ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
+     model: Option<&str>,
+-    plaintext: bool,
++    encryption: MessageEncryption,
+ ) -> Result<()> {
+     let output: &'static Mutex<Vec<u8>> = Box::leak(Box::new(Mutex::new(Vec::new())));
+     let subscriber = tracing_subscriber::fmt()
+@@ -2220,6 +2232,10 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
+     );
+ 
+     let server = start_mock_server().await;
++    let plaintext = matches!(
++        encryption,
++        MessageEncryption::Omitted | MessageEncryption::EmptyList
++    );
+     let message = if plaintext {
+         "plaintext delegated task"
+     } else {
+@@ -2242,8 +2258,14 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
+         "spawn_agent",
+         &spawn_args,
+     );
+-    if plaintext {
+-        spawn_event["item"]["encrypted_function_args"] = json!([]);
++    match encryption {
++        MessageEncryption::Omitted => {}
++        MessageEncryption::EmptyList => {
++            spawn_event["item"]["encrypted_function_args"] = json!([]);
++        }
++        MessageEncryption::Encrypted => {
++            spawn_event["item"]["encrypted_function_args"] = json!(["message"]);
++        }
+     }
+     mount_sse_once_match(
+         &server,
+@@ -2372,13 +2394,29 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
+                     .any(|item| item["call_id"] == SPAWN_CALL_ID)
+             })
+             .expect("parent request with spawn result");
+-        assert!(
+-            parent_request.input().iter().any(|item| {
+-                item["call_id"].as_str() == Some(SPAWN_CALL_ID)
+-                    && item["encrypted_function_args"] == json!([])
+-            }),
+-            "plaintext function-call metadata should survive replay"
+-        );
++        let parent_input = parent_request.input();
++        let replayed_call = parent_input
++            .iter()
++            .find(|item| item["call_id"].as_str() == Some(SPAWN_CALL_ID))
++            .expect("the spawn function call is replayed to the parent");
++        // The backend's encryption report is replayed exactly as received: a call
++        // that reported nothing encrypted stays readable and is never invented
++        // into ciphertext, and an empty report stays an empty list.
++        match encryption {
++            MessageEncryption::Omitted => assert_eq!(
++                replayed_call.get("encrypted_function_args"),
++                None,
++                "an omitted encryption report should stay omitted on replay"
++            ),
++            MessageEncryption::EmptyList => assert_eq!(
++                replayed_call["encrypted_function_args"],
++                json!([]),
++                "an empty encryption report should survive replay"
++            ),
++            MessageEncryption::Encrypted => {
++                unreachable!("encrypted arguments are not classified as plaintext")
++            }
++        }
+         assert_eq!(
+             tool_call_metadata(parent_request.function_call_output(SPAWN_CALL_ID)),
+             json!({

@@ -42,6 +42,16 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
+    /// Classify how this call's arguments reached the client.
+    ///
+    /// Collaboration calls are plaintext when the backend did not return
+    /// encrypted function arguments: either the field is absent, or it is
+    /// present and empty. The `message` parameter no longer advertises an
+    /// encrypted schema, so new collaboration payloads arrive readable.
+    ///
+    /// Calls that do carry encrypted arguments are still classified as
+    /// [`ToolCallSource::Direct`] and forwarded exactly as received; nothing
+    /// here decrypts them, and previously stored ciphertext stays unreadable.
     pub(crate) fn direct_source(&self) -> ToolCallSource {
         if self.tool_name.namespace.as_deref() == Some("collaboration")
             && matches!(
@@ -51,7 +61,7 @@ impl ToolCall {
             && self
                 .encrypted_function_args
                 .as_ref()
-                .is_some_and(Vec::is_empty)
+                .is_none_or(Vec::is_empty)
         {
             ToolCallSource::DirectPlaintextMessage
         } else {

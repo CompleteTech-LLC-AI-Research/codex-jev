@@ -2197,14 +2197,26 @@ async fn spawned_multi_agent_v2_child_inherits_parent_developer_context() -> Res
     Ok(())
 }
 
-#[test_case(None, false; "encrypted")]
-#[test_case(None, true; "plaintext")]
-#[test_case(Some("gpt-5.6-luna"), false; "luna encrypted leaf")]
-#[test_case(Some("gpt-5.5"), false; "legacy encrypted leaf")]
+/// How the backend described the encryption of the `message` argument.
+#[derive(Clone, Copy, Debug)]
+enum MessageEncryption {
+    /// The response item omitted `encrypted_function_args` entirely.
+    Omitted,
+    /// The response item reported an empty list: nothing was encrypted.
+    EmptyList,
+    /// The response item reported the `message` argument as encrypted.
+    Encrypted,
+}
+
+#[test_case(None, MessageEncryption::Omitted; "omitted encrypted args are readable")]
+#[test_case(None, MessageEncryption::EmptyList; "empty encrypted args are readable")]
+#[test_case(None, MessageEncryption::Encrypted; "encrypted")]
+#[test_case(Some("gpt-5.6-luna"), MessageEncryption::Encrypted; "luna encrypted leaf")]
+#[test_case(Some("gpt-5.5"), MessageEncryption::Encrypted; "legacy encrypted leaf")]
 #[tokio::test]
 async fn multi_agent_v2_spawn_sends_agent_message_to_child(
     model: Option<&str>,
-    plaintext: bool,
+    encryption: MessageEncryption,
 ) -> Result<()> {
     let output: &'static Mutex<Vec<u8>> = Box::leak(Box::new(Mutex::new(Vec::new())));
     let subscriber = tracing_subscriber::fmt()
@@ -2220,6 +2232,10 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
     );
 
     let server = start_mock_server().await;
+    let plaintext = matches!(
+        encryption,
+        MessageEncryption::Omitted | MessageEncryption::EmptyList
+    );
     let message = if plaintext {
         "plaintext delegated task"
     } else {
@@ -2242,8 +2258,14 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
         "spawn_agent",
         &spawn_args,
     );
-    if plaintext {
-        spawn_event["item"]["encrypted_function_args"] = json!([]);
+    match encryption {
+        MessageEncryption::Omitted => {}
+        MessageEncryption::EmptyList => {
+            spawn_event["item"]["encrypted_function_args"] = json!([]);
+        }
+        MessageEncryption::Encrypted => {
+            spawn_event["item"]["encrypted_function_args"] = json!(["message"]);
+        }
     }
     mount_sse_once_match(
         &server,
@@ -2372,13 +2394,29 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
                     .any(|item| item["call_id"] == SPAWN_CALL_ID)
             })
             .expect("parent request with spawn result");
-        assert!(
-            parent_request.input().iter().any(|item| {
-                item["call_id"].as_str() == Some(SPAWN_CALL_ID)
-                    && item["encrypted_function_args"] == json!([])
-            }),
-            "plaintext function-call metadata should survive replay"
-        );
+        let parent_input = parent_request.input();
+        let replayed_call = parent_input
+            .iter()
+            .find(|item| item["call_id"].as_str() == Some(SPAWN_CALL_ID))
+            .expect("the spawn function call is replayed to the parent");
+        // The backend's encryption report is replayed exactly as received: a call
+        // that reported nothing encrypted stays readable and is never invented
+        // into ciphertext, and an empty report stays an empty list.
+        match encryption {
+            MessageEncryption::Omitted => assert_eq!(
+                replayed_call.get("encrypted_function_args"),
+                None,
+                "an omitted encryption report should stay omitted on replay"
+            ),
+            MessageEncryption::EmptyList => assert_eq!(
+                replayed_call["encrypted_function_args"],
+                json!([]),
+                "an empty encryption report should survive replay"
+            ),
+            MessageEncryption::Encrypted => {
+                unreachable!("encrypted arguments are not classified as plaintext")
+            }
+        }
         assert_eq!(
             tool_call_metadata(parent_request.function_call_output(SPAWN_CALL_ID)),
             json!({

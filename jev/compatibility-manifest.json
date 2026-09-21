@@ -46,14 +46,16 @@
       "order": 10,
       "component": "codex-plaintext-collab",
       "file": "jev/patches/0001-disable-collab-message-encryption.patch",
-      "sha256": "be12a6e0a4feaa4973ca9aecc82c5b5424f146bcc9a8a9a2e405928edbc3cd3d",
+      "sha256": "94405a207cb0aedcb04868f45fd4cb2fa1b1b49e195330c9e1a7c76ba01e114c",
       "applies_to_host_base": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
       "targets": [
         "codex-rs/core/src/tools/handlers/multi_agents_spec.rs",
         "codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs",
-        "codex-rs/core/src/tools/router.rs"
+        "codex-rs/core/src/tools/router.rs",
+        "codex-rs/core/src/tools/router_tests.rs",
+        "codex-rs/core/tests/suite/subagent_notifications.rs"
       ],
-      "behavior": "Collaboration tool calls (spawn_agent, send_message, followup_task) stop marking the message parameter as encrypted, so new child-agent messages are stored and forwarded as plaintext. The patch also updates the three tool-schema unit tests that assert the encrypted parameter, and reclassifies an absent encrypted-function-args field as a direct plaintext message.",
+      "behavior": "Collaboration tool calls (spawn_agent, send_message, followup_task) stop marking the message parameter as encrypted, so new child-agent messages are stored and forwarded as plaintext. An absent or empty encrypted-function-args report is reclassified as a direct plaintext message. The patch carries its own behavioural coverage: the three tool-schema unit tests that assert the encrypted parameter, a router unit test pinning the plaintext/encrypted classification, and the parent/child transport test that asserts a readable payload for an omitted or empty report and an encrypted payload when the message argument is reported encrypted.",
       "disable": "Apply no patches to the pinned base (jev/scripts/apply-patches.py with an empty patch list); the pinned build then keeps the upstream encrypted message schema. Existing ciphertext records are never decrypted."
     }
   ],
@@ -70,8 +72,10 @@
       "owns": [
         "jev/",
         "codex-rs/core/src/tools/router.rs",
+        "codex-rs/core/src/tools/router_tests.rs",
         "codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs",
-        "codex-rs/core/src/tools/handlers/multi_agents_spec.rs"
+        "codex-rs/core/src/tools/handlers/multi_agents_spec.rs",
+        "codex-rs/core/tests/suite/subagent_notifications.rs"
       ],
       "never_owns": [
         "codex-rs/core/src/guardian/",
@@ -84,7 +88,7 @@
       "id": "codex-plaintext-collab",
       "kind": "patch",
       "repository": "CompleteTech-LLC-AI-Research/codex-plaintext-collab",
-      "revision": "073b3a99e4fa0eebe5417fd096f2e37abd7a7527",
+      "revision": "7bf9202513a59362171b6687563580c9b02ec203",
       "version": "0.1.0",
       "license": "MIT",
       "python_requirement": ">=3.10",
