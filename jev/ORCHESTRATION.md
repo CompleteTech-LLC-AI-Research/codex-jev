@@ -22,7 +22,7 @@ is incomplete, even when a concurrency slot is free.
 
 | Issue | Scope | Owner | Branch | PR | State |
 | --- | --- | --- | --- | --- | --- |
-| #9 | Compatibility manifest and integration contracts | lead (integration) | `jev/1.1-manifest` | this PR | in review |
+| #9 | Compatibility manifest and integration contracts | lead (integration) | `jev/1.1-compatibility-manifest` | #31 | in review |
 | #10 | Plaintext collaboration in the pinned build | lead (native/Rust) | `jev/1.2-plaintext` | pending | blocked by #9 |
 | #11 | Isolated build and integration profile | lead (integration) | `jev/1.3-profile` | pending | blocked by #10 |
 | #12–#14 | Fabric binding, capture, retrieval | unassigned | — | — | blocked by phase 1 |
@@ -58,6 +58,7 @@ ever added as a component.
 | Validation fails closed with stable error codes. | Unsupported combinations must fail explicitly instead of silently building an unvalidated configuration. |
 | Remote inference is gated by credentials consent *and* a positive budget, not by a feature switch alone. | Optional remote inference stays disabled unless separately authorized and budgeted. |
 | Shared interfaces have exactly one declared owner. | One writable owner per shared interface keeps the transformation boundary unambiguous. |
+| Concurrent duplicate work is consolidated into one canonical change per issue. | Three sessions opened an implementation of #9 at once (#27, #28, #29); merging duplicates would land incompatible trees, so the strongest artifact was adopted, its defects fixed, and the duplicates closed with a cross-reference. |
 
 ## Open blockers
 
@@ -65,3 +66,5 @@ ever added as a component.
 | --- | --- | --- |
 | Live-provider evidence needs explicit consent and a positive budget. | #10, #17, #22, #23, #25 | Open; offline and real-host-mocked-service tiers still run. |
 | Real parent/child smoke with a live model requires the same consent. | #10 | Open; the focused transport tests run offline. |
+| Every session authenticates to GitHub as one account, so "author ≠ reviewer" cannot be met with a second identity. | all | Open; reviews are recorded as self-review comments backed by reproducible automated checks. |
+| The private key for the GitHub-verified commits in this repository is not on this machine. | all | Open; commits are pushed unsigned and GitHub reports them unverified. |
