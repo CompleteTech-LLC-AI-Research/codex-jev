@@ -307,12 +307,12 @@ same revision produce the same bytes whatever the output path.
   workflow relies on is `repo-checks / build-test`.
 - `main` carries no branch protection, so there is no enforceable required-check
   rule; merges rely on the checks recorded in each PR.
-- Two follow-ups weaken the gate bindings and are **open**, not fixed: #97 — the
-  platform gate credits a record whose `revision` is unresolvable in the local
-  clone instead of treating it as stale; and #98 — `gates --skip-roundtrip`
-  removes the round-trip gate rather than emitting it as `not-run`, so a
-  `release_ready: true` document is possible with the round trip never proven.
-  Both are reproduced in
+- Two follow-ups that weakened the gate bindings are now **fixed**: #97 by #99 —
+  a record whose `revision` is unresolvable in the local clone is refused as
+  `unverifiable` rather than credited; and #98 (this change) —
+  `gates --skip-roundtrip` emits the round-trip gate as `not-run` instead of
+  dropping it, so a `release_ready: true` document is no longer reachable with
+  the round trip never proven. Both are recorded in
   [`evidence/release-phase-claim.md`](evidence/release-phase-claim.md).
 
 ## 13. Recorded evidence

@@ -208,18 +208,23 @@ class ReleasePhaseClaimTests(unittest.TestCase):
         self.assertEqual(digests[profile], roundtrip["plan"]["profile_digest"])
         self.assertTrue(roundtrip["plan"]["host_commit"])
 
-    def test_the_roundtrip_is_never_credited_unless_it_ran(self):
-        # Skipping the round trip must not credit it. NOTE: today the skipped
-        # gate is *absent* rather than `not-run`, which is the weaker property -
-        # not credited, but also not blocking. That gap is filed as issue #98
-        # and is stated in evidence/release-phase-claim.md; it is not asserted
-        # here as if it were the intended shape.
+    def test_a_skipped_roundtrip_is_not_run_and_blocks_readiness(self):
+        # Skipping the round trip must not credit it, and must not silently drop
+        # it from the conjunction either. The gate is emitted `not-run`, so
+        # readiness is false with the round trip named among the reasons (#98):
+        # `--skip-roundtrip` cannot manufacture a `release_ready: true`.
         skipped = release_readiness.evaluate_gates(REPO_ROOT, run_roundtrip=False)
-        ids = {gate["id"] for gate in skipped["gates"]}
-        self.assertNotIn("isolated.roundtrip", ids)
+        gates = {gate["id"]: gate for gate in skipped["gates"]}
+        self.assertIn("isolated.roundtrip", gates)
+        self.assertEqual(gates["isolated.roundtrip"]["status"], "not-run")
+        self.assertIn("isolated.roundtrip", skipped["not_run"])
+        self.assertIn("isolated.roundtrip", skipped["blocking"])
+        self.assertFalse(skipped["release_ready"])
+        # Not credited: there is no round-trip record behind the gate.
         self.assertIsNone(skipped["isolated_roundtrip"])
         for gate in skipped["gates"]:
             with self.subTest(gate=gate["id"]):
+                self.assertIn(gate["status"], release_readiness.GATE_STATUSES)
                 self.assertNotEqual(gate.get("tier"), "live-provider")
 
     # -- criterion 2: the tiers are distinguished, and live is never claimed
