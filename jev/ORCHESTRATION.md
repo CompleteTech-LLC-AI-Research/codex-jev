@@ -33,6 +33,8 @@ is incomplete, even when a concurrency slot is free.
 | #16 | Duplicate-read proof receipts | #50 | merged; issue closed |
 | #17 | Approved Fabric views and reversible controls | #53 | merged; issue closed |
 | #18 | Wire Sentinel hooks and effective coverage reporting | #60 | in review |
+| #55 | Invoke the bus boundary from the host request path | — | in review |
+| #58 | Reconcile the host's item-count fallback with the approved-view removal | — | open; filed from #55 |
 | #19–#20 | Sentinel veto precedence, retrieval screening, incident operations | — | open; blocked by #18 |
 | #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
@@ -69,6 +71,15 @@ Recorded in `compatibility-manifest.json` and validated by
 | jev-sentinel | `4ecd748d38fbe9ed5c770e7e69a1e03a3db4bf7a` |
 | jev-codex-approval | `0b931ee24a907c9dc47dc1828a94a6afcd7775b6` |
 
+Two ordered patches turn the pinned base into the integrated host. Each records
+its own digest, unique `order`, and targets, and the tree's state is validated
+with `jev/scripts/verify-manifest.py --patch-state applied`.
+
+| Order | Patch | Component | Targets |
+| --- | --- | --- | --- |
+| 10 | `0001-plaintext-collab` | codex-plaintext-collab | The collaboration router, its spec-plan tests, and the seven request-history snapshots whose tool fingerprint changes. |
+| 20 | `0002-jev-bus-boundary` | codex-jev | The native host boundary module and its tests, plus the two call-site lines in `codex-rs/core/src/client.rs` and `codex-rs/core/src/lib.rs`. |
+
 `omniroute-codex-docker` is excluded and is rejected by the validator if it is
 ever added as a component.
 
@@ -87,6 +98,10 @@ ever added as a component.
 | A declared pin is not an enforced pin. | Verifying #12 showed the binding driver read the fabric revision from the manifest and never from the `--fabric` checkout it executed, so a record could name the pin while another revision installed. #41 fixes that and records the observed checkout revision; C8 states the rule. |
 | A component checkout that is not its own work-tree root is recorded as unpinned, not refused. | Required CI drives an in-repo test double whose `rev-parse HEAD` would answer for the enclosing repository; only a checkout that reports a revision other than the pin is refused. |
 | The host vendors `jev-bus.v1` and owns the `codex` call site. | The bus contract is owned by `jev-prune-kit` and vendored byte-identically into every participant; the host is the only component that knows where Codex builds its request, so the adapter normalizes supported shapes there and invokes the single bus owner. |
+| A declared call site is not an invocation. | The merged #15 declared `jev_bus_call_site` as a host-owned interface and documented `bus_boundary.py` as "the host's carrier", but `codex-rs` contained no `jev` reference, so a launched host projected nothing and #17's "reduced outgoing content" could not be demonstrated by any run. #55 records the gap; the call site is now real, invoked once per outgoing payload, and returns the caller's array unchanged on every error. |
+| A native adapter's call site is an ordered patch. | `ARCHITECTURE.md` admits only ordered patches and native adapters as host-source changes. The native adapter is the module `codex-rs/core/src/jev_bus.rs`; the edit that installs it in `client.rs` and `lib.rs` is recorded as patch `0002-jev-bus-boundary` (order 20) against the pinned base, with its own digest and disable path, so a pinned build can reproduce or omit the call site exactly. |
+| The host's length rule and an approved view removal must agree. | #55 requires the host to fail closed on a changed item count, and #17 lets an approved view drop prose, so the host as merged reduces bytes but never items. The two rules are individually right and jointly inconsistent; #58 reconciles them rather than weakening the fallback silently. |
+| A receipt records a projection that reached the wire. | Re-deriving #55 on the merged #54 showed a *declining* stage (`ok: false`, no array) being read as a structural change, so it earned an `applied` slot and a `projection_receipt` although the bus kept its input — the opposite of #54's own rule, and it turned the required CI step red on rebase. #59 (merged) fixes `bus_boundary.observe()` so only an array the bus itself accepted counts; this branch keeps no code change there and instead pins the same rule from the host side in `test_jev_bus_host.py`, so the two cannot drift apart unnoticed. |
 | A stage's replacement is accepted only where the host can re-derive the proof. | The dedup stage decides which reads are duplicates, but the host re-derives the receipt (exact arguments and body on a later retained copy, unique identities, outside the protected turn and tail) and reverts every unproven edit, so a marker's claim is never taken on its own word. |
 | The outgoing array may only shrink by an item the host has approved. | A stage that removes an input item is reverted (`unapproved_removal`) unless an approved prose view, bound to the exact post-dedup snapshot, authorizes it; an approved view is refused whole when that snapshot changed or the turn was cancelled, so removal is never a stage's own authority and never touches tool, reasoning, or compaction items. |
 | Sentinel enforcement is gated by a declared switch, not by the policy's `mode`. | The phase starts in local shadow mode (C5): a finding is recorded and never vetoes until `sentinel.enforcement` is on, and an enforcing policy under an off switch still returns nothing to the host, so enforcement can never be switched on by editing a policy file alone. The shadow and enforcement switches are the only mechanism the phase reads (`JEV_SWITCH_SENTINEL_*`). |
@@ -104,7 +119,7 @@ ever added as a component.
 | [`FABRIC_BINDING.md`](FABRIC_BINDING.md) | How the pinned fabric is bound to the isolated home, what `verify` proves, the checkout-revision rule, and the evidence tiers. |
 | [`CAPTURE.md`](CAPTURE.md) | Canonical capture and event correlation: store layout, correlation, gaps, and evidence tiers (#13). |
 | [`RETRIEVAL.md`](RETRIEVAL.md) | Budgeted retrieval and hydration: budgets, provenance-not-authority, refusals, and remote-enrichment refusal (#14). |
-| [`BUS_BOUNDARY.md`](BUS_BOUNDARY.md) | The single request-construction boundary and its file/line anchors, the supported vs opaque shapes, the invocation invariants, and the fixture plus transport runs. |
+| [`BUS_BOUNDARY.md`](BUS_BOUNDARY.md) | The single request-construction boundary and its file/line anchors, the host call site and the environment contract it resolves, the supported vs opaque shapes, the invocation and fallback invariants, and the fixture, transport, and host-invocation runs. |
 | [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) | Duplicate-read proof receipts: the receipt the host proves, the reasons it reverts, and the enforcement invariants (#16). |
 | [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md) | Approved, reversible Fabric prose views: the snapshot binding, preview/apply/reset, the eligibility rules, and the byte/token split (#17). |
 | [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) | The Sentinel hook boundary: the three events, the two switches, the payload bound and refusal, effective coverage, the activation probe, the incident envelope, and the bypass surfaces (#18). |
@@ -121,3 +136,5 @@ spawned, so both are recorded. The live-provider tier remains untouched.
 | A live-model parent/child smoke requires the same consent. | #10 | Open for the live tier only; a real parent/child turn against a loopback mock now runs in `jev/smoke/` and is recorded in `jev/evidence/`. |
 | Every session authenticates to GitHub as one account, so "author ≠ reviewer" cannot be met with a second identity. | all | Open; reviews are recorded as self-review comments backed by reproducible automated checks. |
 | The private key for the GitHub-verified commits in this repository is not on this machine. | all | Open; commits are pushed unsigned and GitHub reports them unverified. |
+| `repo-checks` `just fmt-check` is red on `main`: the vendored `jev/scripts/jev_bus.py` is not ruff-formatted while `ruff format --check .` covers `jev/scripts/`, and #54 left `jev/scripts/bus_boundary.py` in the same state. | all | Open. The vendored file must stay byte-identical to the pinned component copy (a test asserts its digest), so it cannot be reformatted here; excluding it is the fix, and that belongs to whoever owns the vendored-file rule. `bus_boundary.py` is not vendored, so it can simply be formatted — left alone here to keep this branch clear of a file the parallel session is actively editing. |
+| The host path reduces bytes but never items, and passes no view to the carrier. | #55, #17 | Open; filed as #58. `codex-rs/core/src/jev_bus.rs` refuses any changed item count (required by #55) and passes no `--view`, so an approved view cannot shrink the outgoing array from a real Codex run yet. |

@@ -1,0 +1,640 @@
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 1c5b49353a..74dfffa635 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -1671,6 +1671,14 @@ impl ModelClientSession {
+                 &mut request.input,
+                 &client_setup.api_provider,
+             );
++            // JEV owns one projection boundary here: the outgoing request copy
++            // is replaced and the persisted history is never touched. A
++            // disabled switch, or any projection failure, returns this same
++            // array unchanged.
++            request.input = crate::jev_bus::project_input(
++                std::mem::take(&mut request.input),
++                &crate::jev_bus::ProjectionContext::from_responses_metadata(responses_metadata),
++            );
+             self.client.set_guardian_metadata(
+                 &mut request.client_metadata,
+                 responses_metadata.parent_response_id.as_deref(),
+@@ -1833,6 +1841,14 @@ impl ModelClientSession {
+                 &mut request.input,
+                 &client_setup.api_provider,
+             );
++            // JEV owns one projection boundary here: the outgoing request copy
++            // is replaced and the persisted history is never touched. The
++            // websocket continuation delta is derived from this same array, so
++            // the incremental payload carries the projected view as well.
++            request.input = crate::jev_bus::project_input(
++                std::mem::take(&mut request.input),
++                &crate::jev_bus::ProjectionContext::from_responses_metadata(responses_metadata),
++            );
+             let guardian_reviewer = responses_headers
+                 .get("x-codex-guardian")
+                 .is_some_and(|value| value == "reviewer");
+diff --git a/codex-rs/core/src/jev_bus.rs b/codex-rs/core/src/jev_bus.rs
+new file mode 100644
+index 0000000000..c218985f90
+--- /dev/null
++++ b/codex-rs/core/src/jev_bus.rs
+@@ -0,0 +1,342 @@
++//! The native JEV projection boundary for the outgoing Responses payload.
++//!
++//! JEV prunes the *outgoing view* and never the canonical transcript. This
++//! module owns the host half of that boundary (the manifest's host-owned
++//! `jev_bus_call_site`): when a projection switch is enabled, the request copy
++//! is handed to the repository's bus adapter (`jev/scripts/bus_boundary.py`)
++//! exactly once and the returned view replaces the payload. Nothing else about
++//! the request is host-visible, and the persisted history is never touched.
++//!
++//! Failure policy: every failure - a disabled switch, an unconfigured chain, a
++//! missing adapter, a timeout, a non-zero exit, output that is not the expected
++//! object, or a changed item count - leaves the caller's input exactly as it
++//! was, which is the stage-input fallback the bus contract requires. A refusal
++//! is never silently substituted with an approximation.
++//!
++//! The boundary is resolved from the environment so the isolated profile owns
++//! the wiring:
++//!
++//! * `JEV_SWITCH_PROJECTION_DEDUP_RECEIPTS` / `JEV_SWITCH_PROJECTION_FABRIC_VIEWS`
++//!   enable the stages; anything other than `1` is off.
++//! * `JEV_BUS_ADAPTER` is the adapter path and `JEV_BUS_PYTHON` its interpreter.
++//! * `JEV_BUS_STAGE_DEDUP` / `JEV_BUS_STAGE_FABRIC_VIEW` carry one stage command
++//!   each, because a stage with no command must not be registered.
++//! * `JEV_BUS_TIMEOUT_MS` bounds one invocation; `JEV_BUS_WORKSPACE` labels it.
++
++use std::io::Read;
++use std::io::Write;
++use std::path::PathBuf;
++use std::process::Child;
++use std::process::Command;
++use std::process::ExitStatus;
++use std::process::Stdio;
++use std::sync::mpsc;
++use std::thread;
++use std::time::Duration;
++use std::time::Instant;
++
++use codex_protocol::models::ResponseItem;
++use serde_json::Value;
++use serde_json::json;
++
++/// Duplicate-read dedup, the jev-bus stage at order 100.
++const DEDUP_SWITCH: &str = "JEV_SWITCH_PROJECTION_DEDUP_RECEIPTS";
++/// Approved Fabric prose view, the jev-bus stage at order 200.
++const FABRIC_VIEWS_SWITCH: &str = "JEV_SWITCH_PROJECTION_FABRIC_VIEWS";
++
++const ADAPTER_ENV: &str = "JEV_BUS_ADAPTER";
++const PYTHON_ENV: &str = "JEV_BUS_PYTHON";
++const TIMEOUT_ENV: &str = "JEV_BUS_TIMEOUT_MS";
++const WORKSPACE_ENV: &str = "JEV_BUS_WORKSPACE";
++const STAGE_ENV_PREFIX: &str = "JEV_BUS_STAGE_";
++
++const DEFAULT_PYTHON: &str = "python3";
++const DEFAULT_TIMEOUT_MS: u64 = 15_000;
++const MAX_TIMEOUT_MS: u64 = 120_000;
++/// The adapter refuses a payload above its own wire bound, so a request that
++/// could never be projected is not handed to a subprocess at all.
++const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
++/// Grace period for draining the child's pipes once it has exited.
++const OUTPUT_GRACE: Duration = Duration::from_secs(2);
++const POLL_INTERVAL: Duration = Duration::from_millis(2);
++const STDERR_LIMIT: usize = 512;
++
++/// The bus stages the host may register, in the order the bus must run them.
++const STAGES: [(&str, &str); 2] = [
++    ("dedup", DEDUP_SWITCH),
++    ("fabric_view", FABRIC_VIEWS_SWITCH),
++];
++
++/// One resolved boundary: what to run, for how long, and whether to run at all.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) struct JevBusConfig {
++    enabled: bool,
++    adapter: PathBuf,
++    python: String,
++    timeout: Duration,
++    stages: Vec<(String, String)>,
++}
++
++impl JevBusConfig {
++    /// Resolve the boundary contract from the environment.
++    ///
++    /// A switch that is unset or not exactly `1` is off, and an enabled stage
++    /// with no command is not registered. Projection therefore stays disabled
++    /// until the profile supplies both a switch and a chain, so a half
++    /// configured host passes the request through instead of invoking a chain
++    /// it cannot describe.
++    pub(crate) fn from_env() -> Self {
++        let mut stages = Vec::new();
++        for (id, switch) in STAGES {
++            if !switch_enabled(std::env::var(switch).ok().as_deref()) {
++                continue;
++            }
++            let key = format!("{STAGE_ENV_PREFIX}{}", id.to_uppercase());
++            if let Some(command) = non_empty(std::env::var(key).ok()) {
++                stages.push((id.to_string(), command));
++            }
++        }
++        let adapter = non_empty(std::env::var(ADAPTER_ENV).ok()).unwrap_or_default();
++        let enabled = !stages.is_empty() && !adapter.is_empty();
++        Self {
++            enabled,
++            adapter: PathBuf::from(adapter),
++            python: non_empty(std::env::var(PYTHON_ENV).ok())
++                .unwrap_or_else(|| DEFAULT_PYTHON.to_string()),
++            timeout: Duration::from_millis(resolve_timeout_ms(
++                std::env::var(TIMEOUT_ENV).ok().as_deref(),
++            )),
++            stages,
++        }
++    }
++}
++
++/// Where the projection happened, as the bus contract labels it.
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub(crate) struct ProjectionContext {
++    pub(crate) session_id: String,
++    pub(crate) turn_id: String,
++    pub(crate) workspace: String,
++}
++
++impl ProjectionContext {
++    /// Build the context for one request from the turn metadata.
++    ///
++    /// The host has no workspace path at this boundary, so the label comes from
++    /// the profile that launched the host.
++    pub(crate) fn from_responses_metadata(metadata: &crate::CodexResponsesMetadata) -> Self {
++        Self {
++            session_id: metadata.session_id.clone(),
++            turn_id: metadata.turn_id.clone().unwrap_or_default(),
++            workspace: non_empty(std::env::var(WORKSPACE_ENV).ok()).unwrap_or_default(),
++        }
++    }
++}
++
++/// Project one outgoing request copy, or return it unchanged.
++///
++/// The caller passes the request copy, not the transcript, and receives the
++/// array to send. This is the only entry point: exactly one invocation happens
++/// per outgoing payload.
++pub(crate) fn project_input(
++    input: Vec<ResponseItem>,
++    context: &ProjectionContext,
++) -> Vec<ResponseItem> {
++    project_with(&JevBusConfig::from_env(), input, context)
++}
++
++fn project_with(
++    config: &JevBusConfig,
++    input: Vec<ResponseItem>,
++    context: &ProjectionContext,
++) -> Vec<ResponseItem> {
++    if !config.enabled {
++        return input;
++    }
++    match request_projection(config, &input, context) {
++        Ok(projected) => projected,
++        Err(reason) => {
++            tracing::debug!(
++                target: "codex_core::jev_bus",
++                reason,
++                "jev-bus projection skipped; the outgoing request is unchanged"
++            );
++            input
++        }
++    }
++}
++
++/// Run the adapter once and return the projected view.
++///
++/// Every rejection below is a contract violation, so the caller falls back to
++/// the input it already has rather than sending something unverified.
++fn request_projection(
++    config: &JevBusConfig,
++    input: &[ResponseItem],
++    context: &ProjectionContext,
++) -> Result<Vec<ResponseItem>, &'static str> {
++    let payload = serde_json::to_vec(&json!({ "input": input })).map_err(|_| "serialize-failed")?;
++    if payload.len() > MAX_INPUT_BYTES {
++        return Err("wire-bound");
++    }
++    let output = run_adapter(config, context, &payload)?;
++    let parsed: Value = serde_json::from_slice(&output).map_err(|_| "malformed-output")?;
++    let projected = parsed
++        .get("request")
++        .and_then(|request| request.get("input"))
++        .ok_or("missing-request-input")?;
++    let projected: Vec<ResponseItem> =
++        serde_json::from_value(projected.clone()).map_err(|_| "input-shape")?;
++    // The adapter proves order and membership; the host re-checks the property
++    // it depends on, so a projection can never silently add or drop an item.
++    if projected.len() != input.len() {
++        return Err("item-count");
++    }
++    Ok(projected)
++}
++
++/// Invoke the adapter over its documented CLI and return its stdout.
++fn run_adapter(
++    config: &JevBusConfig,
++    context: &ProjectionContext,
++    payload: &[u8],
++) -> Result<Vec<u8>, &'static str> {
++    let mut command = Command::new(&config.python);
++    command
++        .arg(&config.adapter)
++        .arg("apply")
++        .arg("--request")
++        .arg("-")
++        .arg("--json")
++        .arg("--session")
++        .arg(&context.session_id)
++        .arg("--turn")
++        .arg(&context.turn_id)
++        .arg("--workspace")
++        .arg(&context.workspace);
++    for (id, argv) in &config.stages {
++        command.arg("--stage").arg(format!("{id}={argv}"));
++    }
++    // The adapter reads the same `JEV_SWITCH_*` contract, so the environment is
++    // inherited deliberately.
++    let mut child = command
++        .stdin(Stdio::piped())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .spawn()
++        .map_err(|_| "adapter-spawn")?;
++
++    let mut stdin = child.stdin.take().ok_or("adapter-stdin")?;
++    let payload = payload.to_vec();
++    let writer = thread::spawn(move || {
++        // A refusal can close the pipe early; that is the adapter's answer, not
++        // an error of its own.
++        let _ = stdin.write_all(&payload);
++        let _ = stdin.flush();
++    });
++    let mut stdout = child.stdout.take().ok_or("adapter-stdout")?;
++    let (stdout_tx, stdout_rx) = mpsc::channel();
++    let reader = thread::spawn(move || {
++        let mut buffer = Vec::new();
++        let _ = stdout.read_to_end(&mut buffer);
++        let _ = stdout_tx.send(buffer);
++    });
++    let stderr = child.stderr.take();
++    let stderr_reader = stderr.map(spawn_stderr_reader);
++
++    let status = wait_for_exit(&mut child, config.timeout);
++    // Reap before surrendering the pipes: a killed child closes them, which
++    // releases both readers.
++    let _ = writer.join();
++    let status = match status {
++        Ok(status) if status.success() => status,
++        Ok(_status) => {
++            log_stderr(stderr_reader, "adapter-failed");
++            return Err("adapter-failed");
++        }
++        Err(reason) => {
++            log_stderr(stderr_reader, reason);
++            return Err(reason);
++        }
++    };
++    let _ = status;
++    let output = stdout_rx
++        .recv_timeout(OUTPUT_GRACE)
++        .map_err(|_| "adapter-output-timeout")?;
++    drop(reader);
++    Ok(output)
++}
++
++fn spawn_stderr_reader(mut stderr: std::process::ChildStderr) -> mpsc::Receiver<String> {
++    let (tx, rx) = mpsc::channel();
++    thread::spawn(move || {
++        let mut buffer = String::new();
++        let _ = stderr.read_to_string(&mut buffer);
++        let _ = tx.send(buffer);
++    });
++    rx
++}
++
++fn log_stderr(reader: Option<mpsc::Receiver<String>>, reason: &str) {
++    let Some(reader) = reader else {
++        return;
++    };
++    if let Ok(stderr) = reader.recv_timeout(OUTPUT_GRACE) {
++        let stderr = stderr.trim();
++        if !stderr.is_empty() {
++            let detail: String = stderr.chars().take(STDERR_LIMIT).collect();
++            tracing::debug!(
++                target: "codex_core::jev_bus",
++                reason,
++                detail,
++                "jev-bus adapter reported a refusal"
++            );
++        }
++    }
++}
++
++/// Wait for the adapter, killing it if it exceeds the deadline.
++///
++/// The whole chain is bounded here, so a wedged component can never hold a turn
++/// open; a timeout is the stage-input fallback, not a retry.
++fn wait_for_exit(child: &mut Child, timeout: Duration) -> Result<ExitStatus, &'static str> {
++    let deadline = Instant::now() + timeout;
++    loop {
++        match child.try_wait() {
++            Ok(Some(status)) => return Ok(status),
++            Ok(None) => {
++                if Instant::now() >= deadline {
++                    let _ = child.kill();
++                    let _ = child.wait();
++                    return Err("adapter-timeout");
++                }
++                thread::sleep(POLL_INTERVAL);
++            }
++            Err(_) => {
++                let _ = child.kill();
++                let _ = child.wait();
++                return Err("adapter-wait");
++            }
++        }
++    }
++}
++
++fn non_empty(value: Option<String>) -> Option<String> {
++    value.filter(|value| !value.is_empty())
++}
++
++/// A switch is on only for the exact contract value.
++fn switch_enabled(raw: Option<&str>) -> bool {
++    raw == Some("1")
++}
++
++/// Resolve the invocation deadline, bounded and never unbounded.
++fn resolve_timeout_ms(raw: Option<&str>) -> u64 {
++    raw.and_then(|value| value.trim().parse::<u64>().ok())
++        .map(|value| value.clamp(1, MAX_TIMEOUT_MS))
++        .unwrap_or(DEFAULT_TIMEOUT_MS)
++}
++
++#[cfg(test)]
++#[path = "jev_bus_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/jev_bus_tests.rs b/codex-rs/core/src/jev_bus_tests.rs
+new file mode 100644
+index 0000000000..3b11a6c6e7
+--- /dev/null
++++ b/codex-rs/core/src/jev_bus_tests.rs
+@@ -0,0 +1,240 @@
++use super::*;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++use std::fs;
++use std::path::PathBuf;
++
++/// A deterministic adapter stand-in that speaks the documented CLI over stdio.
++///
++/// It records every invocation, then behaves according to a `mode` file beside
++/// it, so the host-side fallback paths can be exercised without a component.
++const STUB: &str = r#"import json, pathlib, sys, time
++
++here = pathlib.Path(__file__).resolve().parent
++mode = (here / "mode").read_text().strip() if (here / "mode").exists() else "mutate"
++with (here / "calls").open("a", encoding="utf-8") as calls:
++    calls.write("1\n")
++
++payload = json.load(sys.stdin)
++items = payload["input"]
++
++if mode == "sleep":
++    time.sleep(5)
++    mode = "mutate"
++if mode == "fail":
++    sys.stderr.write("refused\n")
++    sys.exit(1)
++if mode == "garbage":
++    sys.stdout.write("not json")
++    sys.exit(0)
++if mode == "drop":
++    items = items[1:]
++if mode == "mutate":
++    for item in items:
++        if item.get("type") == "function_call_output":
++            item["output"] = "REDACTED"
++            break
++
++json.dump({"request": {"input": items}, "report": {"host": "codex"}}, sys.stdout)
++"#;
++
++struct Fixture {
++    _dir: tempfile::TempDir,
++    config: JevBusConfig,
++    calls: PathBuf,
++}
++
++impl Fixture {
++    fn new(mode: &str, timeout: Duration) -> Self {
++        let dir = tempfile::tempdir().expect("temp dir");
++        fs::write(dir.path().join("stub.py"), STUB).expect("write the adapter stand-in");
++        fs::write(dir.path().join("mode"), mode).expect("write the mode");
++        let calls = dir.path().join("calls");
++        let config = JevBusConfig {
++            enabled: true,
++            adapter: dir.path().join("stub.py"),
++            python: "python3".to_string(),
++            timeout,
++            stages: vec![("dedup".to_string(), "stub-stage".to_string())],
++        };
++        Self {
++            _dir: dir,
++            config,
++            calls,
++        }
++    }
++
++    fn invocations(&self) -> usize {
++        fs::read_to_string(&self.calls)
++            .map(|calls| calls.lines().count())
++            .unwrap_or(0)
++    }
++}
++
++fn sample_input() -> Vec<ResponseItem> {
++    serde_json::from_value(json!([
++        {
++            "type": "message",
++            "role": "user",
++            "content": [{"type": "input_text", "text": "hello"}],
++        },
++        {
++            "type": "function_call",
++            "name": "read_file",
++            "arguments": "{\"path\":\"a\"}",
++            "call_id": "call_1",
++        },
++        {"type": "function_call_output", "call_id": "call_1", "output": "FILE A BODY"},
++        {
++            "type": "reasoning",
++            "id": "r_1",
++            "summary": [{"type": "summary_text", "text": "think"}],
++            "encrypted_content": null,
++        },
++    ]))
++    .expect("sample is a valid wire request")
++}
++
++fn output_body(items: &[ResponseItem]) -> Option<String> {
++    items.iter().find_map(|item| match item {
++        ResponseItem::FunctionCallOutput { output, .. } => output.body.to_text(),
++        _ => None,
++    })
++}
++
++fn item_value(item: &ResponseItem) -> Value {
++    serde_json::to_value(item).expect("an item serializes")
++}
++
++#[test]
++fn disabled_boundary_never_invokes_the_adapter() {
++    let fixture = Fixture::new("mutate", Duration::from_secs(5));
++    let config = JevBusConfig {
++        enabled: false,
++        ..fixture.config.clone()
++    };
++    let input = sample_input();
++
++    let outgoing = project_with(&config, input.clone(), &ProjectionContext::default());
++
++    assert_eq!(outgoing, input);
++    assert_eq!(fixture.invocations(), 0);
++}
++
++#[test]
++fn projection_replaces_only_the_outgoing_view() {
++    let fixture = Fixture::new("mutate", Duration::from_secs(5));
++    let input = sample_input();
++    let canonical = input.clone();
++
++    let outgoing = project_with(&fixture.config, input, &ProjectionContext::default());
++
++    assert_eq!(output_body(&outgoing).as_deref(), Some("REDACTED"));
++    assert_eq!(fixture.invocations(), 1, "the adapter runs exactly once");
++    assert_eq!(outgoing.len(), canonical.len());
++    // The canonical transcript the caller handed over is untouched, and the
++    // opaque shapes the boundary must not touch are byte-identical.
++    assert_eq!(output_body(&canonical).as_deref(), Some("FILE A BODY"));
++    assert_eq!(item_value(&outgoing[3]), item_value(&canonical[3]));
++    assert_eq!(item_value(&outgoing[0]), item_value(&canonical[0]));
++}
++
++#[test]
++fn adapter_failure_falls_back_to_the_stage_input() {
++    let fixture = Fixture::new("fail", Duration::from_secs(5));
++    let input = sample_input();
++
++    let outgoing = project_with(
++        &fixture.config,
++        input.clone(),
++        &ProjectionContext::default(),
++    );
++
++    assert_eq!(outgoing, input);
++    assert_eq!(fixture.invocations(), 1);
++}
++
++#[test]
++fn adapter_timeout_falls_back_to_the_stage_input() {
++    // The deadline must outlast interpreter startup, or the child can be killed
++    // before it records the invocation and the assertion below measures the
++    // machine's load instead of the host's fallback. It stays far below the
++    // stub's own sleep, so this still exercises the deadline path.
++    let fixture = Fixture::new("sleep", Duration::from_secs(2));
++    let input = sample_input();
++
++    let outgoing = project_with(
++        &fixture.config,
++        input.clone(),
++        &ProjectionContext::default(),
++    );
++
++    assert_eq!(outgoing, input);
++    assert_eq!(fixture.invocations(), 1);
++}
++
++#[test]
++fn malformed_output_falls_back_to_the_stage_input() {
++    let fixture = Fixture::new("garbage", Duration::from_secs(5));
++    let input = sample_input();
++
++    let outgoing = project_with(
++        &fixture.config,
++        input.clone(),
++        &ProjectionContext::default(),
++    );
++
++    assert_eq!(outgoing, input);
++    assert_eq!(fixture.invocations(), 1);
++}
++
++#[test]
++fn a_changed_item_count_is_refused() {
++    let fixture = Fixture::new("drop", Duration::from_secs(5));
++    let input = sample_input();
++
++    let outgoing = project_with(
++        &fixture.config,
++        input.clone(),
++        &ProjectionContext::default(),
++    );
++
++    assert_eq!(outgoing, input);
++    assert_eq!(fixture.invocations(), 1);
++}
++
++#[test]
++fn a_missing_adapter_falls_back_to_the_stage_input() {
++    let config = JevBusConfig {
++        enabled: true,
++        adapter: PathBuf::from("/nonexistent/jev-bus-adapter.py"),
++        python: "python3".to_string(),
++        timeout: Duration::from_secs(5),
++        stages: vec![("dedup".to_string(), "stub-stage".to_string())],
++    };
++    let input = sample_input();
++
++    let outgoing = project_with(&config, input.clone(), &ProjectionContext::default());
++
++    assert_eq!(outgoing, input);
++}
++
++#[test]
++fn switches_are_on_only_for_the_contract_value() {
++    assert!(switch_enabled(Some("1")));
++    assert!(!switch_enabled(Some("0")));
++    assert!(!switch_enabled(Some("true")));
++    assert!(!switch_enabled(Some("")));
++    assert!(!switch_enabled(None));
++}
++
++#[test]
++fn the_deadline_is_always_bounded() {
++    assert_eq!(resolve_timeout_ms(None), DEFAULT_TIMEOUT_MS);
++    assert_eq!(resolve_timeout_ms(Some("2500")), 2_500);
++    assert_eq!(resolve_timeout_ms(Some(" 40 ")), 40);
++    // Unreadable and out-of-range values fall back instead of running unbounded.
++    assert_eq!(resolve_timeout_ms(Some("soon")), DEFAULT_TIMEOUT_MS);
++    assert_eq!(resolve_timeout_ms(Some("0")), 1);
++    assert_eq!(resolve_timeout_ms(Some("600000")), MAX_TIMEOUT_MS);
++}
+diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
+index 38b87f4dcc..3314a5d8b8 100644
+--- a/codex-rs/core/src/lib.rs
++++ b/codex-rs/core/src/lib.rs
+@@ -9,6 +9,7 @@ mod apply_patch;
+ mod apps;
+ mod client;
+ mod client_common;
++mod jev_bus;
+ mod realtime_context;
+ mod realtime_conversation;
+ mod realtime_history;

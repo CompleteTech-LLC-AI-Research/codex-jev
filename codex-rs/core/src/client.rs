@@ -1671,6 +1671,14 @@ impl ModelClientSession {
                 &mut request.input,
                 &client_setup.api_provider,
             );
+            // JEV owns one projection boundary here: the outgoing request copy
+            // is replaced and the persisted history is never touched. A
+            // disabled switch, or any projection failure, returns this same
+            // array unchanged.
+            request.input = crate::jev_bus::project_input(
+                std::mem::take(&mut request.input),
+                &crate::jev_bus::ProjectionContext::from_responses_metadata(responses_metadata),
+            );
             self.client.set_guardian_metadata(
                 &mut request.client_metadata,
                 responses_metadata.parent_response_id.as_deref(),
@@ -1832,6 +1840,14 @@ impl ModelClientSession {
             ModelClient::filter_tool_result_metadata(
                 &mut request.input,
                 &client_setup.api_provider,
+            );
+            // JEV owns one projection boundary here: the outgoing request copy
+            // is replaced and the persisted history is never touched. The
+            // websocket continuation delta is derived from this same array, so
+            // the incremental payload carries the projected view as well.
+            request.input = crate::jev_bus::project_input(
+                std::mem::take(&mut request.input),
+                &crate::jev_bus::ProjectionContext::from_responses_metadata(responses_metadata),
             );
             let guardian_reviewer = responses_headers
                 .get("x-codex-guardian")

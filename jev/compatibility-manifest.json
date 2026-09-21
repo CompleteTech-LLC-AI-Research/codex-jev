@@ -66,6 +66,22 @@
       ],
       "behavior": "Collaboration tool calls (spawn_agent, send_message, followup_task) stop marking the message parameter as encrypted, so new child-agent messages are stored and forwarded as plaintext. An absent or empty encrypted-function-args report is reclassified as a direct plaintext message. The patch carries its own behavioural coverage and also aligns the pinned base's own tests with the new behaviour: the spec-plan and tool-schema unit tests that asserted the encrypted parameter, the catalog tool-description cases that injected the encrypted marker and rejected an object schema without a message property, a router unit test pinning the plaintext/encrypted classification, the parent/child transport test that asserts a readable payload for an omitted or empty report and an encrypted payload when the message argument is reported encrypted, and the seven request-history snapshots whose collaboration/developer tool fingerprints change because the message schema is no longer marked encrypted. Removing the encrypted marker changes only tool fingerprints in those snapshots, never their surrounding content.",
       "disable": "Apply no patches to the pinned base (jev/scripts/apply-patches.py with an empty patch list); the pinned build then keeps the upstream encrypted message schema. Neither the patch nor its disable path decrypts existing ciphertext records."
+    },
+    {
+      "id": "0002-jev-bus-boundary",
+      "order": 20,
+      "component": "codex-jev",
+      "file": "jev/patches/0002-jev-bus-boundary.patch",
+      "sha256": "dee5ec32cc84e86ae8c37408ee2d3820458ea0a0b2128b8e6750d39691802d4f",
+      "applies_to_host_base": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+      "targets": [
+        "codex-rs/core/src/client.rs",
+        "codex-rs/core/src/lib.rs",
+        "codex-rs/core/src/jev_bus.rs",
+        "codex-rs/core/src/jev_bus_tests.rs"
+      ],
+      "behavior": "The host builds exactly one outgoing request per turn, and only its `input` array is the model-visible context. This patch adds the host half of the jev-bus boundary at that one call site: `codex-rs/core/src/jev_bus.rs` resolves the boundary from the environment, and when a projection switch is enabled it hands the outgoing request copy to the repository adapter (`jev/scripts/bus_boundary.py`, the module the patch does not add) over its documented CLI exactly once, replacing `input` with the returned view. The persisted transcript is never touched, and every failure - a disabled switch, no registered stage, an unconfigured adapter, a spawn error, a deadline, a non-zero exit, malformed output, or a changed item count - returns the caller's array unchanged, which is the stage-input fallback the bus contract requires. The invocation is bounded by `JEV_BUS_TIMEOUT_MS` (default 15s, capped at 120s) and the child is killed at the deadline, so a wedged stage can never hold a turn open. The call site sits after `filter_tool_result_metadata` on both the HTTP and the websocket path, so the websocket continuation delta, which is derived from the same array, carries the projected view as well. The patch also adds the module's unit tests, which drive a hermetic stand-in adapter to prove exact single invocation, replacement of the outgoing view only, byte-identical retention of opaque shapes, and every fallback path. No behaviour changes while the projection switches keep their declared `false` defaults.",
+      "disable": "Leave `projection.dedup_receipts` and `projection.fabric_views` at their declared `false` defaults - the `baseline` profile and every isolated profile do exactly this - so the boundary resolves to disabled, never spawns the adapter, and returns the request byte-for-byte. Reversing the patch (`jev/scripts/apply-patches.py --reverse`) removes the call site and the module entirely; the pinned base then builds unmodified, and the component packages keep their own suites and release cadence."
     }
   ],
   "components": [
@@ -80,6 +96,10 @@
       "requires_interfaces": {},
       "owns": [
         "jev/",
+        "codex-rs/core/src/client.rs",
+        "codex-rs/core/src/lib.rs",
+        "codex-rs/core/src/jev_bus.rs",
+        "codex-rs/core/src/jev_bus_tests.rs",
         "codex-rs/core/src/tools/router.rs",
         "codex-rs/core/src/tools/router_tests.rs",
         "codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs",
@@ -179,12 +199,14 @@
       "default": false,
       "components": ["jev-prune-kit"],
       "requires": ["capture.canonical_evidence"],
+      "requires_patches": ["0002-jev-bus-boundary"],
       "invariant": "Projection replaces only outgoing request bodies; the canonical transcript is never mutated."
     },
     "projection.fabric_views": {
       "default": false,
       "components": ["jev-context-fabric"],
       "requires": ["projection.dedup_receipts"],
+      "requires_patches": ["0002-jev-bus-boundary"],
       "invariant": "Duplicate-read pruning (stage 100) runs before the approved prose view (stage 200)."
     },
     "sentinel.shadow": {
