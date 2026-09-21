@@ -37,8 +37,20 @@ import release_artifact  # noqa: E402
 
 SCRATCH_ROOT = Path(os.environ.get("JEV_TEST_SCRATCH") or tempfile.gettempdir())
 
-# A realistic-looking key that carries no synthetic marker.
-PLANTED_KEY = "sk-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
+# A realistic-looking key that carries no synthetic marker. It is assembled at
+# run time rather than written out, because this harness is itself a packaged
+# member: a literal key here would make the artifact builder refuse the harness
+# it is testing.
+PLANTED_KEY = "sk-" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + "abcdef"
+
+
+def required_placeholder(relative):
+    """Content for a required member the fake repo does not supply itself."""
+    if relative.endswith(".rs"):
+        return "// placeholder member of the fake package\n"
+    if relative.endswith(".json"):
+        return "{}\n"
+    return "# placeholder member of the fake package\n"
 
 
 def scratch():
@@ -54,7 +66,7 @@ def git(root, *args):
     return completed.stdout
 
 
-def write_fake_repo(root, tracked=None, untracked=None):
+def write_fake_repo(root, tracked=None, untracked=None, drop=()):
     """A minimal but faithful package: manifest, a profile, and the fixtures."""
     (root / "jev" / "profiles").mkdir(parents=True)
     (root / "jev" / "fixtures").mkdir(parents=True)
@@ -68,6 +80,17 @@ def write_fake_repo(root, tracked=None, untracked=None):
     )
     for fixture in sorted((REPO_ROOT / "jev" / "fixtures").glob("*.json")):
         shutil.copy2(fixture, root / "jev" / "fixtures" / fixture.name)
+    # `build` refuses a missing required member, so a fake repo that omitted one
+    # would test the refusal instead of the package. `drop` is how a test asks
+    # for that refusal on purpose.
+    for relative in release_artifact.REQUIRED_SOURCE_MEMBERS:
+        if relative in drop:
+            continue
+        path = root / relative
+        if path.exists():
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(required_placeholder(relative), encoding="utf-8")
     for relative, text in (tracked or {}).items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -234,6 +257,14 @@ class ArtifactRefusalTests(unittest.TestCase):
             with self.assertRaises(release_artifact.ArtifactError) as caught:
                 release_artifact.build(root, Path(work) / "out.tar.gz")
             self.assertIn("E_ARTIFACT_FORBIDDEN", str(caught.exception))
+
+    def test_a_missing_required_member_is_refused_at_build_time(self):
+        with scratch() as work:
+            root = write_fake_repo(Path(work), drop=("jev/RELEASE.md",))
+            with self.assertRaises(release_artifact.ArtifactError) as caught:
+                release_artifact.build(root, Path(work) / "out.tar.gz")
+            self.assertIn("E_ARTIFACT_MISSING", str(caught.exception))
+            self.assertIn("jev/RELEASE.md", str(caught.exception))
 
     def test_a_real_key_in_a_product_file_is_refused(self):
         with scratch() as work:
