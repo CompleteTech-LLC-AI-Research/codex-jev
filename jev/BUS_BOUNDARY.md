@@ -51,6 +51,15 @@ typed items.
    returns an unrecognized shape contributes nothing and the chain continues from
    that stage's own input — the behavior the bus already guarantees — and the
    adapter records a `passthrough` note.
+5. **Records one `projection_receipt` per applied stage.** A stage is applied
+   unless it both reported a bare `passthrough` and handed back the array it was
+   given. The `action` strings inside a stage's notes are another package's
+   wording and the `jev-bus.v1` contract does not fix them, so the array the
+   stage returned is the evidence that decides: a stage that substitutes bodies
+   and also reports an unrelated passthrough keeps its receipt.
+   A stage whose every change the `C3` receipt enforcement reverts also loses
+   its receipt, because a receipt records a projection that reached the wire;
+   the refusal is recorded as a `reverted` note and in `report.dedup.reverted`.
 
 ## Invariants the adapter proves
 
@@ -83,6 +92,24 @@ matches the pinned component copy (`sha256
 514e59a2776ae1adbed5bbcf8e669d4fa15972877440a15cf8b00516bbfb87b7`) whenever
 that checkout is present.
 
+## Known limits
+
+- **The receipt carries no capture identity yet.** A receipt's `capture_id` is
+  taken from the `id` a stage puts on its note, and the pinned stage 100 note
+  (`{"action":"duplicate read bodies substituted","count":N,"bytes":M}`) has no
+  `id`, so the field is `""` and the substituted count and byte total are not
+  carried onto the receipt. Binding a receipt to the pinned witness identity
+  is available but unclaimed: the `C3` proof that accepted the substitution does
+  name the retained witness (`report.dedup.receipts[].witness.id`), so the
+  identity could be bound onto the receipt rather than guessed from the note's
+  wording, which the boundary deliberately does not do. `test_jev_bus` pins the
+  current behavior so the gap stays visible.
+- **The checked-in stage doubles are a wire contract, not component evidence.**
+  `jev/tests/bus_stage_stub/` speaks `jev-bus.stage.v1` so that required CI can
+  exercise the subprocess transport without the component repositories checked
+  out. Every such run is tier `bus-stage-stub`. The real stage semantics remain
+  owned by `jev-prune-kit` and `jev-context-fabric`.
+
 ## Evidence
 
 All results below are the `offline-fixture` tier unless noted. No live provider
@@ -90,14 +117,21 @@ call was made.
 
 | Check | Result |
 | --- | --- |
-| `jev/tests/test_bus_boundary.py` wire-request tests | 20 tests, ok: ordering, single invocation, no mutation, opaque retention, refusal, fallback, deadline, switches, receipts, bounds. |
-| Required CI battery (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) | ok (includes the new tests). |
+| `jev/tests/test_bus_boundary.py` wire-request tests | 19 tests, ok: ordering, single invocation, no mutation, opaque retention, refusal, fallback, deadline, switches, receipts, bounds. |
+| `.github/scripts/test_jev_bus.py` — the required-CI home (`repo-checks` discovers `.github/scripts/test_jev_*.py`; it does not run `jev/tests`) | 25 tests, ok: the same invariants, the receipt rule, and three `bus-stage-stub` subprocess-transport runs. |
+| Required CI battery (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) | 139 tests, ok (114 before this change). |
+| `jev/tests` | 68 tests, ok. |
 | `verify-manifest.py --patch-state applied` | ok. |
-| `real-host` transport run (`bus_boundary.py apply` over the subprocess transport) | Both stages invoked in order `[jev-prune.dedup, jev-context-fabric.view]`; `projection_receipt` per stage; the opaque `reasoning` item byte-identical; the duplicate read body replaced in the outgoing payload while the on-disk request stayed unchanged. |
+| `real-component` transport run, proven pair (`bus_boundary.py apply` against the pinned `jev-prune-kit` checkout at `2ecc8ff4`, `runner.py --bus-stage`) | Stage 100 invoked; the substitution is proven, so `C3` accepts it (`accepted: [1]`, `reverted: []`); marker `[Jev prune: repeated read-result body omitted; retained witness: call_2]` in the outgoing payload; `call_2` body retained; one `projection_receipt` at stage 100; item count preserved; on-disk request unchanged. |
+| `real-component` transport run, protected pair (same pinned stage, pair inside the current turn) | The component still substitutes; `C3` reverts it (`reverted: [{index: 2, reason: protected_turn}]`), the outgoing request equals the input byte-for-byte, and stage 100 holds no receipt. |
+| `bus-stage-stub` transport runs (`subprocess`, checked-in doubles) | Both stages invoked in order `[jev-prune.dedup, jev-context-fabric.view]`; one `projection_receipt` per applied stage; the opaque `reasoning` item byte-identical; an unproven substitution over the wire is reverted. |
 | Disabled-switch run | `invoked: []`, note `disabled`, outgoing request byte-identical to the input. |
 
-The transport run exercises the real `subprocess` stage path with a loopback
-fixture stage; it proves host wiring, not the safety of a live model or of the
-component semantics. Skipped checks: nothing stage-specific; the component
-stages are exercised through the bus contract, and their own suites remain the
-owner of their semantics.
+The transport runs exercise the real `subprocess` stage path. The
+`real-component` row drives the pinned `jev-prune-kit` stage over its own
+checked-out `runner.py --bus-stage` with a receipt that the component's own
+assess path would produce; the `bus-stage-stub` row drives the checked-in
+doubles, which is the only transport evidence required CI can reproduce without
+the component repositories. The live `jev-context-fabric` prose stage, a live
+provider call, and the component stages' own semantics are not exercised here
+and remain their own suites' subject.
