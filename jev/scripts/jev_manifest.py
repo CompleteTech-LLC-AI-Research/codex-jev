@@ -72,7 +72,19 @@ PATCH_REQUIRED_KEYS = {
     "disable",
 }
 
-PROFILE_KEYS = {"profile_version", "id", "description", "features"}
+PROFILE_KEYS = {"profile_version", "id", "description", "features", "fabric"}
+
+# A profile may pin the memory-tools runtime it binds. The pin repeats the
+# component table on purpose: the profile is what builds the isolated
+# environment, so a drift between the two must be a validation failure rather
+# than a silent upgrade.
+FABRIC_PIN_REQUIRED_KEYS = {
+    "component",
+    "revision",
+    "python_requirement",
+    "harness",
+    "mcp_server",
+}
 
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -587,6 +599,7 @@ def _validate_profile(manifest, profile):
         errors.append(
             f"E_PROFILE_SCHEMA: unsupported profile keys: {', '.join(unknown)}"
         )
+    errors += _validate_fabric_pin(manifest, profile)
     features = profile.get("features", {})
     if not isinstance(features, dict):
         return errors + ["E_PROFILE_SCHEMA: profile features must be a JSON object"]
@@ -600,6 +613,66 @@ def _validate_profile(manifest, profile):
     effective = _effective_features(manifest, profile)
     errors += _check_feature_closure(manifest, effective, "E_PROFILE_DEPENDENCY")
     errors += _check_remote_authorization(manifest, effective)
+    return errors
+
+
+def _validate_fabric_pin(manifest, profile):
+    """Validate the optional pin of the memory-tools runtime a profile binds.
+
+    ``fabric`` is a profile-level restatement of one component from the
+    manifest plus the harness it is installed into. It exists so an operator
+    reading a profile sees which fabric revision that configuration binds, and
+    the pin must agree with the component table exactly.
+    """
+    errors = []
+    pin = profile.get("fabric")
+    if pin is None:
+        return errors
+    if not isinstance(pin, dict):
+        return ["E_PROFILE_SCHEMA: profile fabric pin must be a JSON object"]
+    unknown = sorted(set(pin) - FABRIC_PIN_REQUIRED_KEYS)
+    if unknown:
+        errors.append(
+            f"E_PROFILE_SCHEMA: unsupported fabric pin keys: {', '.join(unknown)}"
+        )
+    missing = sorted(FABRIC_PIN_REQUIRED_KEYS - set(pin))
+    if missing:
+        return errors + [
+            f"E_PROFILE_SCHEMA: fabric pin is missing keys: {', '.join(missing)}"
+        ]
+    components = {
+        component.get("id"): component
+        for component in manifest.get("components", [])
+        if isinstance(component, dict)
+    }
+    pinned = components.get(pin["component"])
+    if pinned is None:
+        return errors + [
+            f"E_PROFILE_FABRIC_PIN: fabric pin names unknown component "
+            f"{pin['component']!r}"
+        ]
+    if "memory_tools" not in pinned.get("provides", []):
+        errors.append(
+            f"E_PROFILE_FABRIC_PIN: component {pin['component']} does not provide "
+            "memory_tools"
+        )
+    if pin["revision"] != pinned.get("revision"):
+        errors.append(
+            f"E_PROFILE_FABRIC_PIN: fabric pin revision {pin['revision']!r} does not "
+            f"match the manifest pin {pinned.get('revision')!r} for "
+            f"{pin['component']}"
+        )
+    if pin["python_requirement"] != pinned.get("python_requirement"):
+        errors.append(
+            f"E_PROFILE_FABRIC_PIN: fabric pin interpreter requirement "
+            f"{pin['python_requirement']!r} does not match the manifest's "
+            f"{pinned.get('python_requirement')!r} for {pin['component']}"
+        )
+    for key in ("harness", "mcp_server"):
+        if not isinstance(pin[key], str) or not pin[key]:
+            errors.append(
+                f"E_PROFILE_SCHEMA: fabric pin {key} must be a non-empty string"
+            )
     return errors
 
 

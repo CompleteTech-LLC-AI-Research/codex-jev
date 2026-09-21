@@ -17,6 +17,7 @@ Tracking epic: [CompleteTech-LLC-AI-Research/codex-jev#2](https://github.com/Com
 | `scripts/isolated_env.py` | Create, inspect, and roll back the isolated environment under `.jev/isolated`. |
 | `scripts/offline_fixtures.py` | Loopback-only fixture service that stands in for a provider. |
 | `scripts/launch_isolated.py` | Run the pinned binary against the isolated home and the fixtures. |
+| `scripts/fabric_env.py` | Bind the pinned context fabric's runtime, MCP entry, and hooks to the isolated home. |
 | `scripts/build_provenance.py` | Build the pinned CLI with the repository recipe and record provenance. |
 | `scripts/verify-manifest.py` | Fail-closed validator for the manifest, a profile, the patch state, and the checkout pin. |
 | `scripts/jev_manifest.py` | The validation rules, importable from tests. |
@@ -51,4 +52,5 @@ explicitly instead of silently building.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — where each component sits in the request lifecycle.
 - [`CONTRACTS.md`](CONTRACTS.md) — the cross-component contracts and the invariants they enforce.
 - [`ISOLATED_ENV.md`](ISOLATED_ENV.md) — build the pinned host and run the isolated profile offline.
+- [`FABRIC_BINDING.md`](FABRIC_BINDING.md) — bind the context fabric's runtime and MCP entry to the isolated home.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.

@@ -10,5 +10,12 @@
     "approval.preflight": false,
     "approval.enforcement": false,
     "remote_inference.enabled": false
+  },
+  "fabric": {
+    "component": "jev-context-fabric",
+    "revision": "5079099211c0d39a6ead347633a99d675a210c64",
+    "python_requirement": ">=3.11",
+    "harness": "codex",
+    "mcp_server": "jev-context"
   }
 }

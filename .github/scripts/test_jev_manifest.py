@@ -54,6 +54,31 @@ class CheckedInArtifactsTests(unittest.TestCase):
 
 
 class UnsupportedCombinationTests(unittest.TestCase):
+    def test_profile_that_pins_a_different_fabric_revision_is_refused(self):
+        profile = json.loads(
+            (JEV_ROOT / "profiles" / "isolated-offline.json").read_text("utf-8")
+        )
+        self.assertIn("fabric", profile)
+        profile["fabric"]["revision"] = "0" * 40
+        errors = jev_manifest.validate_manifest(
+            load_manifest(), repo_root=REPO_ROOT, profile=profile
+        )
+        self.assertTrue(
+            any("E_PROFILE_FABRIC_PIN" in error for error in errors), errors
+        )
+
+    def test_profile_that_pins_an_unknown_component_is_refused(self):
+        profile = json.loads(
+            (JEV_ROOT / "profiles" / "isolated-offline.json").read_text("utf-8")
+        )
+        profile["fabric"]["component"] = "jev-nonexistent"
+        errors = jev_manifest.validate_manifest(
+            load_manifest(), repo_root=REPO_ROOT, profile=profile
+        )
+        self.assertTrue(
+            any("E_PROFILE_FABRIC_PIN" in error for error in errors), errors
+        )
+
     def test_excluded_repository_may_not_appear_as_a_component(self):
         manifest = load_manifest()
         exclusion = manifest["integration"]["excluded_repositories"][0]

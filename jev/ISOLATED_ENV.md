@@ -114,6 +114,27 @@ Switches reach the runtime as `JEV_SWITCH_<NAME>` (`1`/`0`), for example
 `JEV_SWITCH_SENTINEL_SHADOW=0`. Later phases read that contract instead of
 guessing at upstream Codex flags.
 
+## Fabric runtime and MCP binding
+
+Phase #4 binds the pinned context fabric to this environment with
+`jev/scripts/fabric_env.py`. The profile's `fabric` pin (component, revision,
+interpreter requirement, harness, MCP server) is cross-checked against the
+manifest, and the fabric installer runs only with `HOME`, `CODEX_HOME`,
+`XDG_CONFIG_HOME`, `JEV_CONTEXT_HOME` and `JEV_BUS_HOME` redirected into the
+environment directory; a reported path outside it fails closed.
+
+```
+python3 jev/scripts/fabric_env.py --fabric <fabric-checkout> install
+python3 jev/scripts/fabric_env.py status
+python3 jev/scripts/fabric_env.py verify
+```
+
+The install merges `[mcp_servers.jev-context]` into `home/config.toml`, writes
+`home/hooks.json`, adds `home/.agents/skills/jev-context/SKILL.md`, and keeps
+the runtime and its SQLite database under `.jev/isolated/fabric`. Unrelated
+settings in `config.toml` are preserved, and `uninstall` restores them. See
+[FABRIC_BINDING.md](FABRIC_BINDING.md).
+
 ## Evidence tiers
 
 | Tier | What it shows |
