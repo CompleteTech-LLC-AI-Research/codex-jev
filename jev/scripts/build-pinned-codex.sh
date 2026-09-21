@@ -204,6 +204,11 @@ if [ -e "$CODEX_HOME/auth.json" ]; then
     die "isolated CODEX_HOME unexpectedly contains auth.json; refusing to build"
 fi
 
+# Keep the C toolchain's scratch files inside the build directory. A small or
+# full /tmp is a common CI/container failure mode (aws-lc-sys writes large
+# temporary assembly there), so never rely on the default.
+mkdir -p "$BUILD_DIR/tmp"
+
 if [ "$CHECK_ONLY" -eq 1 ]; then
     info "check-only: pin, patch state, profile, and fixtures validated; not compiling"
     exit 0
@@ -241,6 +246,7 @@ env -i \
     PATH="$PATH" \
     HOME="${HOME:-/tmp}" \
     CODEX_HOME="$CODEX_HOME" \
+    TMPDIR="$BUILD_DIR/tmp" \
     CARGO_TARGET_DIR="$TARGET_DIR" \
     RUST_MIN_STACK=8388608 \
     CARGO_TERM_COLOR="${CARGO_TERM_COLOR:-never}" \
@@ -251,7 +257,7 @@ BIN="$TARGET_DIR/$PROFILE_KIND/codex"
 
 if [ "$SMOKE" -eq 1 ]; then
     info "smoke: launching the isolated binary"
-    env -i PATH="$PATH" HOME="${HOME:-/tmp}" CODEX_HOME="$CODEX_HOME" "$BIN" --version >/dev/null \
+    env -i PATH="$PATH" HOME="${HOME:-/tmp}" TMPDIR="$BUILD_DIR/tmp" CODEX_HOME="$CODEX_HOME" "$BIN" --version >/dev/null \
         || die "the isolated binary failed to launch"
     info "smoke: isolated binary launched successfully"
 fi

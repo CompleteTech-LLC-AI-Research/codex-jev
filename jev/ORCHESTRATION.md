@@ -24,7 +24,7 @@ is incomplete, even when a concurrency slot is free.
 | --- | --- | --- | --- | --- | --- |
 | #9 | Compatibility manifest and integration contracts | lead (integration) | `jev/1.1-manifest` | #28 | in review |
 | #10 | Plaintext collaboration in the pinned build | lead (native/Rust) | `jev/1.2-plaintext` | #33 | in review |
-| #11 | Isolated build and integration profile | lead (integration) | `jev/1.3-profile` | pending | in progress |
+| #11 | Isolated build and integration profile | lead (integration) | `jev/1.3-profile` | #34 | in review |
 | #12–#14 | Fabric binding, capture, retrieval | unassigned | — | — | blocked by phase 1 |
 | #15–#17 | Native bus adapter, receipts, views | unassigned | — | — | blocked by phase 2 |
 | #18–#20 | Sentinel hooks, veto precedence, screening | unassigned | — | — | blocked by phase 3 |
