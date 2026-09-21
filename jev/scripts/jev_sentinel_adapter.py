@@ -49,7 +49,9 @@ EVENTS = {
     "PostToolUse": "tool_after",
 }
 
-STAGES = frozenset({"ingress", "tool_before", "tool_after", "context", "memory", "egress"})
+STAGES = frozenset(
+    {"ingress", "tool_before", "tool_after", "context", "memory", "egress"}
+)
 SOURCES = frozenset({"user", "external", "agent", "unknown"})
 DECISIONS = frozenset({"DEFER", "REVIEW", "BLOCK", "QUARANTINE"})
 
@@ -97,7 +99,11 @@ def strict_json(raw):
 def dumps(value) -> str:
     """Faithful copy of ``core.dumps`` (canonical JSON, no NaN)."""
     return json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
     )
 
 
@@ -147,7 +153,9 @@ def normalize(event_name: str, data, profile: str) -> dict:
         "stage": stage,
         "harness": HARNESS,
         "profile": profile,
-        "source": "user" if stage == "ingress" else ("external" if stage == "tool_after" else "agent"),
+        "source": "user"
+        if stage == "ingress"
+        else ("external" if stage == "tool_after" else "agent"),
         "content": content,
         "session_id": data.get("session_id")
         or data.get("sessionId")
@@ -183,7 +191,10 @@ def render(event_name: str, verdict: dict, raw: dict | None = None) -> dict:
     return {
         "decision": "block",
         "reason": reason,
-        "hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": reason},
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": reason,
+        },
     }
 
 

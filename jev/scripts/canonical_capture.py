@@ -1042,7 +1042,9 @@ def main(argv=None):
                         "is no transcript to capture"
                     )
                 rollouts += found
-            result = capture(env_dir, rollouts, root=args.root, sessions_dir=sessions_dir)
+            result = capture(
+                env_dir, rollouts, root=args.root, sessions_dir=sessions_dir
+            )
         elif args.command == "status":
             result = status(env_dir)
         elif args.command == "verify":

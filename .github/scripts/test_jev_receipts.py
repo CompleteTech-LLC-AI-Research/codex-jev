@@ -211,9 +211,7 @@ class ReceiptContractTests(unittest.TestCase):
         outgoing[1]["output"] = marker("call_2")
         out, report = dedup_receipts.enforce(items, outgoing, keep_recent=0)
         self.assertEqual(report["accepted"], [])
-        self.assertEqual(
-            report["reverted"][0]["reason"], dedup_receipts.R_NON_REDUCING
-        )
+        self.assertEqual(report["reverted"][0]["reason"], dedup_receipts.R_NON_REDUCING)
         self.assertEqual(out[1]["output"], "aaaa")
         # The acceptance criterion is about the serialized request, not the body.
         self.assertLessEqual(len(json.dumps(out)), len(json.dumps(items)))

@@ -333,7 +333,9 @@ class DedupAndGapTests(CaptureTestCase):
         try:
             report = canonical_capture.verify(self.env_dir, root=REPO_ROOT)
             self.assertFalse(report["ok"])
-            self.assertFalse(report["checks"]["stored_content_matches_the_recorded_hash"])
+            self.assertFalse(
+                report["checks"]["stored_content_matches_the_recorded_hash"]
+            )
             self.assertFalse(
                 report["checks"]["retrieval_view_derives_from_canonical_content"]
             )
@@ -458,7 +460,10 @@ class SessionsDirectoryTests(CaptureTestCase):
 
     def run_capture(self, env_dir, *extra):
         errors = io.StringIO()
-        with contextlib.redirect_stderr(errors), contextlib.redirect_stdout(io.StringIO()):
+        with (
+            contextlib.redirect_stderr(errors),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             code = canonical_capture.main(
                 ["--env-dir", str(env_dir), "capture", *extra]
             )
@@ -469,13 +474,13 @@ class SessionsDirectoryTests(CaptureTestCase):
             sessions = self.sessions_dir(work)
             self.assertEqual([], canonical_capture.rollout_paths(sessions))
 
-    def test_capture_names_the_directory_and_the_pattern_instead_of_a_missing_flag(self):
+    def test_capture_names_the_directory_and_the_pattern_instead_of_a_missing_flag(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as work:
             env_dir = self.isolated_env(work)
             sessions = self.sessions_dir(work)
-            code, message = self.run_capture(
-                env_dir, "--sessions-dir", str(sessions)
-            )
+            code, message = self.run_capture(env_dir, "--sessions-dir", str(sessions))
             self.assertEqual(code, 1)
             self.assertIn("rollout-*.jsonl", message)
             self.assertIn(str(sessions), message)
@@ -497,7 +502,9 @@ class SessionsDirectoryTests(CaptureTestCase):
             summary = canonical_capture.status(env_dir)
             self.assertEqual(summary["events_present"], 2)
             self.assertEqual(
-                canonical_capture.capture_root(env_dir).joinpath("index.json").is_file(),
+                canonical_capture.capture_root(env_dir)
+                .joinpath("index.json")
+                .is_file(),
                 True,
             )
             index = json.loads(
@@ -506,7 +513,7 @@ class SessionsDirectoryTests(CaptureTestCase):
                 )
             )
             self.assertEqual(
-                {"directory": str(sessions), "rollouts_matched": 0}, 
+                {"directory": str(sessions), "rollouts_matched": 0},
                 {k: v for k, v in index["sessions_dir"].items() if k != "note"},
             )
             self.assertIn("no rollout-*.jsonl matched", index["sessions_dir"]["note"])

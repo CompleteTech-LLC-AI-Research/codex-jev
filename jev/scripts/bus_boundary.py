@@ -158,7 +158,11 @@ def _opaque(index: int, item) -> dict:
     would let a stage edit both the canonical transcript and its own comparison
     baseline at once, hiding the edit from the guard in ``_rebuild``.
     """
-    return {"_jev_index": index, "_jev_shape": "opaque", "_jev_raw": copy.deepcopy(item)}
+    return {
+        "_jev_index": index,
+        "_jev_shape": "opaque",
+        "_jev_raw": copy.deepcopy(item),
+    }
 
 
 def normalize_item(item, index: int):
@@ -502,9 +506,7 @@ def project(
         ):
             after = _fingerprints(response["messages"])
         moved = {
-            index
-            for index, (was, now) in enumerate(zip(before, after))
-            if was != now
+            index for index, (was, now) in enumerate(zip(before, after)) if was != now
         }
         if len(before) != len(after):
             moved.add(-1)  # a structural change no single position can describe
@@ -538,7 +540,9 @@ def project(
             if stage["name"] not in skipped
         ]
         report["applied"] = [
-            name for name in report["invoked"] if changed.get(name) or name not in silent
+            name
+            for name in report["invoked"]
+            if changed.get(name) or name not in silent
         ]
 
     outgoing = copy.deepcopy(request)
