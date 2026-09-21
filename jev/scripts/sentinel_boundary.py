@@ -229,11 +229,22 @@ def digest_action(event: dict) -> str:
     return hashlib.sha256(_canonical(event["tool_input"]).encode("utf-8")).hexdigest()
 
 
-def session_ref(event: dict) -> str:
-    """The component's session key: sha256 of [harness, profile, session_id]."""
+def session_ref_for(harness: str, profile: str, session_id: str) -> str:
+    """The component's session key: sha256 of [harness, profile, session_id].
+
+    An empty ``session_id`` has no key, exactly as in the component's own
+    ``assess``: no key means nothing can be correlated and nothing can latch.
+    """
+    if not session_id:
+        return ""
     return hashlib.sha256(
-        _canonical([event["harness"], event["profile"], event["session_id"]]).encode("utf-8")
+        _canonical([harness, profile, session_id]).encode("utf-8")
     ).hexdigest()
+
+
+def session_ref(event: dict) -> str:
+    """The session key of a normalized event."""
+    return session_ref_for(event["harness"], event["profile"], event["session_id"])
 
 
 def bound_event(event: dict, policy: dict) -> dict:

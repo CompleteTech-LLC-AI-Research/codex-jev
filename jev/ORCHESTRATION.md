@@ -33,6 +33,8 @@ is incomplete, even when a concurrency slot is free.
 | #16 | Duplicate-read proof receipts | #50 | merged; issue closed |
 | #17 | Approved Fabric views and reversible controls | #53 | merged; issue closed |
 | #18 | Wire Sentinel hooks and effective coverage reporting | #60 | merged; issue closed |
+| #19 | Sentinel veto precedence and concurrent-action handling | #68 | in review |
+| #20 | Retrieval screening and incident operations | — | open; this branch |
 | #49 | Canonical capture CLI: report a zero-event capture gap | #64 | merged; issue closed |
 | #55 | Invoke the bus boundary from the host request path | #63 | merged; issue closed |
 | #58 | Reconcile the host's item-count fallback with the approved-view removal | — | open; filed from #55 |
@@ -41,7 +43,8 @@ is incomplete, even when a concurrency slot is free.
 | #66 | repo-checks is red on `main`: root `README.md` asciicheck | #71 | merged; issue closed |
 | #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | — | open; CI lane, unmasked by #71 |
 | #70 | Run the real host binary to show projected outgoing content and exact reset | #75 | merged; issue closed |
-| #19–#20 | Sentinel veto precedence, retrieval screening, incident operations | — | open; blocked by #18 |
+| #19 | Sentinel veto precedence and the subsequent-action latch | #68 | in review; filed from #18 |
+| #20 | Retrieval screening and incident operations | — | open; blocked by #18 |
 | #21 | Port and compile the pinned native approval adapter | #72 | merged; issue closed |
 | #22 | Verify action binding, freshness, and fallback | — | in review; filed from #21 |
 | #23 | Shadow comparison and controlled enforcement configuration | — | open; blocked by #22 |
@@ -128,6 +131,11 @@ ever added as a component.
 | A ported native adapter is declared, not described. | `jev-codex-approval` ships its Codex adapter as source that its authors never compiled. The port is recorded in the manifest as an installed file, the module declaration and call site it creates, and the two guarded host blobs it was applied to, so `verify-manifest.py --native-adapter` can prove the port is present and wired - and prove it is gone after a rollback - instead of relying on a document. |
 | An eligible preflight may replace one synchronous review attempt, and nothing else. | Concurrency, escalation, retries, mandatory review, non-eligible action classes, incomplete context, and any change of policy text or authorization version all return `None` and run the unchanged Guardian path. Enforcement stays off, and the host re-checks the low-risk boundary itself rather than trusting the engine's own policy. |
 | A port may not accept a weaker answer binding than the component it ports. | `jev-codex-approval`'s own transport refuses an answer whose `request_id`, `snapshot_hash`, `policy_hash` or `question_hash` does not match what it sent (`daemon_response_binding_mismatch`), but the first port checked only the request id, so it would have accepted a decision computed for another action, policy, or question set under a reused review id. #22 binds all four, records the approved question set as a manifest pin the host cannot recompute, and pins the canonical form with digests the component computes so the two implementations cannot drift apart unobserved. |
+| A veto already latched for a session is never downgraded. | The host orders the decisions `DEFER < REVIEW < BLOCK < QUARANTINE` and takes `max(this event, the session latch)`, so a later approval-shaped event, a later `DEFER`, or a weaker finding cannot clear a veto. The component's finding is still the only detection: the latch only decides which veto keeps the session, and the strongest concurrent finding survives. |
+| A latched veto gates the action that follows it, and only the pre-tool stage can prevent the exact action before execution. | After a veto the session stays vetoed, so the next `PreToolUse` is denied even though its own finding defers. Codex has no output-replacement field, so a `PostToolUse` veto is feedback plus that latch — a result that already executed cannot be un-executed, and the host never fabricates a replacement. |
+| Concurrent evaluations of one session are serialized, and the guarantee is no stale read and no lost raise. | A per-session `threading.Lock` plus an `flock(2)` file lock serialize the read-modify-write of the latch. Arrival order is not observable to the host, so an event evaluated before the veto exists legitimately inherits nothing; what is enforced is that no call reads a pre-veto ledger and no raise is dropped. |
+| Every failure path fails closed and never turns into an allow. | A timeout, a malformed response, a malformed verdict, a non-zero exit, an unboundable payload, a malformed native payload, a corrupt policy, and a cancellation all produce the component's own `failure_result` shape (`REVIEW`, `route=security_review`, `backend=unavailable`) and latch the session. A corrupt or missing policy is treated as *enforcing*, so editing a policy file can never silently open the gate; a cancellation is latched before the interrupt propagates. |
+| The host latch and the component's taint are separate stores, and clearing one does not clear the other. | The component taints its own session in its audit store; the host keeps an append-only latch ledger keyed by the component's own `session_ref`. Clearing the host latch leaves the component's taint vetoing on its own findings, which is the demo that the host has not reimplemented detection. Bounded replay of the ledger tail is lossless: the state is "the strongest escalation since the last clear". |
 
 ## Evidence
 
@@ -143,6 +151,7 @@ ever added as a component.
 | [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) | Duplicate-read proof receipts: the receipt the host proves, the reasons it reverts, and the enforcement invariants (#16). |
 | [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md) | Approved, reversible Fabric prose views: the snapshot binding, preview/apply/reset, the eligibility rules, and the byte/token split (#17). |
 | [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) | The Sentinel hook boundary: the three events, the two switches, the payload bound and refusal, effective coverage, the activation probe, the incident envelope, and the bypass surfaces (#18). |
+| [`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md) | Veto precedence and the subsequent-action latch: the decision lattice, the stage mapping, the per-session latch and its operator controls, concurrent-action handling, every fail-closed path, and the unavoidable races (#19). |
 | [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) | The ported native approval adapter: the guarded host blobs, the environment and switch contract, eligibility and deferral, the accepted answer's binding to this exact request and policy, the freshness re-derivation, and the offline-fixture plus static host compile evidence (#21, #22). |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria

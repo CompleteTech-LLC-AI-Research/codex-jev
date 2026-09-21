@@ -78,8 +78,13 @@ Findings are advisory until the declared enforcement switch is on: a finding is
 recorded and never vetoes, and enforcement follows the switch rather than the
 policy's `mode`, so a shadow policy cannot veto and an enforcing policy under an
 off switch cannot either. The host's carrier is
-`jev/scripts/sentinel_boundary.py`. See
-[`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md).
+`jev/scripts/sentinel_boundary.py`, which observes the boundary, and
+`jev/scripts/sentinel_veto.py`, which maps an enforced decision onto the veto the
+stage supports, latches the session so a later approval or `DEFER` cannot clear
+it, serializes concurrent evaluations of one session, and fails closed on a
+timeout, a malformed response, a cancellation, or a policy failure. See
+[`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) and
+[`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md).
 
 ## C6 — Approval preflight and Guardian fallback
 
