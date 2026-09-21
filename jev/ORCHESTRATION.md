@@ -25,7 +25,7 @@ is incomplete, even when a concurrency slot is free.
 | #5 | Native Codex context projection through jev-bus (phase 3) | #47, #63, #64, #75, #79 | complete; issue closed |
 | #6 | Sentinel boundary checks and veto precedence (phase 4) | #60, #68, #80, #84, #91, #92 | complete; issue closed. Phase claim composed in #91 (`real-component`) and exercised through a launched host binary in #92 (`real-host-binary`) |
 | #7 | Native JEV approval preflight with Guardian fallback (phase 5) | #72, #74, #81 | complete; issue closed; follow-up #85 filed |
-| #8 | Validate and release the combined JEV Codex stack (phase 6) | #24, #25, #26 | open; phases 3-5 and #24/#25 merged, #26 claimed and in progress |
+| #8 | Validate and release the combined JEV Codex stack (phase 6) | #24, #25, #26, #95 | complete in the roll-up branch; #24, #25, and #26 are merged and the combined record is the remaining change |
 | #9 | Compatibility manifest and integration contracts | #28, #31 | merged; issue closed |
 | #10 | Plaintext collaboration in the pinned build | #32, #37 | merged; issue closed |
 | #11 | Isolated build and integration profile | #35 | merged; issue closed |
@@ -43,7 +43,7 @@ is incomplete, even when a concurrency slot is free.
 | #23 | Shadow comparison and controlled enforcement configuration | #81 | merged; issue closed; duplicate #83 closed, follow-up #85 filed |
 | #24 | Composed end-to-end regression harness | #89 | merged; issue closed |
 | #25 | Isolated offline and performance validation record | #90 | merged; issue closed |
-| #26 | Package compatibility, upgrade, and rollback workflow | — | open; claimed, in progress |
+| #26 | Package compatibility, upgrade, and rollback workflow | #95 | merged; issue closed |
 | #41 | Verify the fabric checkout revision against the pinned component | #44 | merged; issue closed |
 | #49 | Canonical capture CLI: report a zero-event capture gap | #64 | merged; issue closed |
 | #52 | Host proof is weaker than the component's own receipt validator | #65 | merged; issue closed by independent verification of the merge `f9ba672eeb` (the body closed the gaps; the issue was closed separately once that was verified) |
@@ -63,8 +63,8 @@ State above is the GitHub state of each issue and PR, not a local plan.
 ## Merged commits
 
 The reviewed commit is the head that passed review; the merge commit is what
-landed on `main`. Phases 3 to 5 are complete and phase 6 is partly merged: #24
-and #25 landed, and #26 is in flight.
+landed on `main`. Phases 3 to 5 are complete and phase 6 is merged: #24, #25, and
+#26 landed, and the roll-up record is the last change in phase 6.
 
 | Issue | PR | Reviewed commit | Merge commit |
 | --- | --- | --- | --- |
@@ -97,6 +97,7 @@ and #25 landed, and #26 is in flight.
 | #85 | #88 | `e6e228cc97` | `d6f53c5e46` |
 | #6 | #91 | `259aacd12d` | `3ddf7345a9` |
 | #6 | #92 | `5a739b70e6` | `ed60a5b0e4` |
+| #26 | #95 | `82a6225e0c` | `c312d4aae4` |
 
 ## Pinned revisions
 
@@ -193,6 +194,8 @@ ever added as a component.
 | [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md) | Bounded, read-only, metadata-only incident operations: the validated field set and the credential-rule refusal, the identifier-only failure report, the bounded scan and its saturation signal, correlation by content or identity, the non-executing disable plan, and the isolated-root policy view (#20). |
 | [`END_TO_END.md`](END_TO_END.md) | The composed end-to-end regression harness: one request lifecycle (capture → retrieval → screening → projection → collaboration → Sentinel/veto → approval → execution) consuming the previous step's artifact rather than re-deriving it, its negative set (stage failure, corrupt context, veto, cancellation, stale authorization, disabled components), the wire and side-effect assertions, and the tier labels - all offline and hermetic (#24). |
 | [`VALIDATION.md`](VALIDATION.md) | The validation record: the `offline-fixture`/`bus-stage-stub`/`component-stub` tiers, the `real-host-binary` run, the live tier left explicitly **not run** for want of consent and budget, the revisions exercised, and the baseline-versus-integrated performance measurement reporting correctness, payload bytes, latency, fallback rates, failures, and service usage without dropping unsuccessful cases (#25). |
+| [`RELEASE.md`](RELEASE.md) | The packaging workflow: manifest verification, build and profile instructions, feature controls, diagnostics, install and upgrade order, state ownership and backups, rollback, separate component maintenance, the platform matrix, the ten release gates re-derived from real runs, and the candidate artifact's inclusion, exclusion, and digest rules (#26). |
+| [`STACK.md`](STACK.md) | The combined phase-6 record: the validated combination and its pins, the stage-by-stage composed trace, the authority invariants resolved to named assertions, the tier census that keeps `live-provider` at `not-run`, the operations entry points with the check behind each, the rollback order, the honest `release_ready: false` with its blockers, and what is not proven (#8). |
 | [`evidence/sentinel-hook-real-host.md`](evidence/sentinel-hook-real-host.md) | The `real-host-binary` rung for #6: a launched host runs the wired carrier and is gated by it - shadow stays observational with three correlated incidents, enforce prevents the exact action before execution and the host quotes the component's reason, unwired records nothing under the same switches, and the coverage report says `activated: false` while three stages are wired, `true` only after a probe the host corroborates, and `false` again after `--remove` (#6). |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
