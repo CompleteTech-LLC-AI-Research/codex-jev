@@ -231,6 +231,11 @@ is only an assertion (`claimed`) is rewritten to `fail`, and a gate with no run
 behind it is `not-run` and listed in `blocking`; neither can be mistaken for a
 pass.
 
+`isolated.roundtrip` is `verified-here` when the round trip ran in this process,
+and `not-run` - with evidence `not-run`, in `not_run` and in `blocking` - when
+`gates --skip-roundtrip` suppressed it. A skipped check is reported rather than
+removed, so a document produced with the flag records what it did not prove.
+
 ## 10. The candidate artifact
 
 ```sh
@@ -307,12 +312,13 @@ same revision produce the same bytes whatever the output path.
   workflow relies on is `repo-checks / build-test`.
 - `main` carries no branch protection, so there is no enforceable required-check
   rule; merges rely on the checks recorded in each PR.
-- Two follow-ups weaken the gate bindings and are **open**, not fixed: #97 — the
-  platform gate credits a record whose `revision` is unresolvable in the local
-  clone instead of treating it as stale; and #98 — `gates --skip-roundtrip`
-  removes the round-trip gate rather than emitting it as `not-run`, so a
-  `release_ready: true` document is possible with the round trip never proven.
-  Both are reproduced in
+- Two weaknesses in the gate bindings were found while composing this claim and
+  are now **fixed**: #97 — the platform gate credited a record whose `revision`
+  was unresolvable in the local clone, fixed by #99, which refuses such a record
+  as `unverifiable` at the row and keeps the gate `not-run`; and #98 — `gates
+  --skip-roundtrip` removed the round-trip gate rather than emitting it as
+  `not-run`, so a `release_ready: true` document was possible with the round trip
+  never proven. Both were reproduced while open; the reproductions are in
   [`evidence/release-phase-claim.md`](evidence/release-phase-claim.md).
 
 ## 13. Recorded evidence

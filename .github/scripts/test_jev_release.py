@@ -298,6 +298,56 @@ class GateTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    def test_a_skipped_roundtrip_is_reported_rather_than_dropped(self):
+        # ``--skip-roundtrip`` documents that the round trip "is then not-run",
+        # but the gate was omitted from the document entirely, so the run was
+        # neither credited nor reported (issue #98).
+        skipped = release_readiness.evaluate_gates(REPO_ROOT, run_roundtrip=False)
+        self.assertEqual(
+            sorted(gate["id"] for gate in skipped["gates"]),
+            sorted(gate["id"] for gate in self.document["gates"]),
+        )
+        roundtrip = next(
+            gate for gate in skipped["gates"] if gate["id"] == "isolated.roundtrip"
+        )
+        self.assertEqual(roundtrip["status"], "not-run")
+        self.assertEqual(roundtrip["evidence"], "not-run")
+        self.assertIn(roundtrip["evidence"], release_readiness.GATE_EVIDENCE)
+        self.assertEqual(
+            roundtrip["requirement"], release_readiness.ROUNDTRIP_REQUIREMENT
+        )
+        self.assertIn("isolated.roundtrip", skipped["not_run"])
+        self.assertIn("isolated.roundtrip", skipped["blocking"])
+        self.assertIsNone(skipped["isolated_roundtrip"])
+
+    def test_a_skipped_roundtrip_cannot_reach_release_ready(self):
+        # The failure #98 names: readiness true from a document in which one of
+        # the phase's acceptance criteria was never proven. Every other gate is
+        # forced to pass, and the skipped round trip still refuses the release.
+        skipped = release_readiness.evaluate_gates(REPO_ROOT, run_roundtrip=False)
+        every_other_gate_passes = [
+            {**gate, "status": "pass"} if gate["id"] != "isolated.roundtrip" else gate
+            for gate in skipped["gates"]
+        ]
+        outcome = release_readiness.summarize_gates(every_other_gate_passes)
+        self.assertEqual(outcome["failed"], [])
+        self.assertFalse(outcome["release_ready"])
+        self.assertEqual(outcome["not_run"], ["isolated.roundtrip"])
+
+    def test_the_gate_vocabulary_covers_a_gate_with_no_record(self):
+        # A root that carries no platform evidence produces a gate whose
+        # evidence is "not-run"; the declared vocabulary has to contain the
+        # values the gates actually emit, or the type check fails the moment
+        # such a gate is produced.
+        root = Path(tempfile.mkdtemp(prefix="jev-release-no-evidence-"))
+        try:
+            record = release_readiness.evaluate_platform_gate(root, self.manifest)
+            self.assertEqual(record["gate"]["evidence"], "not-run")
+            self.assertIn(record["gate"]["evidence"], release_readiness.GATE_EVIDENCE)
+            self.assertIn(record["gate"]["status"], release_readiness.GATE_STATUSES)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
 
 class CandidateTests(unittest.TestCase):
     """Two candidate builds in one scratch directory; the builds are offline."""

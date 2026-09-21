@@ -20,10 +20,15 @@ tracking issue is closed. A gate therefore carries:
               ``recorded`` - a checked-in run record, with its revision and tier.
               ``claimed`` - an assertion with no run behind it. This value exists
               only so a claim can be *rejected*; no gate passes as ``claimed``.
+              ``not-run`` - no run exists to point at, for a gate that is
+              reported as ``not-run`` rather than omitted from the document.
 
 ``release_ready`` is true only when every gate passes, so a partially validated
 matrix produces a candidate artifact and a ``release_ready: false`` verdict with
-the missing platforms named as blockers. That is the intended failure mode.
+the missing platforms named as blockers. That is the intended failure mode. A
+``not-run`` gate blocks, and a skipped check is reported rather than dropped:
+``gates --skip-roundtrip`` yields a ``not-run`` ``isolated.roundtrip`` gate
+instead of a document in which the round trip never appears.
 
 Evidence tiers
 --------------
@@ -87,6 +92,9 @@ PLATFORM_EVIDENCE = "jev/evidence/platform-matrix.json"
 TIER_OFFLINE = "offline-fixture"
 TIER_REAL_HOST = "real-host-binary"
 TIER_LIVE = "live-provider"
+ROUNDTRIP_REQUIREMENT = (
+    "A fresh isolated setup reproduces the validated configuration and rolls back."
+)
 
 #: The declared inclusion set. Paths are repository-relative; ``tree`` walks a
 #: directory, ``glob`` matches a pattern, and ``file`` is a single path.
@@ -644,7 +652,7 @@ def evaluate_isolated_roundtrip(repo_root: Path, scratch: Path) -> dict:
     return {
         "gate": _gate(
             "isolated.roundtrip",
-            "A fresh isolated setup reproduces the validated configuration and rolls back.",
+            ROUNDTRIP_REQUIREMENT,
             status_value,
             "verified-here",
             TIER_OFFLINE,
@@ -1005,7 +1013,13 @@ def write_platform_evidence(
 
 
 GATE_STATUSES = ("pass", "fail", "not-run")
-GATE_EVIDENCE = ("verified-here", "recorded", "claimed")
+#: ``not-run`` is emitted by a gate that is reported for a reason other than a
+#: missing record - the platform gate with no evidence file, and the round-trip
+#: gate when ``--skip-roundtrip`` suppressed the run. It is listed here because
+#: the vocabulary describes what the gates produce, and a value outside it would
+#: make ``test_every_gate_is_typed_and_named`` fail as soon as such a gate was
+#: produced in a test root.
+GATE_EVIDENCE = ("verified-here", "recorded", "claimed", "not-run")
 
 
 def summarize_gates(gates: list[dict]) -> dict:
@@ -1067,6 +1081,19 @@ def evaluate_gates(
             if owned_scratch:
                 shutil.rmtree(scratch, ignore_errors=True)
         gates.append(roundtrip_record["gate"])
+    else:
+        gates.append(
+            _gate(
+                "isolated.roundtrip",
+                ROUNDTRIP_REQUIREMENT,
+                "not-run",
+                "not-run",
+                TIER_OFFLINE,
+                "skipped by --skip-roundtrip: no fresh isolated environment was "
+                "created or rolled back here, so the gate is reported as not-run "
+                "rather than dropped, and readiness cannot pass without it",
+            )
+        )
 
     candidate_record = evaluate_candidate_gate(repo_root)
     gates.append(candidate_record["gate"])

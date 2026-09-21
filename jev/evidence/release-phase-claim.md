@@ -122,15 +122,17 @@ No survivor. The module was restored byte-identical (`sha256`
   was recorded by `#26` from a checked-in run with binary sha256
   `6d51fdc9278d1a2fbc1bb01e024ae12d5d9a3b233d7229a7f6e792eaf35c0c3b`; this
   claim reads it, checks its tier and binding, and does not re-execute it.
-- **Two known holes, neither hidden.** [`#97`](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/97):
-  the platform gate credits a record whose `revision` is unresolvable in the
-  local clone rather than treating it as stale. [`#98`](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/98):
-  `gates --skip-roundtrip` *removes* the round-trip gate instead of emitting it
-  as `not-run`, so a `release_ready: true` document is possible with the round
-  trip never proven, contrary to the flag's own `--help`. The phase test asserts
-  the weaker true property today — the round trip is never *credited* unless it
-  ran — and says so in the test body; when `#98` is fixed the assertion moves to
-  `not-run` and blocks.
+- **Two known holes, neither hidden, both since closed.** [`#97`](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/97):
+  the platform gate credited a record whose `revision` is unresolvable in the
+  local clone rather than refusing it; `#99` now classifies such a record
+  `unverifiable`, keeps the gate `not-run`, and blocks.
+  [`#98`](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/98):
+  `gates --skip-roundtrip` *removed* the round-trip gate instead of emitting it
+  as `not-run`, so a `release_ready: true` document was possible with the round
+  trip never proven, contrary to the flag's own `--help`. The skipped gate is
+  now emitted as `not-run`, so it appears in `not_run` and in `blocking`, and the
+  phase test asserts that property rather than the weaker one — the round trip is
+  never *credited* unless it ran, and a skipped one is reported.
 
 ## Reproduce
 
