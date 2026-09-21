@@ -20,6 +20,8 @@ tracking issue is closed. A gate therefore carries:
               ``recorded`` - a checked-in run record, with its revision and tier.
               ``claimed`` - an assertion with no run behind it. This value exists
               only so a claim can be *rejected*; no gate passes as ``claimed``.
+              ``not-run`` - a gate the operator skipped (``--skip-roundtrip``).
+              It is reported, blocks readiness, and is never a pass.
 
 ``release_ready`` is true only when every gate passes, so a partially validated
 matrix produces a candidate artifact and a ``release_ready: false`` verdict with
@@ -1005,7 +1007,10 @@ def write_platform_evidence(
 
 
 GATE_STATUSES = ("pass", "fail", "not-run")
-GATE_EVIDENCE = ("verified-here", "recorded", "claimed")
+#: Where a gate's verdict comes from. ``not-run`` is the honest source for a
+#: gate the operator chose not to run: it is reported and blocks readiness, and
+#: is never a credit (see ``GATE_STATUSES``).
+GATE_EVIDENCE = ("verified-here", "recorded", "claimed", "not-run")
 
 
 def summarize_gates(gates: list[dict]) -> dict:
@@ -1067,6 +1072,28 @@ def evaluate_gates(
             if owned_scratch:
                 shutil.rmtree(scratch, ignore_errors=True)
         gates.append(roundtrip_record["gate"])
+    else:
+        # ``--skip-roundtrip`` must not remove the gate: a missing gate cannot
+        # block, so readiness could pass with the reproduction/rollback never
+        # proven (#98). Emit it as ``not-run`` instead, which is reported and
+        # blocks ``release_ready``.
+        gates.append(
+            _gate(
+                "isolated.roundtrip",
+                (
+                    "A fresh isolated setup reproduces the validated "
+                    "configuration and rolls back."
+                ),
+                "not-run",
+                "not-run",
+                TIER_OFFLINE,
+                (
+                    "skipped by --skip-roundtrip: the isolated create/rollback "
+                    "round trip did not run, so this gate cannot pass and blocks "
+                    "readiness"
+                ),
+            )
+        )
 
     candidate_record = evaluate_candidate_gate(repo_root)
     gates.append(candidate_record["gate"])

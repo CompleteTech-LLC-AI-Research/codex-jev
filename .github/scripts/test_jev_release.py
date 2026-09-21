@@ -132,6 +132,49 @@ class GateTests(unittest.TestCase):
             self.assertEqual(run["optional_features_enabled"], [])
             self.assertFalse(run["remote_inference_enabled"])
 
+    def test_a_skipped_roundtrip_is_reported_not_dropped(self):
+        # #98: skipping the round trip must not *remove* the gate. A dropped
+        # gate cannot block, so `--skip-roundtrip` could otherwise yield
+        # `release_ready: true` with the reproduction/rollback never proven.
+        # The gate is emitted `not-run`, which is reported and blocks.
+        skipped = release_readiness.evaluate_gates(REPO_ROOT, run_roundtrip=False)
+        self.assertEqual(
+            len(skipped["gates"]),
+            len(self.document["gates"]),
+            msg="skipping must keep the gate count, not drop a gate",
+        )
+        gate = next(g for g in skipped["gates"] if g["id"] == "isolated.roundtrip")
+        self.assertEqual(gate["status"], "not-run")
+        self.assertEqual(gate["evidence"], "not-run")
+        self.assertIn("--skip-roundtrip", gate["detail"])
+        self.assertIn("isolated.roundtrip", skipped["not_run"])
+        self.assertIn("isolated.roundtrip", skipped["blocking"])
+        self.assertFalse(skipped["release_ready"])
+        self.assertIsNone(skipped["isolated_roundtrip"])
+
+    def test_a_skipped_roundtrip_blocks_a_fully_recorded_matrix(self):
+        # The discriminating half of #98: give every other gate a passing
+        # verdict and credit it from a run record, and confirm the skipped round
+        # trip alone still holds readiness false. Before #98 this was `True`.
+        skipped = release_readiness.evaluate_gates(REPO_ROOT, run_roundtrip=False)
+        hypothetical = [
+            dict(gate)
+            if gate["id"] == "isolated.roundtrip"
+            else {
+                **gate,
+                "status": "pass",
+                "evidence": (
+                    "recorded" if gate["evidence"] == "recorded" else "verified-here"
+                ),
+                "detail": "hypothetical credit for the discriminating check",
+            }
+            for gate in skipped["gates"]
+        ]
+        outcome = release_readiness.summarize_gates(hypothetical)
+        self.assertFalse(outcome["release_ready"])
+        self.assertEqual(outcome["not_run"], ["isolated.roundtrip"])
+        self.assertEqual(outcome["failed"], [])
+
     def test_platform_gate_reports_missing_platforms(self):
         gate = next(
             gate for gate in self.document["gates"] if gate["id"] == "platform.matrix"

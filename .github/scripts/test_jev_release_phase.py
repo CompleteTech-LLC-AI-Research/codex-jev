@@ -209,18 +209,26 @@ class ReleasePhaseClaimTests(unittest.TestCase):
         self.assertTrue(roundtrip["plan"]["host_commit"])
 
     def test_the_roundtrip_is_never_credited_unless_it_ran(self):
-        # Skipping the round trip must not credit it. NOTE: today the skipped
-        # gate is *absent* rather than `not-run`, which is the weaker property -
-        # not credited, but also not blocking. That gap is filed as issue #98
-        # and is stated in evidence/release-phase-claim.md; it is not asserted
-        # here as if it were the intended shape.
+        # Skipping the round trip must not credit it, and must not drop it:
+        # a missing gate cannot block, so before #98 `--skip-roundtrip` could
+        # yield `release_ready: true` with the reproduction/rollback never
+        # proven. The skipped gate is now reported `not-run`, which blocks.
+        full = release_readiness.evaluate_gates(REPO_ROOT)
         skipped = release_readiness.evaluate_gates(REPO_ROOT, run_roundtrip=False)
-        ids = {gate["id"] for gate in skipped["gates"]}
-        self.assertNotIn("isolated.roundtrip", ids)
+        self.assertEqual(
+            len(full["gates"]),
+            len(skipped["gates"]),
+            msg="skipping the round trip must not drop a gate (#98)",
+        )
+        gate = gate_from(skipped["gates"], "isolated.roundtrip")
+        self.assertEqual(gate["status"], "not-run")
+        self.assertNotEqual(gate["evidence"], "verified-here")
+        self.assertIn("isolated.roundtrip", skipped["not_run"])
+        self.assertFalse(skipped["release_ready"])
         self.assertIsNone(skipped["isolated_roundtrip"])
-        for gate in skipped["gates"]:
-            with self.subTest(gate=gate["id"]):
-                self.assertNotEqual(gate.get("tier"), "live-provider")
+        for row in skipped["gates"]:
+            with self.subTest(gate=row["id"]):
+                self.assertNotEqual(row.get("tier"), "live-provider")
 
     # -- criterion 2: the tiers are distinguished, and live is never claimed
 
