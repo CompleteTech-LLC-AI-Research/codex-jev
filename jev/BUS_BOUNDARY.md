@@ -53,20 +53,24 @@ The host reads the wiring from the environment, so the isolated profile owns it:
 | `JEV_BUS_ADAPTER` | The adapter to run (`jev/scripts/bus_boundary.py`). |
 | `JEV_BUS_PYTHON` | Its interpreter; defaults to `python3`. |
 | `JEV_BUS_STAGE_DEDUP`, `JEV_BUS_STAGE_FABRIC_VIEW` | One stage command each. A stage whose switch is on but whose command is unset is not registered, so a stage is never invented. |
+| `JEV_BUS_VIEW` | The approved view file the carrier filters with. With none configured an item removal has no authority at the host, so the projection stays byte-only. |
 | `JEV_BUS_TIMEOUT_MS` | The whole-invocation deadline; default 15000, clamped to 120000. |
 | `JEV_BUS_WORKSPACE` | The workspace label the adapter records on each receipt. |
 
 The adapter is invoked over its documented CLI (`apply --request - --json
 --session … --turn … --workspace … --stage …`) with the request copy on stdin.
-The host re-checks the one property it depends on — that the item count is
-unchanged — and rejects the rest as unproven.
+The host re-checks the properties it depends on — that the array is unchanged,
+or that it lost exactly the items the report says an approved view removed — and
+rejects the rest as unproven.
 
 **Failure policy: every failure returns the caller's array unchanged.** A
 disabled switch, no registered stage, an unconfigured adapter, a spawn error, a
-deadline, a non-zero exit, malformed output, and a changed item count all leave
-the outgoing request exactly as the host built it. That is the stage-input
-fallback the bus contract requires, applied at the host boundary; the host never
-substitutes an approximation, and a wedged stage can never hold a turn open.
+deadline, a non-zero exit, malformed output, an addition, a removal with no
+configured view, a removal the report does not account for exactly, and a
+removal of anything but standalone assistant prose all leave the outgoing
+request exactly as the host built it. That is the stage-input fallback the bus
+contract requires, applied at the host boundary; the host never substitutes an
+approximation, and a wedged stage can never hold a turn open.
 
 The host does **not** decide policy. It does not know which reads are duplicates,
 which prose is approvable, or what a receipt must prove: those stay with
@@ -125,10 +129,12 @@ which prose is approvable, or what a receipt must prove: those stay with
   the original item. A stage that edits one is refused: the refusal is recorded as
   a `refused` **note** tagged `E_UNSUPPORTED_MUTATED` (not a raised exception), and
   the original payload is kept.
-- **No reorder or removal.** A stage that changes the item count or order is
+- **No unapproved reorder or removal.** A stage that changes the item order is
   refused (`E_CHAIN_SHAPE`); the original request is returned unchanged. An item
   dropped without an approved view is restored, and the `unapproved_removal` note
   names the stage the array shows dropped it, never the view stage by construction.
+  An approved view is the one thing that may remove whole items, and only for the
+  prose the carrier's eligibility policy admits.
 - **Switches gate invocation, not just output.** A disabled switch means the
   stage is never registered, so it is never invoked. `projection.fabric_views`
   requires `projection.dedup_receipts` (`E_SWITCH_ORDER`).
@@ -137,13 +143,19 @@ which prose is approvable, or what a receipt must prove: those stay with
   adapter and at least one stage command; `codex-rs/core/src/jev_bus_tests.rs`
   counts the invocations a stand-in adapter records and asserts they are zero
   when disabled and one otherwise.
-- **The host re-checks what it depends on.** A projection that changes the item
-  count is refused by the host as well as by the adapter's `_rebuild`, so an
-  unverified array is never sent even if the adapter is replaced. Because the
-  host cannot re-derive an approval the carrier holds, this same rule also
-  refuses an *approved* view removal, so the host path reduces bytes (dedup
-  replacements) but never items until an authority the host can verify is
-  wired; that reconciliation is tracked separately (#58).
+- **The host re-checks what it depends on.** A projection the host cannot
+  re-derive is refused by the host as well as by the adapter's `_rebuild`, so an
+  unverified array is never sent even if the adapter is replaced. The array may
+  stay the same length, or — only when `JEV_BUS_VIEW` names an approved view —
+  lose exactly the items the adapter's own report marks removed, and only when
+  every one of those items is standalone assistant prose the host itself
+  recognizes as removable and the surviving array is the incoming array minus
+  those positions in order. An addition, a reorder, a removal the report does not
+  account for, a duplicate or out-of-range position, a removal with no configured
+  view, and a removal of anything carrying a tool call, reasoning, an image, or
+  audio are all refused (`item-count`), and the caller's array is returned
+  unchanged. The host does not decide *which* prose is approvable: it bounds what
+  may leave, while the carrier's `fabric_views.py` owns the eligibility policy.
 
 ## Disable behavior
 

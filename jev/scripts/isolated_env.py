@@ -178,13 +178,22 @@ def bus_env(plan, root=None):
     ``JEV_SWITCH_*`` state. Stage commands are not invented here: a stage is
     only registered when the environment supplies its command, so an
     unconsummated profile registers nothing.
+
+    An approved prose view is passed through only when the operator supplies one
+    in ``JEV_BUS_VIEW`` (the file ``fabric_views.py apply`` writes). With none,
+    no view is registered with the host, so the boundary reduces bytes and never
+    items.
     """
     root = Path(root or repository_root())
-    return {
+    env = {
         "JEV_BUS_ADAPTER": str(root / "jev" / "scripts" / "bus_boundary.py"),
         "JEV_BUS_PYTHON": sys.executable or "python3",
         "JEV_BUS_WORKSPACE": str(plan.get("home") or ""),
     }
+    view = os.environ.get("JEV_BUS_VIEW", "").strip()
+    if view:
+        env["JEV_BUS_VIEW"] = view
+    return env
 
 
 def launcher_script(env_dir, plan):

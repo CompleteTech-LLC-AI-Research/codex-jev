@@ -29,6 +29,27 @@ if mode == "garbage":
     sys.exit(0)
 if mode == "drop":
     items = items[1:]
+if mode.startswith("remove"):
+    # `remove:<index>` drops one item and reports it as a view removal;
+    # `remove-mismatch:<index>` reports a different position than it dropped;
+    # `remove-overclaim:<index>` reports one more removal than the array lost.
+    _, _, spec = mode.partition(":")
+    index = int(spec)
+    report_removed = [{"index": index}]
+    if mode.startswith("remove-overclaim"):
+        report_removed.append({"index": index + 1})
+    elif mode.startswith("remove-mismatch"):
+        report_removed = [{"index": 0}]
+        index = index if index != 0 else 1
+    items = items[:index] + items[index + 1 :]
+    json.dump(
+        {
+            "request": {"input": items},
+            "report": {"host": "codex", "view": {"removed": report_removed}},
+        },
+        sys.stdout,
+    )
+    sys.exit(0)
 if mode == "mutate":
     for item in items:
         if item.get("type") == "function_call_output":
@@ -56,12 +77,26 @@ impl Fixture {
             python: "python3".to_string(),
             timeout,
             stages: vec![("dedup".to_string(), "stub-stage".to_string())],
+            view: None,
         };
         Self {
             _dir: dir,
             config,
             calls,
         }
+    }
+
+    /// The same boundary, with an approved view configured for the host path.
+    fn with_view(mode: &str, timeout: Duration) -> Self {
+        let mut fixture = Self::new(mode, timeout);
+        let view = fixture._dir.path().join("view.json");
+        fs::write(
+            &view,
+            r#"{"kind":"approved-view","version":"jev-view.v1","keys":[]}"#,
+        )
+        .expect("write the approved view");
+        fixture.config.view = Some(view);
+        fixture
     }
 
     fn invocations(&self) -> usize {
@@ -93,6 +128,32 @@ fn sample_input() -> Vec<ResponseItem> {
         },
     ]))
     .expect("sample is a valid wire request")
+}
+
+/// A request whose first item is standalone assistant prose, so it is the one
+/// item a removal is allowed to take.
+fn prose_input() -> Vec<ResponseItem> {
+    serde_json::from_value(json!([
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "chatter"}],
+        },
+        {
+            "type": "function_call",
+            "name": "read_file",
+            "arguments": "{\"path\":\"a\"}",
+            "call_id": "call_1",
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "FILE A BODY"},
+        {
+            "type": "reasoning",
+            "id": "r_1",
+            "summary": [{"type": "summary_text", "text": "think"}],
+            "encrypted_content": null,
+        },
+    ]))
+    .expect("prose sample is a valid wire request")
 }
 
 fn output_body(items: &[ResponseItem]) -> Option<String> {
@@ -204,6 +265,90 @@ fn a_changed_item_count_is_refused() {
 }
 
 #[test]
+fn an_approved_removal_is_applied_when_a_view_is_configured() {
+    // The carrier removed the prose item it was approved to remove; the host
+    // accepts the shorter array because the report accounts for exactly that
+    // position and the item that left is assistant prose.
+    let fixture = Fixture::with_view("remove:0", Duration::from_secs(5));
+    let input = prose_input();
+
+    let outgoing = project_with(
+        &fixture.config,
+        input.clone(),
+        &ProjectionContext::default(),
+    );
+
+    assert_eq!(outgoing, input[1..].to_vec());
+    assert_eq!(fixture.invocations(), 1);
+}
+
+#[test]
+fn a_removal_with_no_configured_view_is_refused() {
+    // The same adapter answer, with no view configured for the host path: the
+    // projection stays byte-only and the incoming payload is used verbatim.
+    let fixture = Fixture::new("remove:0", Duration::from_secs(5));
+    let input = prose_input();
+
+    let outgoing = project_with(
+        &fixture.config,
+        input.clone(),
+        &ProjectionContext::default(),
+    );
+
+    assert_eq!(outgoing, input);
+    assert_eq!(fixture.invocations(), 1);
+}
+
+#[test]
+fn a_removal_the_report_does_not_account_for_is_refused() {
+    // The array lost one position while the report names another, so the host
+    // cannot tie the loss to the view and refuses it.
+    let fixture = Fixture::with_view("remove-mismatch:2", Duration::from_secs(5));
+    let input = prose_input();
+
+    let outgoing = project_with(
+        &fixture.config,
+        input.clone(),
+        &ProjectionContext::default(),
+    );
+
+    assert_eq!(outgoing, input);
+    assert_eq!(fixture.invocations(), 1);
+}
+
+#[test]
+fn a_report_naming_more_removals_than_the_array_lost_is_refused() {
+    let fixture = Fixture::with_view("remove-overclaim:0", Duration::from_secs(5));
+    let input = prose_input();
+
+    let outgoing = project_with(
+        &fixture.config,
+        input.clone(),
+        &ProjectionContext::default(),
+    );
+
+    assert_eq!(outgoing, input);
+    assert_eq!(fixture.invocations(), 1);
+}
+
+#[test]
+fn a_removal_of_an_item_that_is_not_assistant_prose_is_refused() {
+    // Reasoning is not prose however well the report accounts for it: the view
+    // may reduce assistant prose, and native compaction keeps working.
+    let fixture = Fixture::with_view("remove:3", Duration::from_secs(5));
+    let input = prose_input();
+
+    let outgoing = project_with(
+        &fixture.config,
+        input.clone(),
+        &ProjectionContext::default(),
+    );
+
+    assert_eq!(outgoing, input);
+    assert_eq!(fixture.invocations(), 1);
+}
+
+#[test]
 fn a_missing_adapter_falls_back_to_the_stage_input() {
     let config = JevBusConfig {
         enabled: true,
@@ -211,6 +356,7 @@ fn a_missing_adapter_falls_back_to_the_stage_input() {
         python: "python3".to_string(),
         timeout: Duration::from_secs(5),
         stages: vec![("dedup".to_string(), "stub-stage".to_string())],
+        view: None,
     };
     let input = sample_input();
 
