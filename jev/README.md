@@ -19,6 +19,7 @@ Tracking epic: [CompleteTech-LLC-AI-Research/codex-jev#2](https://github.com/Com
 | `scripts/launch_isolated.py` | Run the pinned binary against the isolated home and the fixtures. |
 | `scripts/fabric_env.py` | Bind the pinned context fabric's runtime, MCP entry, and hooks to the isolated home. |
 | `scripts/canonical_capture.py` | Read the host's own rollout JSONL into the canonical capture store: envelope events, dedup receipts, gaps, and a redacted retrieval view. |
+| `scripts/retrieval.py` | Return budgeted, source-backed excerpts and hydrate exact references, marked untrusted and never authoritative. |
 | `scripts/build_provenance.py` | Build the pinned CLI with the repository recipe and record provenance. |
 | `scripts/verify-manifest.py` | Fail-closed validator for the manifest, a profile, the patch state, and the checkout pin. |
 | `scripts/jev_manifest.py` | The validation rules, importable from tests. |
@@ -57,4 +58,5 @@ explicitly instead of silently building.
 - [`ISOLATED_ENV.md`](ISOLATED_ENV.md) — build the pinned host and run the isolated profile offline.
 - [`FABRIC_BINDING.md`](FABRIC_BINDING.md) — bind the context fabric's runtime and MCP entry to the isolated home.
 - [`CAPTURE.md`](CAPTURE.md) — turn the host's own transcript into canonical events, dedup receipts, gaps, and a redacted retrieval view.
+- [`RETRIEVAL.md`](RETRIEVAL.md) — budgeted retrieval and hydration with provenance, workspace scoping, and remote enrichment refused.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.
