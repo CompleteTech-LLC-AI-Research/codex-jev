@@ -1,0 +1,13 @@
+{
+  "schema": "jev.shadow-freeze.v1",
+  "splits": {
+    "calibration": {
+      "path": "jev/fixtures/shadow/calibration.json",
+      "sha256": "e68516ddfb2c127298d5cba295d88495a28a1fd94b036dd2bb5f47911cc9396f"
+    },
+    "holdout": {
+      "path": "jev/fixtures/shadow/holdout.json",
+      "sha256": "f8388b2b17c36f95845397723b1b651497634fc608cf4f288b5f917eb95f439d"
+    }
+  }
+}

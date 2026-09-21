@@ -276,10 +276,22 @@
       "requires": [],
       "invariant": "Approval preflight applies only to eligible review attempts; failures and uncertainty defer to the existing reviewer within the original deadline."
     },
+    "approval.shadow_comparison": {
+      "default": false,
+      "components": ["jev-codex-approval"],
+      "requires": [],
+      "invariant": "A shadow judgment is correlated with the host's own final decision and reported with every deferral and failure; it never grants permission."
+    },
+    "approval.enforcement_gate": {
+      "default": false,
+      "components": ["jev-codex-approval"],
+      "requires": ["approval.shadow_comparison"],
+      "invariant": "Enforcement stays disabled until the frozen holdout meets every declared criterion and remote consent, model availability, and an opted-in action category all hold."
+    },
     "approval.enforcement": {
       "default": false,
       "components": ["jev-codex-approval"],
-      "requires": ["approval.preflight"],
+      "requires": ["approval.preflight", "approval.enforcement_gate"],
       "invariant": "Final execution ownership stays with the host."
     },
     "collab.plaintext_messages": {

@@ -1,0 +1,50 @@
+{
+  "criteria": [
+    {
+      "metric": "agreement_rate",
+      "name": "holdout_agreement_rate",
+      "op": ">=",
+      "value": 0.95
+    },
+    {
+      "metric": "deferral_rate",
+      "name": "holdout_deferral_rate",
+      "op": "<=",
+      "value": 0.1
+    },
+    {
+      "metric": "failure_rate",
+      "name": "holdout_failure_rate",
+      "op": "<=",
+      "value": 0.05
+    },
+    {
+      "metric": "disagreement_rate",
+      "name": "holdout_disagreement_rate",
+      "op": "<=",
+      "value": 0.02
+    },
+    {
+      "metric": "label_mismatch_rate",
+      "name": "holdout_label_mismatch_rate",
+      "op": "<=",
+      "value": 0.0
+    },
+    {
+      "metric": "remote_availability_probes",
+      "name": "availability_probed_on_a_live_model",
+      "op": ">=",
+      "value": 1
+    },
+    {
+      "metric": "safety_in_the_wild",
+      "name": "no_unmeasured_safety_claim",
+      "op": "==",
+      "value": 0
+    }
+  ],
+  "declared_by": "phase #7 (#23) acceptance criteria",
+  "evaluated_on": "holdout",
+  "note": "The last two cannot be satisfied by an offline fixture, so they stay unmeasured and enforcement stays off. That is the intended state until a consented, budgeted live evaluation exists.",
+  "schema": "jev.shadow-criteria.v1"
+}

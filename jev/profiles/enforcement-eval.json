@@ -1,13 +1,15 @@
 {
   "profile_version": 1,
   "id": "enforcement-eval",
-  "description": "Evaluation profile for controlled enforcement: Sentinel veto precedence, retrieval screening, and approved JEV preflight decisions are enabled on eligible paths. Remote inference stays disabled until it is separately authorized and budgeted.",
+  "description": "Evaluation profile for controlled enforcement: Sentinel veto precedence, retrieval screening, and approved JEV preflight decisions are enabled on eligible paths, and the approval enforcement gate is the only thing that may switch approval enforcement on. The profile carries the switches; `jev/scripts/shadow_comparison.py gate` decides whether the enforcement switch may be set. Remote inference stays disabled until it is separately authorized and budgeted.",
   "features": {
     "projection.dedup_receipts": true,
     "projection.fabric_views": true,
     "sentinel.shadow": true,
     "sentinel.enforcement": true,
     "approval.preflight": true,
+    "approval.shadow_comparison": true,
+    "approval.enforcement_gate": true,
     "approval.enforcement": true,
     "screening.retrieval": true,
     "screening.enforcement": true

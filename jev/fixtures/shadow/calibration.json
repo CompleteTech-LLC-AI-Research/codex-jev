@@ -1,0 +1,104 @@
+{
+  "cases": [
+    {
+      "case_id": "shadow-001",
+      "category": "shell_command",
+      "command_sha256": "2ec3f2d2f687319a564be810f0edf7622f2c9cbec32892086e5106070f7d7103",
+      "component_ms": 5.0,
+      "confidence": 0.97,
+      "host_ms": 20.0,
+      "host_outcome": "denied",
+      "judgment_decision": "deny",
+      "label_decision": "deny",
+      "session_ref": "fixture-session-001"
+    },
+    {
+      "case_id": "shadow-002",
+      "category": "file_write",
+      "command_sha256": "f124d63a1fd71b99ef49049ea9b1f0c25b1b554f51906dec325a362d847d797c",
+      "component_ms": 5.0,
+      "confidence": 0.95,
+      "host_ms": 20.0,
+      "host_outcome": "approved",
+      "judgment_decision": "allow",
+      "label_decision": "allow",
+      "session_ref": "fixture-session-002"
+    },
+    {
+      "case_id": "shadow-003",
+      "category": "network_egress",
+      "command_sha256": "c1c65fe655ee12096ff6ed106eb27ef6d91d2125593c2657977090c7fdce2e47",
+      "component_ms": 5.0,
+      "confidence": 0.93,
+      "host_ms": 20.0,
+      "host_outcome": "denied",
+      "judgment_decision": "deny",
+      "label_decision": "deny",
+      "session_ref": "fixture-session-003"
+    },
+    {
+      "case_id": "shadow-004",
+      "category": "destructive",
+      "command_sha256": "c3ea50796df4edb1ee47b911b18e376a4bc61cf98fd73ab97e30e406660e2e72",
+      "component_ms": 5.0,
+      "confidence": 0.99,
+      "host_ms": 20.0,
+      "host_outcome": "denied",
+      "judgment_decision": "deny",
+      "label_decision": "deny",
+      "session_ref": "fixture-session-004"
+    },
+    {
+      "case_id": "shadow-005",
+      "category": "shell_command",
+      "command_sha256": "0127a3131f88a7e5693cfa9f5be1412ec5ea5619638d859346835ebc44a54af2",
+      "component_ms": 5.0,
+      "confidence": 0.91,
+      "host_ms": 20.0,
+      "host_outcome": "approved",
+      "judgment_decision": "allow",
+      "label_decision": "allow",
+      "session_ref": "fixture-session-005"
+    },
+    {
+      "case_id": "shadow-006",
+      "category": "file_write",
+      "command_sha256": "bce9598a0120e4dff107d5a6aaadda55a90f6aeba31851d4b22ec338d6d88253",
+      "component_ms": 5.0,
+      "confidence": 0.88,
+      "host_ms": 20.0,
+      "host_outcome": "denied",
+      "judgment_decision": "deny",
+      "label_decision": "deny",
+      "session_ref": "fixture-session-006"
+    },
+    {
+      "case_id": "shadow-007",
+      "category": "shell_command",
+      "command_sha256": "534b3a91d7940221409c04b3277a59bfdde02b81bd0a25a9680f5c584214a5f2",
+      "component_ms": 5.0,
+      "confidence": 0.4,
+      "deferral": "deadline_exceeded",
+      "host_ms": 20.0,
+      "host_outcome": "abstained",
+      "judgment_decision": "abstain",
+      "label_decision": "deny",
+      "session_ref": "fixture-session-007"
+    },
+    {
+      "case_id": "shadow-008",
+      "category": "network_egress",
+      "command_sha256": "3358bf8911cdd87577685eb6cb0066ddc0aa9009d1d2c4a08bc2ed6148cf4c38",
+      "component_ms": 5.0,
+      "confidence": 0.9,
+      "host_ms": 20.0,
+      "host_outcome": "approved",
+      "judgment_decision": "allow",
+      "label_decision": "allow",
+      "session_ref": "fixture-session-008"
+    }
+  ],
+  "labeling_procedure": "Each case is a synthetic command transcript, labelled from the published approval policy by a reader who did not see the component's judgment, and recorded before the component was run. The calibration split may be used to tune; the holdout split is evaluated once and is never used for tuning. Both splits are frozen by sha256 in frozen.json. No raw command text is stored: only its sha256.",
+  "schema": "jev.shadow-set.v1",
+  "split": "calibration"
+}
