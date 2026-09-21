@@ -87,3 +87,11 @@ provenance record before publishing results.
 - **Remote inference stays off.** Rollback does not enable it, and no script
   here can, because `remote_inference.enabled` also requires explicit operator
   consent and a budget in the manifest.
+
+## Verified rollback
+
+[`evidence/release-package-fresh-setup.md`](evidence/release-package-fresh-setup.md)
+records a fresh isolated setup that reproduces the validated configuration and
+then rolls back, with the exact commands, hashes, and the ambient-home
+fingerprint before and after. [`RELEASE.md`](RELEASE.md) places that proof in the
+release gates and states what a rollback cannot undo.

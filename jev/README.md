@@ -38,6 +38,8 @@ installs its call site. Everything else the integration owns is here.
 | `scripts/perf_validation.py` | The offline integration-performance harness (phase 6.2): baseline vs integrated payload bytes, a byte-derived token estimate, observed boundary latency, fallback and refusal counts, and zero provider usage. |
 | `scripts/verify-manifest.py --native-adapter` | Assert that the declared native approval adapter is installed and wired where the manifest says it is, or gone again after a rollback. |
 | `scripts/build_provenance.py` | Build the pinned CLI with the repository recipe and record provenance. |
+| `scripts/jev_diagnostics.py` | Report the integration checkout as redacted, machine-readable diagnostics: pins, patch and adapter state, every profile, the switches, the component revisions, and the binary hash. `--check` fails a lane. |
+| `scripts/release_artifact.py` | Build and verify the release candidate artifact (phase 6.3): tracked-only members, a fail-closed credential refusal, and a record pinning the revision and every member digest. |
 | `scripts/verify-manifest.py` | Fail-closed validator for the manifest, a profile, the patch state, and the checkout pin. |
 | `scripts/jev_manifest.py` | The validation rules, importable from tests. |
 | `tests/` | Focused tests for every validation rule. |
@@ -88,4 +90,5 @@ explicitly instead of silently building.
 - [`APPROVAL_SHADOW.md`](APPROVAL_SHADOW.md) — the shadow comparison by review id, the raw-content refusal, the every-failure accounting, the declared enforcement criteria, and why the gate never flips a switch.
 - [`END_TO_END.md`](END_TO_END.md) — the composed regression harness: the composed order, the per-step artifact, the evidence tiers, how to run it, and what it does not prove.
 - [`VALIDATION.md`](VALIDATION.md) — the offline, real-host, and live-provider validation record: the performance numbers, the host smokes, and the live-provider blocker.
+- [`RELEASE.md`](RELEASE.md) — the release package: what ships, the candidate artifact and its verifier, diagnostics, install and upgrade order, state ownership, backups, the platform matrix, the known limitations, and the release gates.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.
