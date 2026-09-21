@@ -6,7 +6,8 @@
 flowchart TD
     C[Codex session] --> I[Sentinel prompt check]
     I --> F[Fabric capture and retrieval]
-    F --> P[Native jev-bus projection: dedup then approved prose view]
+    F --> R[Screening: withhold or accept, then authorize memory writes]
+    R --> P[Native jev-bus projection: dedup then approved prose view]
     P --> M[Codex model request]
     M --> S[Sentinel pre-tool checks]
     S --> H[Host permission routing]
@@ -27,6 +28,8 @@ flowchart TD
 | Memory tools and retrieval | `jev-context-fabric` | Capture happens before projection; retrieval is budgeted and source-backed. |
 | Boundary observation and vetoes | `jev-sentinel` | Prompt, pre-tool, and post-tool; shadow first; enforcement only where a veto is representable. Host carriers in [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) and [`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md). |
 | Veto precedence, the session latch, and concurrent-action handling | this repository (host) | The host orders the finding's severity against the session latch, never downgrades a veto, serializes one session's evaluations, and fails closed. The component still owns detection. |
+| Retrieval screening before injection, and memory-write authorization | this repository (host) | The host withholds what it can prove itself (origin, workspace, redaction, budget, the session veto, an unauthorized write target) and records what it cannot; the component stays the only detection oracle. See [`RETRIEVAL_SCREENING.md`](RETRIEVAL_SCREENING.md). |
+| Incident operations over the host journal | this repository (host) | Bounded, metadata-only, read-only, and correlated to canonical evidence; the disable plan is printed and never executed. See [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md). |
 | Approval preflight | `jev-codex-approval` | Eligible review attempts only; failure or uncertainty defers to the existing reviewer. |
 | Authorization, sandbox, cancellation, compaction, final execution | this repository (host) | Never delegated to a component. |
 

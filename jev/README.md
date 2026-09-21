@@ -79,4 +79,6 @@ explicitly instead of silently building.
 - [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) — the Sentinel hook wiring, effective coverage, the activation proof, the incident envelope, and the bypass surfaces.
 - [`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md) — the decision lattice, the per-session latch, the supported veto per stage, concurrent-action handling, the fail-closed paths, and the unavoidable races.
 - [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) — the native approval preflight, its environment contract, eligibility and deferral, the answer binding and freshness rules, and the guarded host blobs.
+- [`RETRIEVAL_SCREENING.md`](RETRIEVAL_SCREENING.md) — screening retrieved context before injection, the two switches, the withholding rules, and memory-write authorization.
+- [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md) — bounded, metadata-only incident operations: validation, the read-only disable plan, correlation, and the policy view.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.

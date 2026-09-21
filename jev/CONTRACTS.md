@@ -149,3 +149,54 @@ Evidence is labelled by tier. Everything the fixtures produce is
 `offline-fixture`; a run of the pinned binary against them is
 `real-host-binary`; live-provider evidence is never produced by this
 environment because remote inference stays disabled and unbudgeted.
+
+## C11 — Retrieved context is screened; memory writes are host-authorized
+
+Retrieved context is screened before it is injected, and a proposed memory write
+is authorized by the host's own rule rather than by a component's opinion.
+[`RETRIEVAL_SCREENING.md`](RETRIEVAL_SCREENING.md) is the long form.
+
+Detection stays in the pinned component: a candidate reaches the component's
+`context` stage and a proposed write its `memory` stage, and no host code
+classifies content. The host decides only what a host can decide - the
+candidate's shape, provenance, workspace, redaction, uniqueness, and budget, the
+session's own veto latch, and whether a write target is authorized.
+
+A host-owned fact (an unproven origin, cross-workspace evidence, a redaction
+regression, a duplicate, an over-budget candidate, one over the component's own
+input bound, a failed assessment, a corrupt screening policy, or an uncleared
+session veto) withholds unconditionally: no switch may downgrade a fact the host
+already holds. A **component finding** withholds only when
+`screening.enforcement` is on *and* the screening policy withholds on that
+decision; off, it is injected anyway and recorded as the shadow signal
+`would_withhold`. `screening.retrieval` decides whether the component is
+consulted at all; off, no finding exists and every row says `assessed: false`
+rather than inventing a `DEFER`. Both switches default to false.
+
+Withholding never erases evidence: a withheld row is a metadata pointer into the
+canonical store, and `verify_withheld` re-proves every row against the captured
+content it names, reporting any row it cannot resolve. A memory write is refused
+when its target is not named in the host's policy whatever the switches say, and
+is refused under enforcement on any component finding.
+
+## C12 — Incident operations are bounded, read-only, and metadata-only
+
+Incident operations over the host's journal are bounded and metadata-only,
+read-only, correlated to canonical evidence, and never dispatch anything
+automatically. [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md) is the long
+form.
+
+Every row is validated against the manifest's declared envelope fields plus the
+documented host fields; a digest field must be a digest, a metadata string must
+stay inside its byte bound, and no string may still match the capture layer's
+credential rules. A row that fails any check is reported by identifier and
+failing check only - never printed - so a less careful writer cannot launder
+content into a report. Reads are bounded and cap at the component's own
+`outbox --limit` ceiling, and a saturated scan says so.
+
+Nothing in the module writes, and `disable` prints the exact commands an
+operator would run (`executes: false`) rather than taking any action, so
+disabling can never be an automatic side effect of asking what disabling would
+do. Correlations name the key that matched and report a non-match as unmatched,
+never approximated into a match. The policy view is confined to the isolated
+profile root, so an operator is never shown a policy a launch would not use.
