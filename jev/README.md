@@ -23,6 +23,7 @@ Tracking epic: [CompleteTech-LLC-AI-Research/codex-jev#2](https://github.com/Com
 | `scripts/bus_boundary.py` | The native request adapter and jev-bus boundary: normalize the host's `input` shapes and invoke the single bus owner (dedup stage 100, Fabric view stage 200). |
 | `scripts/jev_bus.py` | The `jev-bus.v1` contract, vendored byte-identically to the pinned component copies. |
 | `scripts/dedup_receipts.py` | Host-side enforcement of the duplicate-read receipt contract (C3): keep only dedup replacements a receipt proves, revert every other edit. |
+| `scripts/fabric_views.py` | Approved, reversible Fabric prose views (C4): preview/apply/reset, bound to the post-dedup snapshot, with bytes and tokens reported separately. |
 | `scripts/build_provenance.py` | Build the pinned CLI with the repository recipe and record provenance. |
 | `scripts/verify-manifest.py` | Fail-closed validator for the manifest, a profile, the patch state, and the checkout pin. |
 | `scripts/jev_manifest.py` | The validation rules, importable from tests. |
@@ -64,4 +65,5 @@ explicitly instead of silently building.
 - [`RETRIEVAL.md`](RETRIEVAL.md) — budgeted retrieval and hydration with provenance, workspace scoping, and remote enrichment refused.
 - [`BUS_BOUNDARY.md`](BUS_BOUNDARY.md) — the single request-construction boundary, the supported vs opaque shapes, and the bus invocation invariants.
 - [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) — what the dedup stage may replace, the receipt the host proves, and the edits it reverts.
+- [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md) — the approved prose view, its snapshot binding, the reversible controls, and the byte/token split.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.

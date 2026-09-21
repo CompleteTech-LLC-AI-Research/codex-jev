@@ -42,12 +42,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import jev_bus  # vendored jev-bus.v1, byte-identical to the pinned components
 import jev_manifest
 import dedup_receipts
+import fabric_views
 
 HOST = "codex"
 ADAPTER = "codex-jev"
 RECEIPT_KIND = "projection_receipt"
 WIRE_LIMIT = jev_bus.MAX_WIRE
 DEDUP_STAGE = "jev-prune.dedup"
+VIEW_STAGE = "jev-context-fabric.view"
 
 # Stable refusal codes. A boundary that cannot prove its invariants refuses
 # rather than approximating a transform.
@@ -215,13 +217,19 @@ def _content_parts(original, text):
 def _rebuild(messages, original_items):
     """Turn the post-chain bus array back into a wire ``input`` array.
 
-    Refuses any change to the item order or count, and any mutation of an opaque
-    or unsupported shape: those are restored from the original item verbatim.
+    The array may only shrink, by whole items, and never grow or reorder: a
+    removed index is restored from the original item here, and whether it may
+    actually leave the request is decided later by the approved-view filter. Any
+    mutation of an opaque or unsupported shape is refused; those shapes are
+    always restored from the original item verbatim.
     """
-    if len(messages) != len(original_items):
-        raise BoundaryError(E_CHAIN_SHAPE, "stage changed the number of input items")
-    out = []
-    for position, message in enumerate(messages):
+    if not isinstance(messages, list):
+        raise BoundaryError(E_CHAIN_SHAPE, "stage returned no message list")
+    if len(messages) > len(original_items):
+        raise BoundaryError(E_CHAIN_SHAPE, "stage added input items")
+    present = {}
+    last = -1
+    for message in messages:
         if not isinstance(message, dict):
             raise BoundaryError(E_CHAIN_SHAPE, "stage returned a non-object message")
         index = message.get("_jev_index")
@@ -230,11 +238,22 @@ def _rebuild(messages, original_items):
             raise BoundaryError(
                 E_CHAIN_SHAPE, "stage returned a message without a boundary tag"
             )
-        if index != position:
+        if index <= last or index >= len(original_items):
             raise BoundaryError(
-                E_CHAIN_SHAPE, "stage reordered or removed an input item"
+                E_CHAIN_SHAPE, "stage reordered, duplicated, or removed an input item"
             )
+        last = index
+        present[index] = message
+    out = []
+    for index in range(len(original_items)):
+        message = present.get(index)
         original = original_items[index]
+        if message is None:
+            # A stage dropped this item. Restore it here; the approved-view
+            # filter decides whether it may leave the outgoing request.
+            out.append(original)
+            continue
+        shape = message.get("_jev_shape")
         if shape == "opaque":
             # Always the original bytes; a stage's edit here is refused below.
             if message.get("_jev_raw") != original:
@@ -381,11 +400,18 @@ def project(
     op: str = "transform",
     chain_timeout_ms: int = jev_bus.DEFAULT_CHAIN_TIMEOUT_MS,
     invoke=None,
+    view=None,
+    cancelled: bool = False,
 ) -> tuple[dict, dict]:
     """Apply the single bus owner at the boundary and return the outgoing request.
 
     The canonical ``request`` is never mutated. The returned report records the
     chain notes, the stage invocation order, and one receipt per applied stage.
+
+    When an approved prose ``view`` is supplied it is applied to the post-dedup
+    array, so eligible assistant prose leaves the outgoing request; the view is
+    bound to that exact snapshot and refused (nothing removed) when the snapshot
+    changed or the turn was cancelled.
     """
     if not isinstance(request, dict):
         raise BoundaryError(E_INPUT_SHAPE, "request must be an object")
@@ -473,6 +499,35 @@ def project(
                         "detail": item["reason"],
                     }
                 )
+        if VIEW_STAGE in report["applied"]:
+            # Contract C4: apply an approved prose view bound to the post-dedup
+            # snapshot, or refuse (remove nothing) when it is stale/cancelled.
+            if view is None:
+                if len(produced) < len(items):
+                    report["notes"].append(
+                        {
+                            "stage": VIEW_STAGE,
+                            "action": "reverted",
+                            "detail": "unapproved_removal",
+                        }
+                    )
+            else:
+                try:
+                    before = rebuilt
+                    rebuilt, view_report = fabric_views.filter(
+                        before, view, cancelled=cancelled
+                    )
+                except fabric_views.ViewError as exc:
+                    report["notes"].append(
+                        {
+                            "stage": VIEW_STAGE,
+                            "action": "refused",
+                            "detail": str(exc),
+                        }
+                    )
+                    return outgoing, report
+                report["view"] = view_report
+                report["view_metrics"] = fabric_views.metrics(before, rebuilt)
         outgoing["input"] = rebuilt
         by_name = {stage["name"]: stage["priority"] for stage in registry["stages"]}
         for name in report["applied"]:
@@ -543,6 +598,8 @@ def main(argv=None) -> int:
         node.add_argument(
             "--chain-timeout-ms", type=int, default=jev_bus.DEFAULT_CHAIN_TIMEOUT_MS
         )
+        node.add_argument("--view", default="", help="approved view JSON file")
+        node.add_argument("--cancelled", action="store_true")
         node.add_argument("--json", action="store_true")
     sw = sub.add_parser("switch", help="report the resolved JEV switch state")
     sw.add_argument("--json", action="store_true")
@@ -569,6 +626,7 @@ def main(argv=None) -> int:
             return 0
         request = _read_request(args.request)
         registry = build_registry(state, _parse_transport(args.stage))
+        view = _read_request(args.view) if args.view else None
         outgoing, report = project(
             request,
             registry=registry,
@@ -577,6 +635,8 @@ def main(argv=None) -> int:
             workspace=args.workspace,
             op="plan" if args.command == "plan" else "transform",
             chain_timeout_ms=args.chain_timeout_ms,
+            view=view,
+            cancelled=args.cancelled,
         )
         if args.json:
             print(json.dumps({"request": outgoing, "report": report}, indent=2))
