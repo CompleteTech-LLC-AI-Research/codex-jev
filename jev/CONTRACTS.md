@@ -52,6 +52,9 @@ if that snapshot changed. Preview, apply, and reset use the existing package
 approval semantics. Native compaction keeps working; byte counts and measured
 tokens are reported separately and never conflated.
 
+The host's carrier is `jev/scripts/fabric_views.py`, the second half of the
+boundary in `C2`. See [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md).
+
 ## C5 — Sentinel veto precedence
 
 Sentinel observes prompt, pre-tool, and post-tool boundaries and starts in local

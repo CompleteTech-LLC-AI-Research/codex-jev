@@ -18,6 +18,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import bus_boundary
 import dedup_receipts
+import fabric_views
 import jev_bus
 
 DEDUP = "jev-prune.dedup"
@@ -185,9 +186,13 @@ class BoundaryMutationTests(unittest.TestCase):
             any(note.get("action") == "refused" for note in report["notes"])
         )
 
-    def test_reorder_or_removal_is_refused(self):
+    def test_reorder_is_refused(self):
         def transform(name, messages):
-            return messages[:-1]
+            if name != DEDUP:
+                return messages
+            order = list(messages)
+            order[1], order[2] = order[2], order[1]
+            return order
 
         request = sample_request()
         outgoing, report = bus_boundary.project(
@@ -196,6 +201,24 @@ class BoundaryMutationTests(unittest.TestCase):
         self.assertEqual(outgoing, request)
         self.assertTrue(
             any(note.get("action") == "refused" for note in report["notes"])
+        )
+
+    def test_removal_without_an_approved_view_is_reverted(self):
+        def transform(name, messages):
+            return messages[:-1]
+
+        request = sample_request()
+        before = copy.deepcopy(request)
+        outgoing, report = bus_boundary.project(
+            request, registry=make_registry(), invoke=Recorder(transform)
+        )
+        self.assertEqual(outgoing, before)  # the removed item is restored
+        self.assertTrue(
+            any(
+                note.get("action") == "reverted"
+                and note.get("detail") == "unapproved_removal"
+                for note in report["notes"]
+            )
         )
 
 
@@ -402,6 +425,89 @@ class VendoredBusTests(unittest.TestCase):
             self.skipTest("pinned jev-prune-kit checkout unavailable")
         vendored = SCRIPTS / "jev_bus.py"
         self.assertEqual(vendored.read_bytes(), candidate.read_bytes())
+
+
+def prose_request():
+    """Two eligible assistant-prose messages ahead of the recent tail."""
+    items = [
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "chatter one"}],
+        },
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "chatter two"}],
+        },
+    ]
+    for n in range(16):
+        items.append(
+            {
+                "type": "reasoning",
+                "id": f"r_{n}",
+                "summary": [],
+                "encrypted_content": None,
+            }
+        )
+    return {"model": "gpt-5-codex", "instructions": "system", "input": items}
+
+
+class BoundaryViewTests(unittest.TestCase):
+    """The boundary applies an approved prose view bound to the post-dedup snapshot (C4)."""
+
+    def test_approved_view_removes_prose_and_reports_metrics(self):
+        request = prose_request()
+        before = copy.deepcopy(request)
+        view = fabric_views.apply(
+            request["input"],
+            fabric_views.plan(request["input"], target_bytes=10**6),
+            approved=True,
+        )
+        outgoing, report = bus_boundary.project(
+            request, registry=make_registry(), invoke=Recorder(), view=view
+        )
+        self.assertEqual(len(outgoing["input"]), len(request["input"]) - 2)
+        self.assertEqual([r["index"] for r in report["view"]["removed"]], [0, 1])
+        self.assertGreater(report["view_metrics"]["bytes_removed"], 0)
+        self.assertEqual(report["view_metrics"]["native_compaction_called"], False)
+        self.assertEqual(request, before)  # caller never mutated
+        # Reasoning (compaction) items survive untouched.
+        self.assertTrue(all(i["type"] == "reasoning" for i in outgoing["input"]))
+
+    def test_stale_view_is_refused(self):
+        request = prose_request()
+        view = fabric_views.apply(
+            request["input"],
+            fabric_views.plan(request["input"], target_bytes=10**6),
+            approved=True,
+        )
+        changed = copy.deepcopy(request)
+        changed["input"][0]["content"] = [{"type": "output_text", "text": "edited"}]
+        outgoing, report = bus_boundary.project(
+            changed, registry=make_registry(), invoke=Recorder(), view=view
+        )
+        self.assertEqual(outgoing, changed)
+        self.assertTrue(
+            any(note.get("action") == "refused" for note in report["notes"])
+        )
+
+    def test_cancelled_turn_removes_nothing(self):
+        request = prose_request()
+        view = fabric_views.apply(
+            request["input"],
+            fabric_views.plan(request["input"], target_bytes=10**6),
+            approved=True,
+        )
+        outgoing, report = bus_boundary.project(
+            request,
+            registry=make_registry(),
+            invoke=Recorder(),
+            view=view,
+            cancelled=True,
+        )
+        self.assertEqual(outgoing["input"], request["input"])
+        self.assertTrue(report["view"]["cancelled"])
 
 
 if __name__ == "__main__":
