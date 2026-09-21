@@ -29,8 +29,9 @@ is incomplete, even when a concurrency slot is free.
 | #13 | Canonical capture and event correlation | #40 | merged; issue closed |
 | #14 | Budgeted retrieval and hydration | #42 | merged; issue closed |
 | #41 | Verify the fabric checkout revision against the pinned component | #44 | merged; issue closed |
-| #15 | Native request adapter and bus boundary | #47 | open; in review |
-| #16–#17 | Duplicate-read receipts, approved views | — | open; blocked by #15 |
+| #15 | Native request adapter and bus boundary | #47 | merged; issue closed |
+| #16 | Duplicate-read proof receipts | — | in review |
+| #17 | Approved Fabric views and reversible controls | — | open; blocked by #16 |
 | #18–#20 | Sentinel hooks, veto precedence, screening | — | open; blocked by phase 3 |
 | #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
@@ -49,6 +50,7 @@ merged.
 | #13 | #40 | `30e8588e19` | `7826a887ac` |
 | #14 | #42 | `1a355cfe66` | `afd973e17e` |
 | #41 | #44 | `3bfc68389c` | `9ba51473e0` |
+| #15 | #47 | `916ec10cae` | `f444b1066a` |
 
 ## Pinned revisions
 
@@ -82,6 +84,7 @@ ever added as a component.
 | A declared pin is not an enforced pin. | Verifying #12 showed the binding driver read the fabric revision from the manifest and never from the `--fabric` checkout it executed, so a record could name the pin while another revision installed. #41 fixes that and records the observed checkout revision; C8 states the rule. |
 | A component checkout that is not its own work-tree root is recorded as unpinned, not refused. | Required CI drives an in-repo test double whose `rev-parse HEAD` would answer for the enclosing repository; only a checkout that reports a revision other than the pin is refused. |
 | The host vendors `jev-bus.v1` and owns the `codex` call site. | The bus contract is owned by `jev-prune-kit` and vendored byte-identically into every participant; the host is the only component that knows where Codex builds its request, so the adapter normalizes supported shapes there and invokes the single bus owner. |
+| A stage's replacement is accepted only where the host can re-derive the proof. | The dedup stage decides which reads are duplicates, but the host re-derives the receipt (exact arguments and body on a later retained copy, unique identities, outside the protected turn and tail) and reverts every unproven edit, so a marker's claim is never taken on its own word. |
 
 ## Evidence
 
@@ -93,6 +96,7 @@ ever added as a component.
 | [`CAPTURE.md`](CAPTURE.md) | Canonical capture and event correlation: store layout, correlation, gaps, and evidence tiers (#13). |
 | [`RETRIEVAL.md`](RETRIEVAL.md) | Budgeted retrieval and hydration: budgets, provenance-not-authority, refusals, and remote-enrichment refusal (#14). |
 | [`BUS_BOUNDARY.md`](BUS_BOUNDARY.md) | The single request-construction boundary and its file/line anchors, the supported vs opaque shapes, the invocation invariants, and the fixture plus transport runs. |
+| [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) | Duplicate-read proof receipts: the receipt the host proves, the reasons it reverts, and the enforcement invariants (#16). |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being

@@ -41,11 +41,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import jev_bus  # vendored jev-bus.v1, byte-identical to the pinned components
 import jev_manifest
+import dedup_receipts
 
 HOST = "codex"
 ADAPTER = "codex-jev"
 RECEIPT_KIND = "projection_receipt"
 WIRE_LIMIT = jev_bus.MAX_WIRE
+DEDUP_STAGE = "jev-prune.dedup"
 
 # Stable refusal codes. A boundary that cannot prove its invariants refuses
 # rather than approximating a transform.
@@ -451,6 +453,26 @@ def project(
                 {"stage": "jev-bus", "action": "refused", "detail": f"{exc.code}"}
             )
             return outgoing, report
+        if DEDUP_STAGE in report["applied"]:
+            # Contract C3: keep only replacements a receipt proves; revert the rest.
+            try:
+                rebuilt, receipt_report = dedup_receipts.enforce(
+                    items, rebuilt, session=session
+                )
+            except dedup_receipts.ReceiptError as exc:
+                report["notes"].append(
+                    {"stage": DEDUP_STAGE, "action": "refused", "detail": str(exc)}
+                )
+                return outgoing, report
+            report["dedup"] = receipt_report
+            for item in receipt_report["reverted"]:
+                report["notes"].append(
+                    {
+                        "stage": DEDUP_STAGE,
+                        "action": "reverted",
+                        "detail": item["reason"],
+                    }
+                )
         outgoing["input"] = rebuilt
         by_name = {stage["name"]: stage["priority"] for stage in registry["stages"]}
         for name in report["applied"]:
