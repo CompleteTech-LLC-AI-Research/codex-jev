@@ -1,0 +1,49 @@
+{
+  "model": "gpt-5-codex",
+  "instructions": "Reviewed fixture request; no live provider is contacted.",
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Read the same path twice inside this turn."
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "name": "read",
+      "call_id": "call-e2e-tail-a",
+      "arguments": "{\"path\":\"/workspace/demo/notes.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call-e2e-tail-a",
+      "output": "# Release notes (synthetic fixture)\nLine 1: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 2: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 3: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 4: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 5: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 6: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 7: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 8: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 9: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 10: the pinned stack keeps canonical evidence and prunes only the outgoing view.\n\nThis body is repeated verbatim by a second read of the same path, which is what makes the pair eligible for a duplicate-read receipt."
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_e2e_7",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "step 7"
+        }
+      ],
+      "encrypted_content": "gAAAAABe2e-fixture-opaque"
+    },
+    {
+      "type": "function_call",
+      "name": "read",
+      "call_id": "call-e2e-tail-b",
+      "arguments": "{\"path\":\"/workspace/demo/notes.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call-e2e-tail-b",
+      "output": "# Release notes (synthetic fixture)\nLine 1: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 2: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 3: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 4: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 5: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 6: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 7: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 8: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 9: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 10: the pinned stack keeps canonical evidence and prunes only the outgoing view.\n\nThis body is repeated verbatim by a second read of the same path, which is what makes the pair eligible for a duplicate-read receipt."
+    }
+  ]
+}

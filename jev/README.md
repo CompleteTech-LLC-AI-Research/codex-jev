@@ -34,11 +34,13 @@ installs its call site. Everything else the integration owns is here.
 | `scripts/sentinel_veto.py` | Host veto precedence (C5): map `REVIEW`/`BLOCK`/`QUARANTINE` onto the veto each stage supports, latch a session so a later approval or `DEFER` cannot clear it, serialize concurrent evaluations, and fail closed on every failure path. |
 | `scripts/jev_sentinel_adapter.py` | The Codex hook translation vendored from the pinned `jev-sentinel`: `EVENTS`, `normalize`, `render`, the decisions, and the input bound. |
 | `scripts/approval_shadow.py` | The approval shadow comparator and enforcement gate (C6): correlate typed judgments with the host's final decisions and observed timing, refuse raw content, account for every failure and deferral, and freeze a scenario-family calibration/holdout split. |
+| `scripts/e2e_regression.py` | The composed end-to-end regression harness (phase 6.1): drive capture → retrieval → screening → projection → collab → sentinel/veto → approval over checked-in fixtures, with a tier on every assertion. |
 | `scripts/verify-manifest.py --native-adapter` | Assert that the declared native approval adapter is installed and wired where the manifest says it is, or gone again after a rollback. |
 | `scripts/build_provenance.py` | Build the pinned CLI with the repository recipe and record provenance. |
 | `scripts/verify-manifest.py` | Fail-closed validator for the manifest, a profile, the patch state, and the checkout pin. |
 | `scripts/jev_manifest.py` | The validation rules, importable from tests. |
 | `tests/` | Focused tests for every validation rule. |
+| `tests/e2e_fixtures/` | The labelled, checked-in inputs for the composed end-to-end harness. |
 | `patches/` | Ordered, digest-pinned patches applied to the pinned host source. |
 | `smoke/` | Host-driven plaintext smoke: a real host runs a parent/child turn against a loopback mock. |
 | `evidence/` | Recorded runs: what was executed, on which revision, and what was not. |
@@ -83,4 +85,5 @@ explicitly instead of silently building.
 - [`RETRIEVAL_SCREENING.md`](RETRIEVAL_SCREENING.md) — screening retrieved context before injection, the two switches, the withholding rules, and memory-write authorization.
 - [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md) — bounded, metadata-only incident operations: validation, the read-only disable plan, correlation, and the policy view.
 - [`APPROVAL_SHADOW.md`](APPROVAL_SHADOW.md) — the shadow comparison by review id, the raw-content refusal, the every-failure accounting, the declared enforcement criteria, and why the gate never flips a switch.
+- [`END_TO_END.md`](END_TO_END.md) — the composed regression harness: the composed order, the per-step artifact, the evidence tiers, how to run it, and what it does not prove.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.
