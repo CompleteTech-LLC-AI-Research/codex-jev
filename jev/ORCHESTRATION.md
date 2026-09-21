@@ -22,33 +22,39 @@ is incomplete, even when a concurrency slot is free.
 
 | Issue | Scope | PR | State |
 | --- | --- | --- | --- |
+| #5 | Native Codex context projection through jev-bus (phase 3) | #47, #63, #64, #75, #79 | complete; issue closed |
+| #6 | Sentinel boundary checks and veto precedence (phase 4) | #60, #68, #80, #84 | in progress; #84 in review, #20 and #19 merged |
+| #7 | Native JEV approval preflight with Guardian fallback (phase 5) | #72, #74, #81 | complete; issue closed; follow-up #85 filed |
+| #8 | Validate and release the combined JEV Codex stack (phase 6) | #24–#26 | open; phase 6, phases 3-5 merged |
 | #9 | Compatibility manifest and integration contracts | #28, #31 | merged; issue closed |
 | #10 | Plaintext collaboration in the pinned build | #32, #37 | merged; issue closed |
 | #11 | Isolated build and integration profile | #35 | merged; issue closed |
 | #12 | Fabric runtime and MCP bound to the isolated workspace | #38 | merged; issue closed |
 | #13 | Canonical capture and event correlation | #40 | merged; issue closed |
 | #14 | Budgeted retrieval and hydration | #42 | merged; issue closed |
-| #41 | Verify the fabric checkout revision against the pinned component | #44 | merged; issue closed |
 | #15 | Native request adapter and bus boundary | #47 | merged; issue closed |
 | #16 | Duplicate-read proof receipts | #50 | merged; issue closed |
 | #17 | Approved Fabric views and reversible controls | #53 | merged; issue closed |
 | #18 | Wire Sentinel hooks and effective coverage reporting | #60 | merged; issue closed |
-| #19 | Sentinel veto precedence and concurrent-action handling | #68 | merged; issue closed |
-| #20 | Retrieval screening and incident operations | #80 | in review; this branch |
-| #49 | Canonical capture CLI: report a zero-event capture gap | #64 | merged; issue closed |
-| #55 | Invoke the bus boundary from the host request path | #63 | merged; issue closed |
-| #58 | Reconcile the host's item-count fallback with the approved-view removal | — | open; filed from #55 |
-| #52 | Host proof is weaker than the component's own receipt validator | #65 | PR merged; issue left open (the body closes the gaps, not the issue) |
-| #57 | Reconcile C4's package-approval semantics with the host-owned view control | #62 | in review; filed from #17 |
-| #66 | repo-checks is red on `main`: root `README.md` asciicheck | #71 | merged; issue closed |
-| #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | — | open; CI lane, unmasked by #71 |
-| #70 | Run the real host binary to show projected outgoing content and exact reset | #75 | merged; issue closed |
 | #19 | Sentinel veto precedence and the subsequent-action latch | #68 | merged; issue closed |
-| #20 | Retrieval screening and incident operations | #80 | in review; filed from #18 |
+| #20 | Retrieval screening and incident operations | #80 | merged; issue closed |
 | #21 | Port and compile the pinned native approval adapter | #72 | merged; issue closed |
 | #22 | Verify action binding, freshness, and fallback | #74 | merged; issue closed |
-| #23 | Shadow comparison and controlled enforcement configuration | #81 | in review; filed from #21 |
-| #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
+| #23 | Shadow comparison and controlled enforcement configuration | #81 | merged; issue closed; duplicate #83 closed, follow-up #85 filed |
+| #24–#26 | Regression, live-host validation, release package | — | open; phase 6, unblocked by the merged phases |
+| #41 | Verify the fabric checkout revision against the pinned component | #44 | merged; issue closed |
+| #49 | Canonical capture CLI: report a zero-event capture gap | #64 | merged; issue closed |
+| #52 | Host proof is weaker than the component's own receipt validator | #65 | PR merged; issue left open (the body closes the gaps, not the issue) |
+| #55 | Invoke the bus boundary from the host request path | #63 | merged; issue closed |
+| #57 | Reconcile C4's package-approval semantics with the host-owned view control | #62 | in review; filed from #17 |
+| #58 | Reconcile the host's item-count fallback with the approved-view removal | #73 | in review; filed from #55 |
+| #61 | Invoke the Sentinel carrier from the host hook path | #84 | in review; filed from #18 |
+| #66 | repo-checks is red on `main`: root `README.md` asciicheck | #71 | merged; issue closed |
+| #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | #77 | merged; issue closed |
+| #70 | Run the real host binary to show projected outgoing content and exact reset | #75 | merged; issue closed |
+| #78 | The host exposes an eligible read tool: prove the pair can arise during a turn | #79 | merged; issue closed |
+| #82 | repo-checks is red on `main`: prettier wants the README entry-point table realigned | #77 | merged; issue closed |
+| #85 | Bind the approval gate to the frozen holdout it was measured on | — | open; filed from #23 |
 
 State above is the GitHub state of each issue and PR, not a local plan.
 
@@ -76,6 +82,11 @@ merged.
 | #70 | #75 | `89615fdaab` | `220c6e5023` |
 | #19 | #68 | `6a0ec2a841` | `660bab6c89` |
 | #22 | #74 | `aeffd4bcfc` | `f18c00627f` |
+| #78 | #79 | `6648f37cf3` | `2a3082ab76` |
+| #20 | #80 | `254ec9ddee` | `e54571283e` |
+| #69 | #77 | `902076f724` | `a844c9645f` |
+| #82 | #77 | `902076f724` | `a844c9645f` |
+| #23 | #81 | `9e5ad0682b` | `aef58a0c20` |
 
 ## Pinned revisions
 
@@ -144,6 +155,8 @@ ever added as a component.
 | A withheld candidate is still evidence. | Withholding is never erasure: the row is a metadata pointer into the canonical store, and `verify_withheld` re-proves each row against the captured content it names and reports any row it cannot resolve, so a withheld excerpt can be audited without being re-injected. A memory write is refused when its target is not named in the host's own policy whatever the switches say, which keeps authorization a host rule rather than a component opinion. |
 | Incident operations are bounded, read-only, and report by identifier, never by content. | Every row is validated against the manifest's declared envelope fields plus the documented host fields; a digest must be a digest, a metadata string must stay inside its byte bound, and no string may still match the capture layer's credential rules. A failing row is reported by identifier and failing check only and never printed, so a careless writer cannot launder content into a report; reads cap at the component's own `outbox --limit` ceiling and a saturated scan says so. `disable` prints the exact commands (`executes: false`) and the module never writes, so asking what disabling would do can never itself disable anything; a correlation names the key that matched and leaves a non-match unmatched; and the policy view is confined to the isolated profile root so an operator is never shown a policy a launch would not use. |
 | A later phase resolves its own switches through one rule. | `sentinel_boundary.feature_switches_for` is the single rule - an unset `JEV_SWITCH_*` means the manifest's declared default, never "off" - and `feature_switches` is now that rule applied to Sentinel's pair. Screening declares its two switches in the manifest behind `screening.retrieval` and `sentinel.enforcement`, so the same resolution and the same fail-closed default cover every phase rather than each reimplementing it. |
+| Enforcement is a declared contract the gate computes, and the gate never flips a switch. | `jev-codex-approval` carries an `evaluation` record - the shadow and enforcement switches, the report kind, the opt-in action classes, the consent credential, the seven Guardian-only return conditions, and the promotion criteria - and the manifest validator refuses a record that is missing (`E_EVALUATION_MISSING`), malformed (`_SCHEMA`), mis-ordered or unowned (`_SWITCH`), outside the two replaceable action classes (`_CATEGORY`), consented by default (`_CONSENT`), or short of a Guardian-only return (`_STATE`). The gate then evaluates a report against those declared criteria and reports `permitted` with `enforcement_enabled` always `false`, so "enforcement stays disabled until declared evaluation criteria are met" is a computed statement and the only thing that can set a switch is the operator. |
+| A duplicate #23 implementation is consolidated into the merged change. | Two sessions implemented #23 at once: #81 (`approval_shadow.py`, `APPROVAL_SHADOW.md`, the manifest `evaluation` record, and the validator gate) and #83 (`shadow_comparison.py`, with digest-pinned calibration/holdout splits, a redaction audit over records and attached documents, a self-verifying report, and a declared-record precondition on the gate). Both added `.github/scripts/test_jev_shadow.py`, so only one could land. #81 merged first (`aef58a0c20`) and is the canonical artifact; #83 was closed with a cross-reference and its branch is kept as prior art rather than landed as a second shadow comparison. The one clause #81 leaves as procedure - the gate never binds a report to the frozen holdout it was measured on - is filed as #85 against the merged module, so the phase keeps one implementation and the residual gap keeps its own issue. |
 
 ## Evidence
 
@@ -156,6 +169,7 @@ ever added as a component.
 | [`RETRIEVAL.md`](RETRIEVAL.md) | Budgeted retrieval and hydration: budgets, provenance-not-authority, refusals, and remote-enrichment refusal (#14). |
 | [`BUS_BOUNDARY.md`](BUS_BOUNDARY.md) | The single request-construction boundary and its file/line anchors, the host call site and the environment contract it resolves, the supported vs opaque shapes, the invocation and fallback invariants, and the fixture, transport, host-invocation, and `real-host-binary` runs. |
 | [`evidence/projection-real-host.md`](evidence/projection-real-host.md) | The `real-host-binary` run behind #70: a launched `codex` resumes a seeded session, the recorded `input` shrinks by 575 bytes with the item count unchanged, switch-off is byte-identical to the unswitched control, no rollout is projected, the receipt is emitted only when the switch is on, and the seeded-transcript limit is stated. |
+| [`evidence/projection-read-tool-host-run.md`](evidence/projection-read-tool-host-run.md) | The run behind #78 that closes the seeded-transcript limit: the host itself executes two identical `memories` `read` calls during the turn, so the eligible pair is produced inside the turn and then projected - switch-off is byte-identical to the unswitched control, the item count is unchanged, exactly one body is projected, the receipt names a witness that still holds its body, and no rollout is projected. |
 | [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) | Duplicate-read proof receipts: the receipt the host proves, the reasons it reverts, and the enforcement invariants (#16). |
 | [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md) | Approved, reversible Fabric prose views: the snapshot binding, preview/apply/reset, the eligibility rules, and the byte/token split (#17). |
 | [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) | The Sentinel hook boundary: the three events, the two switches, the payload bound and refusal, effective coverage, the activation probe, the incident envelope, and the bypass surfaces (#18). |
@@ -180,7 +194,8 @@ live-provider tier remains untouched.
 | A live-model parent/child smoke requires the same consent. | #10 | Open for the live tier only; a real parent/child turn against a loopback mock now runs in `jev/smoke/` and is recorded in `jev/evidence/`. |
 | Every session authenticates to GitHub as one account, so "author ≠ reviewer" cannot be met with a second identity. | all | Open; reviews are recorded as self-review comments backed by reproducible automated checks. |
 | The private key for the GitHub-verified commits in this repository is not on this machine. | all | Open; commits are pushed unsigned and GitHub reports them unverified. |
-| `repo-checks` `just fmt-check` is red on `main`: `ruff format --check .` reformats twelve files, and it is now **the first step to fail** because #71 fixed step 17. | all | Open; filed as #69. Eleven are ordinary debt (`test_jev_bus.py`, `test_jev_capture.py`, `test_jev_receipts.py`, `test_jev_sentinel.py`, `bus_boundary.py`, `canonical_capture.py`, `jev_sentinel_adapter.py`, `sentinel_boundary.py`, `bus_stage_stub/view.py`, `test_dedup_receipts.py`, `test_sentinel_boundary.py`). The twelfth, `jev/scripts/jev_bus.py`, must stay byte-identical to the pinned component copy (a digest test asserts it), so it needs a `ruff.toml` exclusion rather than a reformat. |
+| `repo-checks` `just fmt-check` was red on `main`: `ruff format --check .` reformatted twelve files. | all | Closed by #77 (`a844c9645f`), filed as #69: the eleven ordinary files are now formatted, and `jev/scripts/jev_bus.py` is excluded in `ruff.toml` instead of reformatted so the digest test on the vendored component copy still holds. The `build-test` lane reaches its clean-worktree check again. |
+| The merged #23 gate never binds a report to the frozen holdout it was measured on. | #23, #85 | Open; filed as #85. `split --seed` freezes the family partition and `--freeze` records the caller's pins, but no consumer checks them, so a `permitted` verdict would be produced from the calibration split, the union, or a re-drawn split. Enforcement is unaffected today (the shipped fixture is not permitted); the fix is hardening of the frozen-set clause, not a blocker for phase 5. |
 | Codespell is red on `main` on three files under `codex-rs/`. | all | Open; inherited, not JEV. The findings are in upstream files carried in by the `openai:main` merge (`tui/src/markdown_render/math_tests.rs`, `tui/src/markdown_render/math/render.rs`, `exec-server/src/no_follow/unix.rs`), so the fix is an ignore entry or an upstream fix, not an integration change. |
 | The host path reduces bytes but never items, and passes no view to the carrier. | #55, #17 | Open; filed as #58. `codex-rs/core/src/jev_bus.rs` refuses any changed item count (required by #55) and passes no `--view`, so an approved view cannot shrink the outgoing array from a real Codex run yet. |
 | The projection boundary had no `real-host-binary` run. | #5, #55, #17 | Closed on a seeded transcript; filed as #70 and recorded in [`evidence/projection-real-host.md`](evidence/projection-real-host.md). A launched host now shows the reduced `input` and the exact reset, but it resumes a rollout whose duplicate pair is already present: this revision exposes no `read`/`read_file`/`file_read` tool, so no run yet shows a host *discovering* its own eligible pair, and there is still no live-provider or token measurement. |
