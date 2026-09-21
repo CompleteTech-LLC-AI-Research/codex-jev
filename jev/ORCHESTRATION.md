@@ -48,7 +48,7 @@ is incomplete, even when a concurrency slot is free.
 | #20 | Retrieval screening and incident operations | #80 | in review; filed from #18 |
 | #21 | Port and compile the pinned native approval adapter | #72 | merged; issue closed |
 | #22 | Verify action binding, freshness, and fallback | #74 | merged; issue closed |
-| #23 | Shadow comparison and controlled enforcement configuration | #— | in review; filed from #22 |
+| #23 | Shadow comparison and controlled enforcement configuration | #83 | in review; filed from #22 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
 
 State above is the GitHub state of each issue and PR, not a local plan.
