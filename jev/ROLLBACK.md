@@ -34,6 +34,22 @@ elsewhere, and `--target-root` to choose where the record is kept.
 To finish the removal, delete the `superseded` directory yourself once you have
 inspected it. Nothing in the repository depends on it.
 
+## Unbind the context fabric first
+
+If the fabric runtime was bound to the environment
+(`jev/scripts/fabric_env.py install`), run
+
+```
+python3 jev/scripts/fabric_env.py --fabric <fabric-checkout> uninstall
+```
+
+before rolling the environment back. `uninstall` restores the exact pre-install
+bytes of every file the installer changed - including the unrelated settings in
+`home/config.toml` - removes `hooks.json` and the skill, and reports any
+conflict it could not resolve. Rolling the environment aside without
+uninstalling is still safe: every path the binding wrote lives under
+`.jev/isolated`, so the moved directory carries the whole binding with it.
+
 ## After a bad build
 
 The environment records the binary path and its SHA-256 in `isolated-env.json`
