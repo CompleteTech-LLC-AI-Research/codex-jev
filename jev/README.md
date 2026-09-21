@@ -91,3 +91,4 @@ explicitly instead of silently building.
 - [`VALIDATION.md`](VALIDATION.md) — the offline, real-host, and live-provider validation record: the performance numbers, the host smokes, and the live-provider blocker.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.
 - [`RELEASE.md`](RELEASE.md) — manifest verification, build and profile instructions, feature controls, diagnostics, install/upgrade order, state ownership, the platform matrix, release gates, and the candidate artifact.
+- [`PHASE6_RELEASE.md`](PHASE6_RELEASE.md) — the composed phase-6/6 release validation: the correlated trace across every stage, the authority invariants, the three evidence tiers, the isolated reproduce-and-rollback round trip, and the recorded readiness result.
