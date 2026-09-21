@@ -1,0 +1,210 @@
+{
+  "model": "gpt-5-codex",
+  "instructions": "You are Codex, a coding agent. Reviewed fixture request; no live provider is contacted.",
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Read the release-notes fixture twice and then summarise it."
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "name": "read",
+      "call_id": "call-e2e-read-a",
+      "arguments": "{\"path\":\"/workspace/demo/notes.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call-e2e-read-a",
+      "output": "# Release notes (synthetic fixture)\nLine 1: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 2: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 3: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 4: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 5: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 6: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 7: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 8: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 9: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 10: the pinned stack keeps canonical evidence and prunes only the outgoing view.\n\nThis body is repeated verbatim by a second read of the same path, which is what makes the pair eligible for a duplicate-read receipt."
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "I read the notes fixture; this prose sits outside the protected tail and an approved view may drop it."
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "name": "read",
+      "call_id": "call-e2e-read-b",
+      "arguments": "{\"path\":\"/workspace/demo/notes.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call-e2e-read-b",
+      "output": "# Release notes (synthetic fixture)\nLine 1: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 2: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 3: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 4: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 5: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 6: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 7: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 8: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 9: the pinned stack keeps canonical evidence and prunes only the outgoing view.\nLine 10: the pinned stack keeps canonical evidence and prunes only the outgoing view.\n\nThis body is repeated verbatim by a second read of the same path, which is what makes the pair eligible for a duplicate-read receipt."
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Second eligible prose message: also droppable by an approved prose view."
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "name": "spawn_agent",
+      "call_id": "call-e2e-collab",
+      "arguments": "{\"task_name\":\"e2e-worker\",\"message\":\"offline plaintext task\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call-e2e-collab",
+      "output": "child accepted the task"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_e2e_1",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "step 1"
+        }
+      ],
+      "encrypted_content": "gAAAAABe2e-fixture-opaque"
+    },
+    {
+      "type": "function_call",
+      "name": "read",
+      "call_id": "call-e2e-fill-c",
+      "arguments": "{\"path\":\"/workspace/demo/changelog.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call-e2e-fill-c",
+      "output": "changelog fixture body: 5 commits, no duplicate bodies here."
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_e2e_2",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "step 2"
+        }
+      ],
+      "encrypted_content": "gAAAAABe2e-fixture-opaque"
+    },
+    {
+      "type": "function_call",
+      "name": "read",
+      "call_id": "call-e2e-fill-d",
+      "arguments": "{\"path\":\"/workspace/demo/roadmap.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call-e2e-fill-d",
+      "output": "roadmap fixture body: three milestones remain."
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_e2e_3",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "step 3"
+        }
+      ],
+      "encrypted_content": "gAAAAABe2e-fixture-opaque"
+    },
+    {
+      "type": "function_call",
+      "name": "read",
+      "call_id": "call-e2e-fill-e",
+      "arguments": "{\"path\":\"/workspace/demo/owners.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call-e2e-fill-e",
+      "output": "owners fixture body: one owner per package."
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_e2e_4",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "step 4"
+        }
+      ],
+      "encrypted_content": "gAAAAABe2e-fixture-opaque"
+    },
+    {
+      "type": "function_call",
+      "name": "read",
+      "call_id": "call-e2e-fill-f",
+      "arguments": "{\"path\":\"/workspace/demo/api.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call-e2e-fill-f",
+      "output": "api fixture body: two endpoints."
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_e2e_5",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "step 5"
+        }
+      ],
+      "encrypted_content": "gAAAAABe2e-fixture-opaque"
+    },
+    {
+      "type": "function_call",
+      "name": "read",
+      "call_id": "call-e2e-fill-g",
+      "arguments": "{\"path\":\"/workspace/demo/tests.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call-e2e-fill-g",
+      "output": "tests fixture body: the suite is offline."
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Now summarise the release notes for the operator."
+        }
+      ]
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Summary for the operator: the pinned stack keeps canonical evidence and prunes only the outgoing view."
+        }
+      ]
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_e2e_6",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "step 6"
+        }
+      ],
+      "encrypted_content": "gAAAAABe2e-fixture-opaque"
+    }
+  ]
+}
