@@ -10,6 +10,9 @@ since the host carrier became the wired command,
 [#61](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/61). The
 veto precedence and session latch it feeds are the same contract `C5`
 ([`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md), `#19`).
+The phase-level claim — that wiring, veto precedence and screening compose on
+one running session — is proven in `jev/tests/test_sentinel_phase.py`
+([#6](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/6)).
 
 ## Where the boundary is
 
@@ -230,9 +233,10 @@ reproduces the original behavior: nothing is evaluated and nothing vetoes.
 | `component-fixture` | `jev/tests/sentinel_fixtures/codex-translation.json` | 26 goldens captured from `jev-sentinel @ 4ecd748d` (9 `normalize`, 5 refusal, 12 `render`), with a provenance block. |
 | `component-stub` | `.github/scripts/test_jev_sentinel.py` | 41 tests, ok, against a hermetic `launch.py` stub that speaks the documented wire only (`hook`/`check`/`outbox`): the carrier install merge/remove/dry-run and its `E_SWITCH_OFF` gate, the wired response and correlated incident, the fail-closed bound, and the process-level fail-open. |
 | `real-component` | `jev/tests/test_sentinel_boundary.py` | 13 tests, ok against the pinned checkout (skipped when no checkout resolves): goldens match live, shadow records and never vetoes, enforce vetoes each stage, oversize refuses before the component runs, probe finds a correlated audit row per path, installation alone is not activation, and the wired carrier vetoes while writing both the host incident and the component audit row. |
+| `real-component` | `jev/tests/test_sentinel_phase.py` | 7 tests, ok against the pinned checkout (skipped when no checkout resolves): the phase criteria composed on one session. Installation alone is not activation while the wired probe is; a running session writes three correlated incidents across `ingress`/`tool_before`/`tool_after`; enforcement denies the exact action at the tool and prompt boundaries and never emits an `allow` or a replacement field, while shadow records the same finding and returns `{}` with no latch; a latched veto gates the next action and its incident names the latched cause; and quarantined context is withheld by the supported search path, journaled and re-proved, with no excerpt bytes in the plan or the journal. |
 
-Required CI (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) is 346
-tests, ok; `jev/tests` is 164 tests, ok. The vendored adapter is equal to the
+Required CI (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) is 379
+tests, ok; `jev/tests` is 183 tests, ok. The vendored adapter is equal to the
 pinned component on every golden case; it is a faithful translation rather than a
 byte-identical copy, because the host module layout differs.
 
