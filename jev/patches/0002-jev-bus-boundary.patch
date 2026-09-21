@@ -1,5 +1,5 @@
 diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
-index 1c5b49353a..74dfffa635 100644
+index 1c5b49353..74dfffa63 100644
 --- a/codex-rs/core/src/client.rs
 +++ b/codex-rs/core/src/client.rs
 @@ -1671,6 +1671,14 @@ impl ModelClientSession {
@@ -34,10 +34,10 @@ index 1c5b49353a..74dfffa635 100644
                  .is_some_and(|value| value == "reviewer");
 diff --git a/codex-rs/core/src/jev_bus.rs b/codex-rs/core/src/jev_bus.rs
 new file mode 100644
-index 0000000000..c218985f90
+index 000000000..a9b598e2b
 --- /dev/null
 +++ b/codex-rs/core/src/jev_bus.rs
-@@ -0,0 +1,342 @@
+@@ -0,0 +1,460 @@
 +//! The native JEV projection boundary for the outgoing Responses payload.
 +//!
 +//! JEV prunes the *outgoing view* and never the canonical transcript. This
@@ -53,6 +53,17 @@ index 0000000000..c218985f90
 +//! was, which is the stage-input fallback the bus contract requires. A refusal
 +//! is never silently substituted with an approximation.
 +//!
++//! One shrink is not a failure: an approved prose view may remove whole items,
++//! which is how the model-visible context is reduced by items and not only by
++//! bytes. The host accepts that only for a view the operator configured for this
++//! path (`JEV_BUS_VIEW`), when the adapter's own report names exactly the
++//! positions the array lost, the resulting array is the incoming array minus
++//! those positions in order, and every removed item is assistant prose the host
++//! itself recognizes as removable. An addition, a reorder, a removal the report
++//! does not account for, and a removal with no configured view are all refused.
++//! The host never re-derives *which* prose is approvable: that policy stays with
++//! the carrier (`fabric_views.py`), which owns the view.
++//!
 +//! The boundary is resolved from the environment so the isolated profile owns
 +//! the wiring:
 +//!
@@ -61,8 +72,11 @@ index 0000000000..c218985f90
 +//! * `JEV_BUS_ADAPTER` is the adapter path and `JEV_BUS_PYTHON` its interpreter.
 +//! * `JEV_BUS_STAGE_DEDUP` / `JEV_BUS_STAGE_FABRIC_VIEW` carry one stage command
 +//!   each, because a stage with no command must not be registered.
++//! * `JEV_BUS_VIEW` is the approved view the carrier filters with; with none
++//!   configured an item removal is refused and the projection stays byte-only.
 +//! * `JEV_BUS_TIMEOUT_MS` bounds one invocation; `JEV_BUS_WORKSPACE` labels it.
 +
++use std::collections::BTreeSet;
 +use std::io::Read;
 +use std::io::Write;
 +use std::path::PathBuf;
@@ -75,6 +89,7 @@ index 0000000000..c218985f90
 +use std::time::Duration;
 +use std::time::Instant;
 +
++use codex_protocol::models::ContentItem;
 +use codex_protocol::models::ResponseItem;
 +use serde_json::Value;
 +use serde_json::json;
@@ -88,6 +103,7 @@ index 0000000000..c218985f90
 +const PYTHON_ENV: &str = "JEV_BUS_PYTHON";
 +const TIMEOUT_ENV: &str = "JEV_BUS_TIMEOUT_MS";
 +const WORKSPACE_ENV: &str = "JEV_BUS_WORKSPACE";
++const VIEW_ENV: &str = "JEV_BUS_VIEW";
 +const STAGE_ENV_PREFIX: &str = "JEV_BUS_STAGE_";
 +
 +const DEFAULT_PYTHON: &str = "python3";
@@ -115,6 +131,8 @@ index 0000000000..c218985f90
 +    python: String,
 +    timeout: Duration,
 +    stages: Vec<(String, String)>,
++    /// The approved view the carrier filters with, when the profile supplies one.
++    view: Option<PathBuf>,
 +}
 +
 +impl JevBusConfig {
@@ -147,6 +165,7 @@ index 0000000000..c218985f90
 +                std::env::var(TIMEOUT_ENV).ok().as_deref(),
 +            )),
 +            stages,
++            view: non_empty(std::env::var(VIEW_ENV).ok()).map(PathBuf::from),
 +        }
 +    }
 +}
@@ -230,9 +249,105 @@ index 0000000000..c218985f90
 +    // The adapter proves order and membership; the host re-checks the property
 +    // it depends on, so a projection can never silently add or drop an item.
 +    if projected.len() != input.len() {
-+        return Err("item-count");
++        // A shorter array is an approved removal, and only a view the operator
++        // configured can authorize one; a longer array is an addition and is
++        // refused outright.
++        if config.view.is_none() || projected.len() > input.len() {
++            return Err("item-count");
++        }
++        accept_removals(input, &projected, &parsed)?;
 +    }
 +    Ok(projected)
++}
++
++/// Accept a shorter array only when the report accounts for exactly the loss.
++///
++/// Every refusal below returns the caller's own array through the fallback in
++/// [`project_with`], so an adapter that misreports a removal cannot make an item
++/// disappear on its own word.
++fn accept_removals(
++    input: &[ResponseItem],
++    projected: &[ResponseItem],
++    parsed: &Value,
++) -> Result<(), &'static str> {
++    let removed = view_removed_indices(parsed, input.len())?;
++    if removed.is_empty() || input.len() - removed.len() != projected.len() {
++        return Err("item-count");
++    }
++    // Only assistant prose may leave, checked against the *incoming* array: the
++    // carrier owns which prose is approvable, the host owns what may be lost.
++    for index in &removed {
++        if !is_removable_prose(&input[*index]) {
++            return Err("item-count");
++        }
++    }
++    if *projected != without_indices(input, &removed) {
++        return Err("item-count");
++    }
++    Ok(())
++}
++
++/// The positions the adapter's report marks as removed by the approved view.
++///
++/// An index that is out of range or named twice is refused rather than ignored:
++/// the report is the only place a removal is accounted for.
++fn view_removed_indices(parsed: &Value, items: usize) -> Result<BTreeSet<usize>, &'static str> {
++    let entries = parsed
++        .get("report")
++        .and_then(|report| report.get("view"))
++        .and_then(|view| view.get("removed"))
++        .and_then(Value::as_array)
++        .ok_or("item-count")?;
++    let mut removed = BTreeSet::new();
++    for entry in entries {
++        let index = entry
++            .get("index")
++            .and_then(Value::as_u64)
++            .and_then(|index| usize::try_from(index).ok())
++            .ok_or("item-count")?;
++        if index >= items || !removed.insert(index) {
++            return Err("item-count");
++        }
++    }
++    Ok(removed)
++}
++
++/// The incoming array with the given positions removed, in order.
++fn without_indices(input: &[ResponseItem], removed: &BTreeSet<usize>) -> Vec<ResponseItem> {
++    input
++        .iter()
++        .enumerate()
++        .filter(|(index, _)| !removed.contains(index))
++        .map(|(_, item)| item.clone())
++        .collect()
++}
++
++/// Whether the host itself recognizes an item as standalone assistant prose.
++///
++/// This is deliberately narrower than the carrier's eligibility policy - it does
++/// not model the protected recent tail or the constraint guard, which the host
++/// cannot re-derive - so it bounds what may leave rather than deciding what is
++/// approvable. Anything carrying a tool call, reasoning, an image, or audio is
++/// never removable here.
++fn is_removable_prose(item: &ResponseItem) -> bool {
++    let ResponseItem::Message { role, content, .. } = item else {
++        return false;
++    };
++    if role != "assistant" {
++        return false;
++    }
++    let mut text = String::new();
++    for part in content {
++        let part = match part {
++            ContentItem::InputText { text } | ContentItem::OutputText { text } => text,
++            ContentItem::InputImage { .. } | ContentItem::InputAudio { .. } => return false,
++        };
++        if !text.is_empty() {
++            text.push('\n');
++        }
++        text.push_str(part);
++    }
++    !text.trim().is_empty()
 +}
 +
 +/// Invoke the adapter over its documented CLI and return its stdout.
@@ -256,6 +371,9 @@ index 0000000000..c218985f90
 +        .arg(&context.workspace);
 +    for (id, argv) in &config.stages {
 +        command.arg("--stage").arg(format!("{id}={argv}"));
++    }
++    if let Some(view) = &config.view {
++        command.arg("--view").arg(view);
 +    }
 +    // The adapter reads the same `JEV_SWITCH_*` contract, so the environment is
 +    // inherited deliberately.
@@ -382,10 +500,10 @@ index 0000000000..c218985f90
 +mod tests;
 diff --git a/codex-rs/core/src/jev_bus_tests.rs b/codex-rs/core/src/jev_bus_tests.rs
 new file mode 100644
-index 0000000000..3b11a6c6e7
+index 000000000..db4936308
 --- /dev/null
 +++ b/codex-rs/core/src/jev_bus_tests.rs
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,366 @@
 +use super::*;
 +use pretty_assertions::assert_eq;
 +use serde_json::json;
@@ -417,6 +535,27 @@ index 0000000000..3b11a6c6e7
 +    sys.exit(0)
 +if mode == "drop":
 +    items = items[1:]
++if mode.startswith("remove"):
++    # `remove:<index>` drops one item and reports it as a view removal;
++    # `remove-mismatch:<index>` reports a different position than it dropped;
++    # `remove-overclaim:<index>` reports one more removal than the array lost.
++    _, _, spec = mode.partition(":")
++    index = int(spec)
++    report_removed = [{"index": index}]
++    if mode.startswith("remove-overclaim"):
++        report_removed.append({"index": index + 1})
++    elif mode.startswith("remove-mismatch"):
++        report_removed = [{"index": 0}]
++        index = index if index != 0 else 1
++    items = items[:index] + items[index + 1 :]
++    json.dump(
++        {
++            "request": {"input": items},
++            "report": {"host": "codex", "view": {"removed": report_removed}},
++        },
++        sys.stdout,
++    )
++    sys.exit(0)
 +if mode == "mutate":
 +    for item in items:
 +        if item.get("type") == "function_call_output":
@@ -444,12 +583,26 @@ index 0000000000..3b11a6c6e7
 +            python: "python3".to_string(),
 +            timeout,
 +            stages: vec![("dedup".to_string(), "stub-stage".to_string())],
++            view: None,
 +        };
 +        Self {
 +            _dir: dir,
 +            config,
 +            calls,
 +        }
++    }
++
++    /// The same boundary, with an approved view configured for the host path.
++    fn with_view(mode: &str, timeout: Duration) -> Self {
++        let mut fixture = Self::new(mode, timeout);
++        let view = fixture._dir.path().join("view.json");
++        fs::write(
++            &view,
++            r#"{"kind":"approved-view","version":"jev-view.v1","keys":[]}"#,
++        )
++        .expect("write the approved view");
++        fixture.config.view = Some(view);
++        fixture
 +    }
 +
 +    fn invocations(&self) -> usize {
@@ -481,6 +634,32 @@ index 0000000000..3b11a6c6e7
 +        },
 +    ]))
 +    .expect("sample is a valid wire request")
++}
++
++/// A request whose first item is standalone assistant prose, so it is the one
++/// item a removal is allowed to take.
++fn prose_input() -> Vec<ResponseItem> {
++    serde_json::from_value(json!([
++        {
++            "type": "message",
++            "role": "assistant",
++            "content": [{"type": "output_text", "text": "chatter"}],
++        },
++        {
++            "type": "function_call",
++            "name": "read_file",
++            "arguments": "{\"path\":\"a\"}",
++            "call_id": "call_1",
++        },
++        {"type": "function_call_output", "call_id": "call_1", "output": "FILE A BODY"},
++        {
++            "type": "reasoning",
++            "id": "r_1",
++            "summary": [{"type": "summary_text", "text": "think"}],
++            "encrypted_content": null,
++        },
++    ]))
++    .expect("prose sample is a valid wire request")
 +}
 +
 +fn output_body(items: &[ResponseItem]) -> Option<String> {
@@ -592,6 +771,70 @@ index 0000000000..3b11a6c6e7
 +}
 +
 +#[test]
++fn an_approved_removal_is_applied_when_a_view_is_configured() {
++    // The carrier removed the prose item it was approved to remove; the host
++    // accepts the shorter array because the report accounts for exactly that
++    // position and the item that left is assistant prose.
++    let fixture = Fixture::with_view("remove:0", Duration::from_secs(5));
++    let input = prose_input();
++
++    let outgoing = project_with(&fixture.config, input.clone(), &ProjectionContext::default());
++
++    assert_eq!(outgoing, input[1..].to_vec());
++    assert_eq!(fixture.invocations(), 1);
++}
++
++#[test]
++fn a_removal_with_no_configured_view_is_refused() {
++    // The same adapter answer, with no view configured for the host path: the
++    // projection stays byte-only and the incoming payload is used verbatim.
++    let fixture = Fixture::new("remove:0", Duration::from_secs(5));
++    let input = prose_input();
++
++    let outgoing = project_with(&fixture.config, input.clone(), &ProjectionContext::default());
++
++    assert_eq!(outgoing, input);
++    assert_eq!(fixture.invocations(), 1);
++}
++
++#[test]
++fn a_removal_the_report_does_not_account_for_is_refused() {
++    // The array lost one position while the report names another, so the host
++    // cannot tie the loss to the view and refuses it.
++    let fixture = Fixture::with_view("remove-mismatch:2", Duration::from_secs(5));
++    let input = prose_input();
++
++    let outgoing = project_with(&fixture.config, input.clone(), &ProjectionContext::default());
++
++    assert_eq!(outgoing, input);
++    assert_eq!(fixture.invocations(), 1);
++}
++
++#[test]
++fn a_report_naming_more_removals_than_the_array_lost_is_refused() {
++    let fixture = Fixture::with_view("remove-overclaim:0", Duration::from_secs(5));
++    let input = prose_input();
++
++    let outgoing = project_with(&fixture.config, input.clone(), &ProjectionContext::default());
++
++    assert_eq!(outgoing, input);
++    assert_eq!(fixture.invocations(), 1);
++}
++
++#[test]
++fn a_removal_of_an_item_that_is_not_assistant_prose_is_refused() {
++    // Reasoning is not prose however well the report accounts for it: the view
++    // may reduce assistant prose, and native compaction keeps working.
++    let fixture = Fixture::with_view("remove:3", Duration::from_secs(5));
++    let input = prose_input();
++
++    let outgoing = project_with(&fixture.config, input.clone(), &ProjectionContext::default());
++
++    assert_eq!(outgoing, input);
++    assert_eq!(fixture.invocations(), 1);
++}
++
++#[test]
 +fn a_missing_adapter_falls_back_to_the_stage_input() {
 +    let config = JevBusConfig {
 +        enabled: true,
@@ -599,6 +842,7 @@ index 0000000000..3b11a6c6e7
 +        python: "python3".to_string(),
 +        timeout: Duration::from_secs(5),
 +        stages: vec![("dedup".to_string(), "stub-stage".to_string())],
++        view: None,
 +    };
 +    let input = sample_input();
 +
@@ -627,7 +871,7 @@ index 0000000000..3b11a6c6e7
 +    assert_eq!(resolve_timeout_ms(Some("600000")), MAX_TIMEOUT_MS);
 +}
 diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
-index 38b87f4dcc..3314a5d8b8 100644
+index 38b87f4dc..3314a5d8b 100644
 --- a/codex-rs/core/src/lib.rs
 +++ b/codex-rs/core/src/lib.rs
 @@ -9,6 +9,7 @@ mod apply_patch;

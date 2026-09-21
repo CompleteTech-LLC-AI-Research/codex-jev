@@ -129,6 +129,7 @@ the launcher passes to the child:
 | `JEV_BUS_ADAPTER` | `<checkout>/jev/scripts/bus_boundary.py`. |
 | `JEV_BUS_PYTHON` | The interpreter that runs the launcher, so the adapter matches the profile. |
 | `JEV_BUS_WORKSPACE` | The plan's `home`, so receipts carry the isolated workspace label. |
+| `JEV_BUS_VIEW` | Only when the operator exports one: the approved view file `fabric_views.py apply` wrote, which is the only authority for dropping whole items. Unset, the host reduces bytes and never items. |
 
 `JEV_BUS_STAGE_DEDUP` and `JEV_BUS_STAGE_FABRIC_VIEW` are deliberately *not*
 set: a stage is registered only when the environment supplies its command, so an

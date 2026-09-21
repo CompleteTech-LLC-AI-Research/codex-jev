@@ -13,6 +13,17 @@
 //! was, which is the stage-input fallback the bus contract requires. A refusal
 //! is never silently substituted with an approximation.
 //!
+//! One shrink is not a failure: an approved prose view may remove whole items,
+//! which is how the model-visible context is reduced by items and not only by
+//! bytes. The host accepts that only for a view the operator configured for this
+//! path (`JEV_BUS_VIEW`), when the adapter's own report names exactly the
+//! positions the array lost, the resulting array is the incoming array minus
+//! those positions in order, and every removed item is assistant prose the host
+//! itself recognizes as removable. An addition, a reorder, a removal the report
+//! does not account for, and a removal with no configured view are all refused.
+//! The host never re-derives *which* prose is approvable: that policy stays with
+//! the carrier (`fabric_views.py`), which owns the view.
+//!
 //! The boundary is resolved from the environment so the isolated profile owns
 //! the wiring:
 //!
@@ -21,8 +32,11 @@
 //! * `JEV_BUS_ADAPTER` is the adapter path and `JEV_BUS_PYTHON` its interpreter.
 //! * `JEV_BUS_STAGE_DEDUP` / `JEV_BUS_STAGE_FABRIC_VIEW` carry one stage command
 //!   each, because a stage with no command must not be registered.
+//! * `JEV_BUS_VIEW` is the approved view the carrier filters with; with none
+//!   configured an item removal is refused and the projection stays byte-only.
 //! * `JEV_BUS_TIMEOUT_MS` bounds one invocation; `JEV_BUS_WORKSPACE` labels it.
 
+use std::collections::BTreeSet;
 use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
@@ -35,6 +49,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
+use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
 use serde_json::Value;
 use serde_json::json;
@@ -48,6 +63,7 @@ const ADAPTER_ENV: &str = "JEV_BUS_ADAPTER";
 const PYTHON_ENV: &str = "JEV_BUS_PYTHON";
 const TIMEOUT_ENV: &str = "JEV_BUS_TIMEOUT_MS";
 const WORKSPACE_ENV: &str = "JEV_BUS_WORKSPACE";
+const VIEW_ENV: &str = "JEV_BUS_VIEW";
 const STAGE_ENV_PREFIX: &str = "JEV_BUS_STAGE_";
 
 const DEFAULT_PYTHON: &str = "python3";
@@ -75,6 +91,8 @@ pub(crate) struct JevBusConfig {
     python: String,
     timeout: Duration,
     stages: Vec<(String, String)>,
+    /// The approved view the carrier filters with, when the profile supplies one.
+    view: Option<PathBuf>,
 }
 
 impl JevBusConfig {
@@ -107,6 +125,7 @@ impl JevBusConfig {
                 std::env::var(TIMEOUT_ENV).ok().as_deref(),
             )),
             stages,
+            view: non_empty(std::env::var(VIEW_ENV).ok()).map(PathBuf::from),
         }
     }
 }
@@ -190,9 +209,105 @@ fn request_projection(
     // The adapter proves order and membership; the host re-checks the property
     // it depends on, so a projection can never silently add or drop an item.
     if projected.len() != input.len() {
-        return Err("item-count");
+        // A shorter array is an approved removal, and only a view the operator
+        // configured can authorize one; a longer array is an addition and is
+        // refused outright.
+        if config.view.is_none() || projected.len() > input.len() {
+            return Err("item-count");
+        }
+        accept_removals(input, &projected, &parsed)?;
     }
     Ok(projected)
+}
+
+/// Accept a shorter array only when the report accounts for exactly the loss.
+///
+/// Every refusal below returns the caller's own array through the fallback in
+/// [`project_with`], so an adapter that misreports a removal cannot make an item
+/// disappear on its own word.
+fn accept_removals(
+    input: &[ResponseItem],
+    projected: &[ResponseItem],
+    parsed: &Value,
+) -> Result<(), &'static str> {
+    let removed = view_removed_indices(parsed, input.len())?;
+    if removed.is_empty() || input.len() - removed.len() != projected.len() {
+        return Err("item-count");
+    }
+    // Only assistant prose may leave, checked against the *incoming* array: the
+    // carrier owns which prose is approvable, the host owns what may be lost.
+    for index in &removed {
+        if !is_removable_prose(&input[*index]) {
+            return Err("item-count");
+        }
+    }
+    if *projected != without_indices(input, &removed) {
+        return Err("item-count");
+    }
+    Ok(())
+}
+
+/// The positions the adapter's report marks as removed by the approved view.
+///
+/// An index that is out of range or named twice is refused rather than ignored:
+/// the report is the only place a removal is accounted for.
+fn view_removed_indices(parsed: &Value, items: usize) -> Result<BTreeSet<usize>, &'static str> {
+    let entries = parsed
+        .get("report")
+        .and_then(|report| report.get("view"))
+        .and_then(|view| view.get("removed"))
+        .and_then(Value::as_array)
+        .ok_or("item-count")?;
+    let mut removed = BTreeSet::new();
+    for entry in entries {
+        let index = entry
+            .get("index")
+            .and_then(Value::as_u64)
+            .and_then(|index| usize::try_from(index).ok())
+            .ok_or("item-count")?;
+        if index >= items || !removed.insert(index) {
+            return Err("item-count");
+        }
+    }
+    Ok(removed)
+}
+
+/// The incoming array with the given positions removed, in order.
+fn without_indices(input: &[ResponseItem], removed: &BTreeSet<usize>) -> Vec<ResponseItem> {
+    input
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !removed.contains(index))
+        .map(|(_, item)| item.clone())
+        .collect()
+}
+
+/// Whether the host itself recognizes an item as standalone assistant prose.
+///
+/// This is deliberately narrower than the carrier's eligibility policy - it does
+/// not model the protected recent tail or the constraint guard, which the host
+/// cannot re-derive - so it bounds what may leave rather than deciding what is
+/// approvable. Anything carrying a tool call, reasoning, an image, or audio is
+/// never removable here.
+fn is_removable_prose(item: &ResponseItem) -> bool {
+    let ResponseItem::Message { role, content, .. } = item else {
+        return false;
+    };
+    if role != "assistant" {
+        return false;
+    }
+    let mut text = String::new();
+    for part in content {
+        let part = match part {
+            ContentItem::InputText { text } | ContentItem::OutputText { text } => text,
+            ContentItem::InputImage { .. } | ContentItem::InputAudio { .. } => return false,
+        };
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(part);
+    }
+    !text.trim().is_empty()
 }
 
 /// Invoke the adapter over its documented CLI and return its stdout.
@@ -216,6 +331,9 @@ fn run_adapter(
         .arg(&context.workspace);
     for (id, argv) in &config.stages {
         command.arg("--stage").arg(format!("{id}={argv}"));
+    }
+    if let Some(view) = &config.view {
+        command.arg("--view").arg(view);
     }
     // The adapter reads the same `JEV_SWITCH_*` contract, so the environment is
     // inherited deliberately.

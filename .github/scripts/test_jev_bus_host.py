@@ -27,6 +27,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "jev" / "scripts"))
@@ -51,6 +52,7 @@ RUST_ENV_NAMES = {
     "JEV_BUS_PYTHON",
     "JEV_BUS_STAGE_",
     "JEV_BUS_TIMEOUT_MS",
+    "JEV_BUS_VIEW",
     "JEV_BUS_WORKSPACE",
     "JEV_SWITCH_PROJECTION_DEDUP_RECEIPTS",
     "JEV_SWITCH_PROJECTION_FABRIC_VIEWS",
@@ -195,6 +197,23 @@ class SwitchContractTests(unittest.TestCase):
             result = launch_isolated.run(env_dir, ["exec", "hello"], dry_run=True)
             self.assertEqual(result["bus_env"], bus)
             self.assertEqual(result["switch_env"], isolated_env.switch_env(plan))
+
+    def test_the_launcher_forwards_an_approved_view_only_when_supplied(self):
+        with tempfile.TemporaryDirectory() as work:
+            env_dir = Path(work) / "isolated"
+            isolated_env.init_env(env_dir=env_dir, root=REPO_ROOT)
+            plan = isolated_env.read_env(env_dir)
+            with mock.patch.dict(os.environ, {"JEV_BUS_VIEW": "/views/approved.json"}):
+                self.assertEqual(
+                    isolated_env.bus_env(plan)["JEV_BUS_VIEW"],
+                    "/views/approved.json",
+                )
+                dry_run = launch_isolated.run(env_dir, ["exec", "hello"], dry_run=True)
+                self.assertEqual(
+                    dry_run["bus_env"]["JEV_BUS_VIEW"], "/views/approved.json"
+                )
+            with mock.patch.dict(os.environ, {"JEV_BUS_VIEW": "  "}):
+                self.assertNotIn("JEV_BUS_VIEW", isolated_env.bus_env(plan))
 
 
 class BoundaryChainTests(unittest.TestCase):

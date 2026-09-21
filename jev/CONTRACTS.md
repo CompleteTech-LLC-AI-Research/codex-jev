@@ -35,11 +35,15 @@ The host's half of the boundary is the module `codex-rs/core/src/jev_bus.rs`,
 applied to the pinned base as the ordered patch `0002-jev-bus-boundary`. It is
 the only caller at the request-construction site: the outgoing array is handed
 to `jev/scripts/bus_boundary.py` at most once per request, and the returned
-array replaces the payload only when it still has the same item count. Every
-other outcome - a disabled switch, no registered stage, a missing adapter, a
-timeout, a non-zero exit, or output that is not the expected view - leaves the
-caller's input unchanged, so a boundary that cannot prove its own result never
-narrows the request. The adapter normalizes the supported `ResponseItem` shapes,
+array replaces the payload only when the host can re-derive it: the same items,
+or - only when `JEV_BUS_VIEW` names an approved view - exactly the items the
+adapter's own report marks the view removed, every one of them standalone
+assistant prose the host recognizes as removable, as the incoming array minus
+those positions in order. Every other outcome - a disabled switch, no registered
+stage, a missing adapter, a timeout, a non-zero exit, an addition, a reorder, or
+a removal the report does not account for exactly - leaves the caller's input
+unchanged, so a boundary that cannot prove its own result never narrows the
+request. The adapter normalizes the supported `ResponseItem` shapes,
 invokes the vendored `jev-bus.v1` contract once, and asserts the stage order and
 owners against `events.stages`. See [`BUS_BOUNDARY.md`](BUS_BOUNDARY.md).
 
@@ -67,6 +71,17 @@ counts and measured tokens are reported separately and never conflated.
 
 The host's carrier is `jev/scripts/fabric_views.py`, the second half of the
 boundary in `C2`. See [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md).
+
+A view is also the only thing that may shrink the model-visible array by items.
+The host accepts a shorter array only when the operator has configured the view
+for this path (`JEV_BUS_VIEW`), the adapter's report names exactly the positions
+the array lost - each in range and unique - the length delta matches the report,
+every removed item is standalone assistant prose the host itself recognizes as
+removable, and the surviving array is the incoming array minus those positions in
+order. The host never decides *which* prose is approvable; that eligibility
+policy stays with the carrier. Without a configured view the host path reduces
+bytes (dedup replacements) and never items, and an addition or an unaccounted
+removal is refused (`item-count`) with the caller's payload returned unchanged.
 
 ## C5 — Sentinel veto precedence
 
