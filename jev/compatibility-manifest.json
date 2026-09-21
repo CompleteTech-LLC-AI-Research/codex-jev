@@ -180,6 +180,32 @@
       "requires_interfaces": {"approval_preflight": 1, "event_envelope": 1},
       "owns": ["jev_approval/", "adapters/"],
       "test_command": "python3 -m pytest -q tests",
+      "evaluation": {
+        "report_kind": "approval_shadow_report",
+        "report_schema": "jev-approval.shadow.v1",
+        "shadow_switch": "approval.preflight",
+        "enforce_switch": "approval.enforcement",
+        "opt_in_action_categories": ["exec_command", "apply_patch"],
+        "remote_consent_credential": "remote_inference",
+        "guardian_only_on": [
+          "binding_mismatch",
+          "cancelled",
+          "malformed_answer",
+          "missing_model",
+          "not_opted_in",
+          "provider_error",
+          "timeout"
+        ],
+        "criteria": {
+          "min_labeled_pairs": 200,
+          "min_scenario_families": 20,
+          "max_false_allow_rate": 0.0,
+          "max_disagreement_rate": 0.05,
+          "max_defer_rate": 0.5,
+          "require_measured_latency": true,
+          "max_latency_p95_ms": 1000.0
+        }
+      },
       "native_source_adapter": {
         "source": "adapters/codex-native/jev.rs",
         "source_sha256": "37d3a1dddf32d26f18a5149b6ed39ab8d27be10f6af9132f6a5889ccafb23f43",

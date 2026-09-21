@@ -106,6 +106,54 @@ REQUIRED_ANSWER_BINDING_FIELDS = {
     "question_hash",
 }
 
+# An enforcement switch is gated on a declared evaluation record: the shadow report
+# that must cover every failure and deferral, the criteria that gate promotion, and
+# the consent and opt-in state a live evaluation needs. Validating the record makes
+# "enforcement stays disabled until declared evaluation criteria are met"
+# (CONTRACTS.md C6) a checkable claim rather than a promise.
+EVALUATION_REQUIRED_KEYS = {
+    "report_kind",
+    "report_schema",
+    "shadow_switch",
+    "enforce_switch",
+    "opt_in_action_categories",
+    "remote_consent_credential",
+    "guardian_only_on",
+    "criteria",
+}
+
+EVALUATION_CRITERIA_KEYS = {
+    "min_labeled_pairs",
+    "min_scenario_families",
+    "max_false_allow_rate",
+    "max_disagreement_rate",
+    "max_defer_rate",
+    "require_measured_latency",
+    "max_latency_p95_ms",
+}
+
+# The action classes a preflight may replace: a non-escalated exec and an applied
+# patch. Escalation and every permission-shaped request stay Guardian-owned, and the
+# component's own fast-allow vocabulary is exactly this pair.
+APPROVAL_ACTION_CATEGORIES = {"exec_command", "apply_patch"}
+
+# The conditions under which the host must return immediately to Guardian-only
+# behaviour, with no partial trust.
+REQUIRED_GUARDIAN_ONLY_REASONS = {
+    "binding_mismatch",
+    "cancelled",
+    "malformed_answer",
+    "missing_model",
+    "not_opted_in",
+    "provider_error",
+    "timeout",
+}
+
+# The one enforcement switch this phase certifies. Other phases own their own
+# gates; this record only requires the approval gate to be declared, so adding it
+# does not silently demand evaluation records the other phases have not written.
+GATED_ENFORCEMENT_FEATURE = "approval.enforcement"
+
 # A profile may pin the memory-tools runtime it binds. The pin repeats the
 # component table on purpose: the profile is what builds the isolated
 # environment, so a drift between the two must be a validation failure rather
@@ -205,6 +253,7 @@ def validate_manifest(manifest, repo_root=None, profile=None):
     errors += _validate_patches(manifest, repo_root)
     errors += _validate_features(manifest)
     errors += _validate_native_adapters(manifest)
+    errors += _validate_approval_evaluation(manifest, profile)
     errors += _validate_credentials(manifest)
     errors += _validate_default_profile(manifest)
     if profile is not None:
@@ -860,6 +909,174 @@ def _is_safe_relative_path(value):
     return not path.is_absolute() and ".." not in path.parts
 
 
+def _probability(value):
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and 0.0 <= value <= 1.0
+    )
+
+
+def _consent_is_operator_granted(manifest, profile, credential):
+    """True only when a supplied profile turns on the feature that consumes a consent.
+
+    ``consent`` is a credential field, so "not consented by default" means the
+    shipped manifest leaves it false and some profile explicitly enables the
+    feature that ``requires_consent`` names. Without a profile the value can only
+    be the default, so it never counts as an operator grant.
+    """
+    if profile is None:
+        return False
+    effective = _effective_features(manifest, profile)
+    return any(
+        effective.get(name) and spec.get("requires_consent") == credential
+        for name, spec in manifest.get("features", {}).items()
+    )
+
+
+def _validate_approval_evaluation(manifest, profile=None):
+    """Validate every declared evaluation record and require one per enforcement switch.
+
+    The record is what turns "enforcement stays disabled until declared evaluation
+    criteria are met" into something this validator can check: the two switches
+    exist and are ordered, the criteria are well-formed, the consent credential is
+    not granted by default, and the Guardian-only return covers every condition
+    that must fall back. A component that owns an enforcement switch without a
+    record is a missing gate, not an implicit permission.
+    """
+    errors = []
+    features = manifest.get("features", {})
+    credentials = manifest.get("credentials", {})
+    declaring = {}
+    for component in manifest.get("components", []):
+        if isinstance(component, dict) and "evaluation" in component:
+            declaring[component.get("id", "<missing id>")] = component["evaluation"]
+
+    gated = features.get(GATED_ENFORCEMENT_FEATURE)
+    enforce_owners = (
+        set(gated.get("components", [])) if isinstance(gated, dict) else set()
+    )
+    for component_id in sorted(enforce_owners):
+        if component_id not in declaring:
+            errors.append(
+                f"E_EVALUATION_MISSING: {component_id} owns an enforcement switch but "
+                "declares no evaluation record"
+            )
+
+    for component_id, record in sorted(declaring.items()):
+        if not isinstance(record, dict):
+            errors.append(
+                f"E_EVALUATION_SCHEMA: evaluation of {component_id} must be a JSON object"
+            )
+            continue
+        missing = sorted(EVALUATION_REQUIRED_KEYS - set(record))
+        if missing:
+            errors.append(
+                f"E_EVALUATION_SCHEMA: evaluation of {component_id} is missing keys: "
+                f"{', '.join(missing)}"
+            )
+            continue
+        unknown = sorted(set(record) - EVALUATION_REQUIRED_KEYS)
+        if unknown:
+            errors.append(
+                f"E_EVALUATION_SCHEMA: evaluation of {component_id} has unsupported keys: "
+                f"{', '.join(unknown)}"
+            )
+        shadow, enforce = record["shadow_switch"], record["enforce_switch"]
+        for switch in (shadow, enforce):
+            if switch not in features:
+                errors.append(
+                    f"E_EVALUATION_SWITCH: evaluation of {component_id} names unknown "
+                    f"feature {switch}"
+                )
+        enforce_spec = features.get(enforce)
+        if isinstance(enforce_spec, dict):
+            if enforce_spec.get("default") is not False:
+                errors.append(
+                    f"E_EVALUATION_SWITCH: {enforce} must default to false so enforcement "
+                    "stays disabled"
+                )
+            if shadow not in (enforce_spec.get("requires") or []):
+                errors.append(f"E_EVALUATION_SWITCH: {enforce} must require {shadow}")
+            if component_id not in (enforce_spec.get("components") or []):
+                errors.append(
+                    f"E_EVALUATION_SWITCH: {enforce} must be owned by {component_id}"
+                )
+        categories = record["opt_in_action_categories"]
+        if (
+            not isinstance(categories, list)
+            or not categories
+            or not all(isinstance(category, str) for category in categories)
+            or len(set(categories)) != len(categories)
+            or set(categories) - APPROVAL_ACTION_CATEGORIES
+        ):
+            errors.append(
+                f"E_EVALUATION_CATEGORY: evaluation of {component_id} must opt in to "
+                f"distinct action classes drawn from {sorted(APPROVAL_ACTION_CATEGORIES)}"
+            )
+        consent = record["remote_consent_credential"]
+        consent_spec = credentials.get(consent)
+        if not isinstance(consent_spec, dict):
+            errors.append(
+                f"E_EVALUATION_CONSENT: evaluation of {component_id} names unknown "
+                f"credential {consent}"
+            )
+        elif consent_spec.get("consent") is True and not _consent_is_operator_granted(
+            manifest, profile, consent
+        ):
+            errors.append(
+                f"E_EVALUATION_CONSENT: credential {consent} must not be consented by default"
+            )
+        guardian_only = record["guardian_only_on"]
+        if (
+            not isinstance(guardian_only, list)
+            or not all(isinstance(reason, str) for reason in guardian_only)
+            or REQUIRED_GUARDIAN_ONLY_REASONS - set(guardian_only)
+        ):
+            errors.append(
+                f"E_EVALUATION_STATE: evaluation of {component_id} must declare a "
+                "Guardian-only return for every required condition"
+            )
+        criteria = record["criteria"]
+        if not isinstance(criteria, dict):
+            errors.append(
+                f"E_EVALUATION_CRITERIA: evaluation of {component_id} criteria must be "
+                "a JSON object"
+            )
+            continue
+        if set(criteria) != EVALUATION_CRITERIA_KEYS:
+            errors.append(
+                f"E_EVALUATION_CRITERIA: evaluation of {component_id} must declare exactly "
+                f"{sorted(EVALUATION_CRITERIA_KEYS)}"
+            )
+            continue
+        for key in ("min_labeled_pairs", "min_scenario_families"):
+            value = criteria[key]
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                errors.append(
+                    f"E_EVALUATION_CRITERIA: evaluation of {component_id} {key} must be a "
+                    "positive integer"
+                )
+        for key in ("max_false_allow_rate", "max_disagreement_rate", "max_defer_rate"):
+            if not _probability(criteria[key]):
+                errors.append(
+                    f"E_EVALUATION_CRITERIA: evaluation of {component_id} {key} must be a "
+                    "probability"
+                )
+        if type(criteria["require_measured_latency"]) is not bool:
+            errors.append(
+                f"E_EVALUATION_CRITERIA: evaluation of {component_id} require_measured_latency "
+                "must be a boolean"
+            )
+        p95 = criteria["max_latency_p95_ms"]
+        if isinstance(p95, bool) or not isinstance(p95, (int, float)) or p95 <= 0:
+            errors.append(
+                f"E_EVALUATION_CRITERIA: evaluation of {component_id} max_latency_p95_ms must "
+                "be a positive number"
+            )
+    return errors
+
+
 def _guarded_host_blobs(manifest, repo_root, spec):
     """Compare the recorded guarded host blobs with the pinned base commit.
 
@@ -1054,5 +1271,42 @@ def check_component_revisions(manifest, components_root):
             errors.append(
                 f"E_COMPONENT_REVISION: local checkout of {component_id} is at "
                 f"{revisions[component_id]} but the manifest pins {component.get('revision')}"
+            )
+    return errors
+
+
+def check_approval_enforcement(manifest, mode="disabled"):
+    """Assert the approval enforcement gate is declared and enforcement is off.
+
+    ``disabled`` is the only supported state until the declared evaluation criteria
+    are met. This is a *state* check - the schema of the evaluation record itself is
+    ``_validate_approval_evaluation``'s job - so it reports only what the current
+    switch state has to be, and a caller can fail a lane rather than trust a
+    document.
+    """
+    errors = []
+    if mode != "disabled":
+        return [f"E_EVALUATION_MODE: unsupported approval enforcement mode {mode!r}"]
+    for name, spec in manifest.get("features", {}).items():
+        if isinstance(spec, dict) and name.endswith(".enforcement"):
+            if spec.get("default") is not False:
+                errors.append(
+                    f"E_EVALUATION_STATE: {name} defaults to {spec.get('default')!r}; "
+                    "enforcement must stay disabled"
+                )
+    components = {
+        component.get("id"): component
+        for component in manifest.get("components", [])
+        if isinstance(component, dict)
+    }
+    for component_id in sorted(
+        (manifest.get("features", {}).get(GATED_ENFORCEMENT_FEATURE) or {}).get(
+            "components", []
+        )
+    ):
+        if "evaluation" not in components.get(component_id, {}):
+            errors.append(
+                f"E_EVALUATION_MISSING: {component_id} owns {GATED_ENFORCEMENT_FEATURE} "
+                "but declares no evaluation record"
             )
     return errors

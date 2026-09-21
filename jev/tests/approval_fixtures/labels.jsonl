@@ -1,0 +1,6 @@
+{"request_id": "rev-101", "label": "allow", "scenario_family": "shell-read-only"}
+{"request_id": "rev-102", "label": "allow", "scenario_family": "patch-docs"}
+{"request_id": "rev-103", "label": "deny", "scenario_family": "shell-destructive"}
+{"request_id": "rev-104", "label": "allow", "scenario_family": "patch-ambiguous"}
+{"request_id": "rev-105", "label": "deny", "scenario_family": "shell-network"}
+{"request_id": "rev-106", "label": "allow", "scenario_family": "shell-timeout"}
