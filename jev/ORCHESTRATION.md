@@ -43,7 +43,7 @@ is incomplete, even when a concurrency slot is free.
 | #23 | Shadow comparison and controlled enforcement configuration | #81 | merged; issue closed; duplicate #83 closed, follow-up #85 filed |
 | #24 | Composed end-to-end regression harness | #89 | merged; issue closed |
 | #25 | Isolated offline and performance validation record | #90 | merged; issue closed |
-| #26 | Package compatibility, upgrade, and rollback workflow | #95 | merged; issue closed; follow-up #97 fixed by #99 and closed, follow-up #98 open |
+| #26 | Package compatibility, upgrade, and rollback workflow | #95 | merged; issue closed; follow-up #97 fixed by #99 and closed, follow-up #98 fixed by #106 |
 | #41 | Verify the fabric checkout revision against the pinned component | #44 | merged; issue closed |
 | #49 | Canonical capture CLI: report a zero-event capture gap | #64 | merged; issue closed |
 | #52 | Host proof is weaker than the component's own receipt validator | #65 | merged; issue closed by independent verification of the merge `f9ba672eeb` (the body closed the gaps; the issue was closed separately once that was verified) |
@@ -58,7 +58,7 @@ is incomplete, even when a concurrency slot is free.
 | #82 | repo-checks is red on `main`: prettier wants the README entry-point table realigned | #77 | merged; issue closed |
 | #85 | Bind the approval gate to the frozen holdout it was measured on | #88 | merged; issue closed; filed from #23 |
 | #97 | The platform gate credits a record whose revision is unresolvable in the local clone | #99 | merged; issue closed - the gate now treats an unresolvable revision as a stale record |
-| #98 | `--skip-roundtrip` removes the round-trip gate instead of emitting it as `not-run`, so `release_ready: true` is possible with the round trip never proven | — | open; filed from the phase-6 review |
+| #98 | `--skip-roundtrip` removes the round-trip gate instead of emitting it as `not-run`, so `release_ready: true` is possible with the round trip never proven | #106 | merged; issue closed - the skipped round trip is emitted as `not-run` and blocks readiness |
 
 State above is the GitHub state of each issue and PR, not a local plan.
 
@@ -66,8 +66,8 @@ State above is the GitHub state of each issue and PR, not a local plan.
 
 The reviewed commit is the head that passed review; the merge commit is what
 landed on `main`. Phases 3 to 6 are complete and merged: #24, #25, #26, and the
-phase-6 roll-up #101 all landed, and the phase-6.3 follow-up #97 was fixed by
-#99.
+phase-6 roll-up #101 all landed; the phase-6.3 follow-ups #97 and #98 were fixed
+by #99 and #106.
 
 | Issue | PR | Reviewed commit | Merge commit |
 | --- | --- | --- | --- |
@@ -103,6 +103,7 @@ phase-6 roll-up #101 all landed, and the phase-6.3 follow-up #97 was fixed by
 | #26 | #95 | `82a6225e0c` | `c312d4aaea` |
 | #8 | #101 | `4bae92664b` | `e987070cea` |
 | #97 | #99 | `8e08df38f6` | `30f04eecba` |
+| #98 | #106 | `be9c7e8889` | `f5c36fba48` |
 
 ## Pinned revisions
 
