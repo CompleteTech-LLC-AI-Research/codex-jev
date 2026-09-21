@@ -22,6 +22,8 @@ SELF_TEST = SMOKE_ROOT / "self_test.py"
 PROJECTION_SELF_TEST = SMOKE_ROOT / "self_test_projection.py"
 READ_TOOL_CHECKER = SMOKE_ROOT / "check_read_tool_projection.py"
 READ_TOOL_SELF_TEST = SMOKE_ROOT / "self_test_read_tool_projection.py"
+SENTINEL_CHECKER = SMOKE_ROOT / "check_sentinel_hook.py"
+SENTINEL_SELF_TEST = SMOKE_ROOT / "self_test_sentinel_hook.py"
 
 
 def load_module(name: str, path: Path):
@@ -29,6 +31,13 @@ def load_module(name: str, path: Path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _sources(module) -> str:
+    """The module's whole source, so an assertion can be looked for anywhere."""
+    import inspect
+
+    return inspect.getsource(module)
 
 
 class SmokeFixtureTests(unittest.TestCase):
@@ -48,6 +57,10 @@ class SmokeFixtureTests(unittest.TestCase):
             "check_read_tool_projection.py",
             "run-read-tool-projection-smoke.sh",
             "self_test_read_tool_projection.py",
+            "check_sentinel_hook.py",
+            "mock_sentinel_server.py",
+            "run-sentinel-hook-smoke.sh",
+            "self_test_sentinel_hook.py",
         ):
             with self.subTest(name=name):
                 self.assertTrue(
@@ -155,6 +168,55 @@ class SmokeFixtureTests(unittest.TestCase):
             f"{result.stdout}\n{result.stderr}",
         )
         self.assertIn("self-test ok", result.stdout)
+
+    def test_sentinel_hook_checker_asserts_the_boundary_properties(self):
+        checker = load_module("jev_smoke_check_sentinel_hook", SENTINEL_CHECKER)
+        # Every one of these names is a claim the #6 evidence rests on. A checker
+        # that dropped one would still pass a real run while proving less: the
+        # exact action was prevented, the host surfaced the component's reason,
+        # the record came from the wiring rather than the switches, the incident
+        # joins the component's own audit row, and no raw action text was stored.
+        for required in (
+            "enforce/exact-action-prevented",
+            "enforce/host-surfaced-the-reason",
+            "enforce/no-post-tool",
+            "shadow/observational",
+            "shadow/correlated-to-component",
+            "shadow/correlation-keys",
+            "shadow/no-raw-content",
+            "unwired/nothing-recorded",
+            "component/audit-rows-present",
+            "activation/installation-is-not-activation",
+            "activation/probe-activates-a-live-carrier",
+            "activation/probe-corroborated-by-the-host",
+            "activation/probe-incidents-are-journaled",
+            "activation/removal-deactivates",
+            "activation/removal-removes-the-carrier",
+        ):
+            with self.subTest(assertion=required):
+                self.assertTrue(
+                    required in checker.__doc__ or required in _sources(checker),
+                    f"the sentinel checker no longer asserts {required}",
+                )
+        # The unwired control is the only thing that separates "the wiring
+        # recorded this" from "the switches recorded this", so its absence has
+        # to be an assertion, not an assumption.
+        self.assertIn("unwired", _sources(checker))
+
+    def test_sentinel_hook_self_test_passes(self):
+        result = subprocess.run(
+            [sys.executable, str(SENTINEL_SELF_TEST)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            0,
+            result.returncode,
+            "jev/smoke/self_test_sentinel_hook.py failed:\n"
+            f"{result.stdout}\n{result.stderr}",
+        )
+        self.assertIn("all controls behaved", result.stdout)
 
 
 if __name__ == "__main__":
