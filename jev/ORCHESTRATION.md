@@ -23,7 +23,7 @@ is incomplete, even when a concurrency slot is free.
 | Issue | Scope | PR | State |
 | --- | --- | --- | --- |
 | #5 | Native Codex context projection through jev-bus (phase 3) | #47, #63, #64, #75, #79 | complete; issue closed |
-| #6 | Sentinel boundary checks and veto precedence (phase 4) | #60, #68, #80, #84, #91 | complete; issue closed |
+| #6 | Sentinel boundary checks and veto precedence (phase 4) | #60, #68, #80, #84, #91, #92 | complete; issue closed. Phase claim composed in #91 (`real-component`) and exercised through a launched host binary in #92 (`real-host-binary`) |
 | #7 | Native JEV approval preflight with Guardian fallback (phase 5) | #72, #74, #81 | complete; issue closed; follow-up #85 filed |
 | #8 | Validate and release the combined JEV Codex stack (phase 6) | #24, #25, #26 | open; phases 3-5 and #24/#25 merged, #26 claimed and in progress |
 | #9 | Compatibility manifest and integration contracts | #28, #31 | merged; issue closed |
@@ -63,8 +63,8 @@ State above is the GitHub state of each issue and PR, not a local plan.
 ## Merged commits
 
 The reviewed commit is the head that passed review; the merge commit is what
-landed on `main`. Phase 2 is complete: #12, #13, #14, and the #41 follow-up are
-merged.
+landed on `main`. Phases 3 to 5 are complete and phase 6 is partly merged: #24
+and #25 landed, and #26 is in flight.
 
 | Issue | PR | Reviewed commit | Merge commit |
 | --- | --- | --- | --- |
@@ -96,6 +96,7 @@ merged.
 | #25 | #90 | `af36a77fd9` | `392123ebe5` |
 | #85 | #88 | `e6e228cc97` | `d6f53c5e46` |
 | #6 | #91 | `259aacd12d` | `3ddf7345a9` |
+| #6 | #92 | `5a739b70e6` | `ed60a5b0e4` |
 
 ## Pinned revisions
 
@@ -168,6 +169,7 @@ ever added as a component.
 | A duplicate #23 implementation is consolidated into the merged change. | Two sessions implemented #23 at once: #81 (`approval_shadow.py`, `APPROVAL_SHADOW.md`, the manifest `evaluation` record, and the validator gate) and #83 (`shadow_comparison.py`, with digest-pinned calibration/holdout splits, a redaction audit over records and attached documents, a self-verifying report, and a declared-record precondition on the gate). Both added `.github/scripts/test_jev_shadow.py`, so only one could land. #81 merged first (`aef58a0c20`) and is the canonical artifact; #83 was closed with a cross-reference and its branch is kept as prior art rather than landed as a second shadow comparison. The one clause #81 leaves as procedure - the gate never binds a report to the frozen holdout it was measured on - is filed as #85 against the merged module, so the phase keeps one implementation and the residual gap keeps its own issue. |
 | The wired command is the host carrier itself, and its two failure halves are deliberately opposite. | `hooks.json` now runs `sentinel_boundary.py hook`, so the boundary the host invokes is the one it can read back, its stdout is the native hook response, and the component's `launch.py check` stays the only verdict source (`veto.handle` -> `observe` -> `check`). A payload the carrier cannot bound or parse, or a component it cannot resolve, is **fail-closed** in the component's own failure shape (`spawned: false`) and records **no** incident, so an unwired host cannot mint host evidence; the process itself is **fail-open** (always `json.dumps(response)`, exit 0), so a broken Sentinel cannot wedge the host's hook path. Installation merges rather than replaces (`hooks.json` keeps the Fabric entries and every unrelated key), is gated on the declared switches (`E_SWITCH_OFF` when both are off), pins `--state-dir` so the host journal is read back from the directory the carrier writes, and `--remove` needs neither a switch nor a resolvable component because uninstalling must always be possible. A carrier-wired stage is only credited as covered when the probe finds the host's correlated incident (`session_ref` and `content_sha256`) in the wired state dir, not merely the component's audit row. |
 | A conflict is classified before it is resolved. | The #61 rebase hit #77, which reformatted the four files #61 edits. `git diff -w` does not separate formatting from behaviour, because the formatter's line splits survive a whitespace-insensitive diff, so the conflict was classified by formatting the pre-#77 base with the same `ruff` and comparing the result byte-for-byte with post-#77 `main`: byte-identical means formatting-only, and the resolution is "keep this branch's content and re-run `ruff format`". A resolution that cannot be shown to be formatting-only is a behaviour change and needs its own review rather than a solve. |
+| Evidence tiers are a ladder, and a closed phase can still gain a higher rung. | #6 was closed by #91 at the `real-component` tier, which calls the carrier's Python API directly. #92 adds the `real-host-binary` rung for the same criteria: a launched `codex` process runs the wired command, so the host's own hook discovery, trust path and `PreToolUse` deny handling are in the loop rather than assumed. Landing it after the phase closed is an increase in what is proven, not a re-claim, and #92's body and evidence doc say so explicitly. The rung below never substitutes for the one above it, and neither is presented as live-provider evidence. |
 
 ## Evidence
 
@@ -191,6 +193,7 @@ ever added as a component.
 | [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md) | Bounded, read-only, metadata-only incident operations: the validated field set and the credential-rule refusal, the identifier-only failure report, the bounded scan and its saturation signal, correlation by content or identity, the non-executing disable plan, and the isolated-root policy view (#20). |
 | [`END_TO_END.md`](END_TO_END.md) | The composed end-to-end regression harness: one request lifecycle (capture → retrieval → screening → projection → collaboration → Sentinel/veto → approval → execution) consuming the previous step's artifact rather than re-deriving it, its negative set (stage failure, corrupt context, veto, cancellation, stale authorization, disabled components), the wire and side-effect assertions, and the tier labels - all offline and hermetic (#24). |
 | [`VALIDATION.md`](VALIDATION.md) | The validation record: the `offline-fixture`/`bus-stage-stub`/`component-stub` tiers, the `real-host-binary` run, the live tier left explicitly **not run** for want of consent and budget, the revisions exercised, and the baseline-versus-integrated performance measurement reporting correctness, payload bytes, latency, fallback rates, failures, and service usage without dropping unsuccessful cases (#25). |
+| [`evidence/sentinel-hook-real-host.md`](evidence/sentinel-hook-real-host.md) | The `real-host-binary` rung for #6: a launched host runs the wired carrier and is gated by it - shadow stays observational with three correlated incidents, enforce prevents the exact action before execution and the host quotes the component's reason, unwired records nothing under the same switches, and the coverage report says `activated: false` while three stages are wired, `true` only after a probe the host corroborates, and `false` again after `--remove` (#6). |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being
