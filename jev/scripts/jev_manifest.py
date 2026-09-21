@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from pathlib import PurePosixPath
 
 MANIFEST_VERSION = 1
 PROFILE_VERSION = 1
@@ -73,6 +74,24 @@ PATCH_REQUIRED_KEYS = {
 }
 
 PROFILE_KEYS = {"profile_version", "id", "description", "features", "fabric"}
+
+# A component that installs native source into the host tree declares exactly
+# one adapter record. The record is what makes "the port is present and wired"
+# a checkable statement instead of a claim in a document: it names the upstream
+# file, the installed file, the declarations the port must retain, and the two
+# guarded host blobs the installer refuses to modify.
+NATIVE_ADAPTER_REQUIRED_KEYS = {
+    "source",
+    "source_sha256",
+    "installed",
+    "implements",
+    "feature",
+    "installed_anchors",
+    "module_declaration",
+    "call_site",
+    "guarded_host_revision",
+    "guarded_host_blobs",
+}
 
 # A profile may pin the memory-tools runtime it binds. The pin repeats the
 # component table on purpose: the profile is what builds the isolated
@@ -172,6 +191,7 @@ def validate_manifest(manifest, repo_root=None, profile=None):
     errors += _validate_ownership(manifest)
     errors += _validate_patches(manifest, repo_root)
     errors += _validate_features(manifest)
+    errors += _validate_native_adapters(manifest)
     errors += _validate_credentials(manifest)
     errors += _validate_default_profile(manifest)
     if profile is not None:
@@ -673,6 +693,230 @@ def _validate_fabric_pin(manifest, profile):
             errors.append(
                 f"E_PROFILE_SCHEMA: fabric pin {key} must be a non-empty string"
             )
+    return errors
+
+
+def _native_adapter_specs(manifest):
+    """Return ``[(component id, adapter record)]`` for every declared adapter."""
+    specs = []
+    for component in manifest.get("components", []):
+        if not isinstance(component, dict):
+            continue
+        spec = component.get("native_source_adapter")
+        if spec is not None:
+            specs.append((component.get("id", "<missing id>"), spec))
+    return specs
+
+
+def _validate_native_adapters(manifest):
+    """Validate the native source adapter declarations and their feature link."""
+    errors = []
+    components = manifest.get("components", [])
+    by_id = {
+        component.get("id"): component
+        for component in components
+        if isinstance(component, dict)
+    }
+    features = manifest.get("features") or {}
+    for component_id, spec in _native_adapter_specs(manifest):
+        if not isinstance(spec, dict):
+            errors.append(
+                f"E_NATIVE_ADAPTER_SCHEMA: component {component_id} declares a native_source_adapter that is not a JSON object"
+            )
+            continue
+        missing = sorted(NATIVE_ADAPTER_REQUIRED_KEYS - set(spec))
+        if missing:
+            errors.append(
+                f"E_NATIVE_ADAPTER_SCHEMA: adapter of component {component_id} is missing keys: {', '.join(missing)}"
+            )
+            continue
+        providers = by_id.get(component_id, {}).get("provides") or []
+        implements = spec["implements"]
+        if not isinstance(implements, str) or implements not in manifest.get(
+            "interfaces", {}
+        ):
+            errors.append(
+                f"E_NATIVE_ADAPTER_INTERFACE: adapter of component {component_id} implements undeclared interface {implements!r}"
+            )
+        elif implements not in providers:
+            errors.append(
+                f"E_NATIVE_ADAPTER_INTERFACE: component {component_id} declares a native adapter for "
+                f"{implements} but does not provide that interface"
+            )
+        feature = features.get(spec["feature"])
+        if not isinstance(feature, dict):
+            errors.append(
+                f"E_NATIVE_ADAPTER_FEATURE: adapter of component {component_id} names unknown feature {spec['feature']!r}"
+            )
+        else:
+            if component_id not in (feature.get("components") or []):
+                errors.append(
+                    f"E_NATIVE_ADAPTER_FEATURE: adapter of component {component_id} names feature "
+                    f"{spec['feature']}, which does not list that component"
+                )
+            if feature.get("default") is not False:
+                errors.append(
+                    f"E_NATIVE_ADAPTER_FEATURE: native adapter of component {component_id} must sit behind a "
+                    f"default-off switch, but {spec['feature']} defaults to {feature.get('default')!r}"
+                )
+        if not SHA256_RE.match(str(spec["source_sha256"])):
+            errors.append(
+                f"E_NATIVE_ADAPTER_HASH: adapter of component {component_id} must record a lowercase sha256 of its upstream source"
+            )
+        if not REVISION_RE.match(str(spec["guarded_host_revision"])):
+            errors.append(
+                f"E_NATIVE_ADAPTER_SCHEMA: adapter of component {component_id} must pin a 40-character guarded host revision"
+            )
+        elif spec["guarded_host_revision"] != manifest.get("host", {}).get(
+            "base_commit"
+        ):
+            errors.append(
+                f"E_NATIVE_ADAPTER_GUARD_REV: adapter of component {component_id} guards host revision "
+                f"{spec['guarded_host_revision']} but the manifest pins host base {manifest.get('host', {}).get('base_commit')}"
+            )
+        blobs = spec["guarded_host_blobs"]
+        if not isinstance(blobs, dict) or not blobs:
+            errors.append(
+                f"E_NATIVE_ADAPTER_SCHEMA: adapter of component {component_id} must record the guarded host blobs it was applied to"
+            )
+        else:
+            for path, digest in blobs.items():
+                if not _is_safe_relative_path(path) or not REVISION_RE.match(
+                    str(digest)
+                ):
+                    errors.append(
+                        f"E_NATIVE_ADAPTER_SCHEMA: adapter of component {component_id} records an invalid guarded blob {path!r}"
+                    )
+        for field in (
+            spec["installed"],
+            spec["module_declaration"].get("file"),
+            spec["call_site"].get("file"),
+        ):
+            if not isinstance(field, str) or not _is_safe_relative_path(field):
+                errors.append(
+                    f"E_NATIVE_ADAPTER_SCHEMA: adapter of component {component_id} names an unsafe or missing path {field!r}"
+                )
+        anchors = spec["installed_anchors"]
+        if (
+            not isinstance(anchors, list)
+            or not anchors
+            or not all(isinstance(anchor, str) and anchor for anchor in anchors)
+        ):
+            errors.append(
+                f"E_NATIVE_ADAPTER_SCHEMA: adapter of component {component_id} must list non-empty installed anchors"
+            )
+        if not str(spec["module_declaration"].get("anchor", "")) or not all(
+            isinstance(anchor, str) and anchor
+            for anchor in (spec["call_site"].get("anchors") or [])
+        ):
+            errors.append(
+                f"E_NATIVE_ADAPTER_SCHEMA: adapter of component {component_id} must name the module declaration and call-site anchors it installs"
+            )
+    return errors
+
+
+def _is_safe_relative_path(value):
+    """A declared path must be a non-empty relative path that cannot escape the root."""
+    if not isinstance(value, str) or not value:
+        return False
+    path = PurePosixPath(value)
+    return not path.is_absolute() and ".." not in path.parts
+
+
+def _guarded_host_blobs(manifest, repo_root, spec):
+    """Compare the recorded guarded host blobs with the pinned base commit.
+
+    The installer refuses to touch these files, so the guard is only meaningful
+    against the revision it was applied to. When that commit is not present in
+    the local object database (a shallow clone), the check reports nothing
+    rather than guessing: the anchors below still fail closed.
+
+    A guarded blob is recorded as a Git blob id, so the comparison hashes the
+    shown content the same way Git does, header included.
+    """
+    errors = []
+    revision = str(spec["guarded_host_revision"])
+    blobs = spec["guarded_host_blobs"]
+    probe = subprocess.run(
+        ["git", "-C", str(repo_root), "cat-file", "-e", f"{revision}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if probe.returncode != 0:
+        return errors
+    for path, digest in sorted(blobs.items()):
+        show = subprocess.run(
+            ["git", "-C", str(repo_root), "show", f"{revision}:{path}"],
+            capture_output=True,
+            check=False,
+        )
+        if show.returncode != 0:
+            errors.append(
+                f"E_NATIVE_ADAPTER_BLOB: guarded host file {path} is not readable at {revision}"
+            )
+            continue
+        actual = hashlib.sha1(b"blob %d\0" % len(show.stdout) + show.stdout).hexdigest()
+        if actual != digest:
+            errors.append(
+                f"E_NATIVE_ADAPTER_BLOB: guarded host file {path} is {actual} at {revision} "
+                f"but the adapter records {digest}"
+            )
+    return errors
+
+
+def check_native_adapter(manifest, repo_root, expected):
+    """Check the declared native source adapter against this checkout.
+
+    ``applied`` asserts the port is installed and wired exactly where the
+    declaration says; ``absent`` asserts the port was removed again, which is
+    what a rollback has to prove.
+    """
+    repo_root = Path(repo_root)
+    specs = _native_adapter_specs(manifest)
+    if not specs:
+        return ["E_NATIVE_ADAPTER_DECL: the manifest declares no native source adapter"]
+    errors = []
+    for component_id, spec in specs:
+        if not isinstance(spec, dict):
+            continue
+        installed = repo_root / spec["installed"]
+        module = spec["module_declaration"]
+        call_site = spec["call_site"]
+        checks = [
+            (spec["installed"], spec["installed_anchors"]),
+            (module.get("file"), [module.get("anchor")]),
+            (call_site.get("file"), call_site.get("anchors") or []),
+        ]
+        if expected == "applied":
+            for relative, anchors in checks:
+                path = repo_root / relative
+                if not path.is_file():
+                    errors.append(
+                        f"E_NATIVE_ADAPTER_STATE: {relative} is missing; the declared native adapter of "
+                        f"{component_id} is not applied"
+                    )
+                    continue
+                text = path.read_text(encoding="utf-8", errors="replace")
+                for anchor in anchors:
+                    if anchor not in text:
+                        errors.append(
+                            f"E_NATIVE_ADAPTER_ANCHOR: {relative} does not contain the declared anchor {anchor!r}"
+                        )
+            if installed.is_file():
+                errors += _guarded_host_blobs(manifest, repo_root, spec)
+        else:
+            for relative, anchors in checks:
+                path = repo_root / relative
+                if not path.is_file():
+                    continue
+                text = path.read_text(encoding="utf-8", errors="replace")
+                for anchor in anchors:
+                    if anchor in text:
+                        errors.append(
+                            f"E_NATIVE_ADAPTER_STATE: {relative} still contains {anchor!r}, so the native "
+                            f"adapter declared by {component_id} is still applied"
+                        )
     return errors
 
 

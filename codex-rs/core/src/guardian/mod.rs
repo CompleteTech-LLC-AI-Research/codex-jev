@@ -7,6 +7,7 @@ mod coverage;
 mod decision;
 mod feedback;
 mod input_budget;
+mod jev;
 mod prompt;
 pub(crate) use input_budget::PendingReviewContext;
 pub(crate) use input_budget::check_pending as check_pending_guardian_input;

@@ -43,6 +43,12 @@ def parse_args(argv):
         help="Assert that every manifest patch is applied to (or absent from) this checkout.",
     )
     parser.add_argument(
+        "--native-adapter",
+        choices=["applied", "absent"],
+        default=None,
+        help="Assert that the declared native source adapter is installed and wired (or removed).",
+    )
+    parser.add_argument(
         "--check-checkout",
         action="store_true",
         help="Assert that HEAD is the pinned host base commit.",
@@ -83,6 +89,10 @@ def main(argv=None):
     )
     if args.patch_state:
         errors += jev_manifest.check_patch_state(manifest, repo_root, args.patch_state)
+    if args.native_adapter:
+        errors += jev_manifest.check_native_adapter(
+            manifest, repo_root, args.native_adapter
+        )
     if args.check_checkout:
         errors += jev_manifest.check_checkout(manifest, repo_root)
     if args.components_root:

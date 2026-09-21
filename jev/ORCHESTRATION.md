@@ -42,7 +42,8 @@ is incomplete, even when a concurrency slot is free.
 | #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | — | open; CI lane |
 | #70 | Run the real host binary to show projected outgoing content and exact reset | — | open; from #5 criterion 3 |
 | #19–#20 | Sentinel veto precedence, retrieval screening, incident operations | — | open; blocked by #18 |
-| #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
+| #21 | Port and compile the pinned native approval adapter | — | in review |
+| #22–#23 | Action binding and freshness, shadow comparison | — | open; blocked by #21 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
 
 State above is the GitHub state of each issue and PR, not a local plan.
@@ -120,6 +121,8 @@ ever added as a component.
 | A payload the host cannot bound is refused, never truncated. | A normalized event above the component's own input limit (`MAX_INPUT`) or content above the policy's `max_content_bytes` is not forwarded; the host records a fail-closed `REVIEW` incident (`backend="host_boundary"`) instead, because a shortened prompt would be assessed as if complete. |
 | Bypass surfaces are reported, not assumed away. | `coverage.bypass_surfaces` names each observed way a finding is skipped or an action left ungated — `native_disable_all_hooks`, `hook_not_wired`, `launcher_unreachable`, `tools_outside_matcher`/`matcher_opaque`, `post_tool_replacement_unsupported`, `ingress_scope_is_prompt_only`, `local_rules_only`, `host_trust_unverified`, `component_revision_mismatch`, `integration_switch_off` — so the uncovered space is explicit. Only a canary through the wired command can show a hook is active, because a shadow response is `{}`. |
 | The manifest pin names the pre-patch base; merged revisions are recorded in this ledger. | The `codex-jev` manifest `revision` is the tree the ordered patches apply to, so it must equal `host.base_commit`. A merged revision already contains patch `0002`, so pinning it would make `apply-patches.py` fail and invalidate every profile. Merged revisions therefore live in the *Merged commits* table, and the applied tree is proved by `verify-manifest.py --patch-state applied`. |
+| A ported native adapter is declared, not described. | `jev-codex-approval` ships its Codex adapter as source that its authors never compiled. The port is recorded in the manifest as an installed file, the module declaration and call site it creates, and the two guarded host blobs it was applied to, so `verify-manifest.py --native-adapter` can prove the port is present and wired - and prove it is gone after a rollback - instead of relying on a document. |
+| An eligible preflight may replace one synchronous review attempt, and nothing else. | Concurrency, escalation, retries, mandatory review, non-eligible action classes, incomplete context, and any change of policy text or authorization version all return `None` and run the unchanged Guardian path. Enforcement stays off, and the host re-checks the low-risk boundary itself rather than trusting the engine's own policy. |
 
 ## Evidence
 
@@ -134,6 +137,7 @@ ever added as a component.
 | [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) | Duplicate-read proof receipts: the receipt the host proves, the reasons it reverts, and the enforcement invariants (#16). |
 | [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md) | Approved, reversible Fabric prose views: the snapshot binding, preview/apply/reset, the eligibility rules, and the byte/token split (#17). |
 | [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) | The Sentinel hook boundary: the three events, the two switches, the payload bound and refusal, effective coverage, the activation probe, the incident envelope, and the bypass surfaces (#18). |
+| [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) | The ported native approval adapter: the guarded host blobs, the environment and switch contract, eligibility and deferral, and the offline-fixture plus static host compile evidence (#21). |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being

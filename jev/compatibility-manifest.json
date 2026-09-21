@@ -179,7 +179,36 @@
       "provides": ["approval_preflight"],
       "requires_interfaces": {"approval_preflight": 1, "event_envelope": 1},
       "owns": ["jev_approval/", "adapters/"],
-      "test_command": "python3 -m pytest -q tests"
+      "test_command": "python3 -m pytest -q tests",
+      "native_source_adapter": {
+        "source": "adapters/codex-native/jev.rs",
+        "source_sha256": "37d3a1dddf32d26f18a5149b6ed39ab8d27be10f6af9132f6a5889ccafb23f43",
+        "installed": "codex-rs/core/src/guardian/jev.rs",
+        "implements": "approval_preflight",
+        "feature": "approval.preflight",
+        "installed_anchors": [
+          "const PREFLIGHT_SWITCH: &str = \"approval.preflight\";",
+          "fn action_is_guardian_owned(request: &GuardianApprovalRequest) -> bool {",
+          "fn assessment(response: &Value, request_id: &str) -> Option<GuardianAssessment> {",
+          "pub(super) async fn review("
+        ],
+        "module_declaration": {
+          "file": "codex-rs/core/src/guardian/mod.rs",
+          "anchor": "mod jev;"
+        },
+        "call_site": {
+          "file": "codex-rs/core/src/guardian/review_request.rs",
+          "anchors": [
+            "jev_review_id",
+            "super::super::jev::review("
+          ]
+        },
+        "guarded_host_revision": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+        "guarded_host_blobs": {
+          "codex-rs/core/src/guardian/mod.rs": "c8765943a57d65eb1186133d584cbf70bc0989b0",
+          "codex-rs/core/src/guardian/review_request.rs": "3ac51383012724857723385974c5a8c15ba87c5a"
+        }
+      }
     }
   ],
   "features": {

@@ -404,5 +404,184 @@ class CheckoutTests(unittest.TestCase):
             self.assertEqual(jev_manifest.check_component_revisions(manifest, root), [])
 
 
+class NativeAdapterTests(unittest.TestCase):
+    """The declared native source adapter must be present, wired, and guarded."""
+
+    INSTALLED = "codex-rs/core/src/guardian/jev.rs"
+    MODULE = "codex-rs/core/src/guardian/mod.rs"
+    CALL_SITE = "codex-rs/core/src/guardian/review_request.rs"
+
+    def _write_tree(self, root, installed=True, wired=True):
+        spec = component(load_manifest(), "jev-codex-approval")["native_source_adapter"]
+        if not installed:
+            return spec
+        body = "//! ported adapter\n" if wired else "//! unrelated\n"
+        if wired:
+            body += "\n".join(spec["installed_anchors"]) + "\n"
+        target = root / self.INSTALLED
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+        module_anchor = spec["module_declaration"]["anchor"] if wired else "mod other;"
+        (root / self.MODULE).write_text(f"{module_anchor}\n", encoding="utf-8")
+        call_site = "\n".join(spec["call_site"]["anchors"]) if wired else "review();"
+        (root / self.CALL_SITE).write_text(f"{call_site}\n", encoding="utf-8")
+        return spec
+
+    def test_shipped_adapter_is_declared_and_wired(self):
+        manifest = load_manifest()
+        self.assertEqual(jev_manifest.validate_manifest(manifest), [])
+        self.assertEqual(
+            jev_manifest.check_native_adapter(manifest, REPO_ROOT, "applied"), []
+        )
+
+    def test_applied_adapter_requires_every_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_tree(root, wired=False)
+            errors = jev_manifest.check_native_adapter(load_manifest(), root, "applied")
+            self.assertIn("E_NATIVE_ADAPTER_ANCHOR", codes(errors))
+            self._write_tree(root)
+            self.assertEqual(
+                jev_manifest.check_native_adapter(load_manifest(), root, "applied"),
+                [],
+            )
+
+    def test_missing_installed_file_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_tree(root, installed=False)
+            errors = jev_manifest.check_native_adapter(load_manifest(), root, "applied")
+            self.assertIn("E_NATIVE_ADAPTER_STATE", codes(errors))
+
+    def test_absent_adapter_must_not_carry_any_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_tree(root)
+            self.assertIn(
+                "E_NATIVE_ADAPTER_STATE",
+                codes(
+                    jev_manifest.check_native_adapter(load_manifest(), root, "absent")
+                ),
+            )
+            (root / self.INSTALLED).unlink()
+            (root / self.MODULE).write_text("mod review;\n", encoding="utf-8")
+            (root / self.CALL_SITE).write_text("review();\n", encoding="utf-8")
+            self.assertEqual(
+                jev_manifest.check_native_adapter(load_manifest(), root, "absent"), []
+            )
+
+    def test_guarded_blobs_are_compared_against_the_pinned_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._git_init(root)
+            for relative in (self.MODULE, self.CALL_SITE):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("guarded\n", encoding="utf-8")
+            self._git(root, "add", "-A")
+            self._git(root, "commit", "-qm", "guarded base")
+            revision = self._git(root, "rev-parse", "HEAD").stdout.strip()
+            self._write_tree(root)
+            manifest = load_manifest()
+            spec = component(manifest, "jev-codex-approval")["native_source_adapter"]
+            manifest["host"]["base_commit"] = revision
+            spec["guarded_host_revision"] = revision
+            spec["guarded_host_blobs"] = {
+                path: self._git(root, "rev-parse", f"HEAD:{path}").stdout.strip()
+                for path in (self.MODULE, self.CALL_SITE)
+            }
+            self.assertEqual(
+                jev_manifest.check_native_adapter(manifest, root, "applied"), []
+            )
+            spec["guarded_host_blobs"][self.MODULE] = "0" * 40
+            self.assertIn(
+                "E_NATIVE_ADAPTER_BLOB",
+                codes(jev_manifest.check_native_adapter(manifest, root, "applied")),
+            )
+            # An unavailable revision is reported as not-checkable, never as a pass.
+            spec["guarded_host_revision"] = "1" * 40
+            self.assertEqual(
+                jev_manifest.check_native_adapter(manifest, root, "applied"), []
+            )
+
+    def test_declaration_must_guard_the_pinned_host_revision(self):
+        manifest = load_manifest()
+        component(manifest, "jev-codex-approval")["native_source_adapter"][
+            "guarded_host_revision"
+        ] = "1" * 40
+        self.assertIn(
+            "E_NATIVE_ADAPTER_GUARD_REV",
+            codes(jev_manifest.validate_manifest(manifest)),
+        )
+
+    def test_declaration_must_name_its_owning_feature(self):
+        manifest = load_manifest()
+        manifest["features"]["approval.preflight"]["components"] = ["codex-jev"]
+        self.assertIn(
+            "E_NATIVE_ADAPTER_FEATURE", codes(jev_manifest.validate_manifest(manifest))
+        )
+        manifest = load_manifest()
+        component(manifest, "jev-codex-approval")["native_source_adapter"][
+            "feature"
+        ] = "sentinel.shadow"
+        self.assertIn(
+            "E_NATIVE_ADAPTER_FEATURE", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_declaration_must_sit_behind_a_default_off_switch(self):
+        manifest = load_manifest()
+        manifest["features"]["approval.preflight"]["default"] = True
+        self.assertIn(
+            "E_NATIVE_ADAPTER_FEATURE", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_declaration_requires_its_provided_interface(self):
+        manifest = load_manifest()
+        component(manifest, "jev-codex-approval")["provides"] = ["event_envelope"]
+        self.assertIn(
+            "E_NATIVE_ADAPTER_INTERFACE",
+            codes(jev_manifest.validate_manifest(manifest)),
+        )
+        manifest = load_manifest()
+        component(manifest, "jev-codex-approval")["native_source_adapter"][
+            "implements"
+        ] = "jev_bus"
+        self.assertIn(
+            "E_NATIVE_ADAPTER_INTERFACE",
+            codes(jev_manifest.validate_manifest(manifest)),
+        )
+
+    def test_incomplete_declaration_is_rejected(self):
+        manifest = load_manifest()
+        del component(manifest, "jev-codex-approval")["native_source_adapter"][
+            "guarded_host_blobs"
+        ]
+        self.assertIn(
+            "E_NATIVE_ADAPTER_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_digest_and_path_rules_are_enforced(self):
+        manifest = load_manifest()
+        spec = component(manifest, "jev-codex-approval")["native_source_adapter"]
+        spec["source_sha256"] = "not-a-digest"
+        spec["installed"] = "/etc/passwd"
+        self.assertIn(
+            "E_NATIVE_ADAPTER_HASH", codes(jev_manifest.validate_manifest(manifest))
+        )
+        self.assertIn(
+            "E_NATIVE_ADAPTER_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def _git_init(self, root):
+        self._git(root, "init", "-q")
+        self._git(root, "config", "user.email", "tests@example.invalid")
+        self._git(root, "config", "user.name", "Integration Tests")
+
+    def _git(self, root, *args):
+        return subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True, check=True
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
