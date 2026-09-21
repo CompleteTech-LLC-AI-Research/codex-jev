@@ -418,6 +418,15 @@ class NativeAdapterTests(unittest.TestCase):
         body = "//! ported adapter\n" if wired else "//! unrelated\n"
         if wired:
             body += "\n".join(spec["installed_anchors"]) + "\n"
+            # A port is only wired if it binds the answers it accepts, so the
+            # fixture performs the same lookups the declaration names.
+            body += (
+                "\n".join(
+                    jev_manifest._answer_binding_lookup(field)
+                    for field in spec["answer_binding_fields"]
+                )
+                + "\n"
+            )
         target = root / self.INSTALLED
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(body, encoding="utf-8")
@@ -568,6 +577,68 @@ class NativeAdapterTests(unittest.TestCase):
         self.assertIn(
             "E_NATIVE_ADAPTER_HASH", codes(jev_manifest.validate_manifest(manifest))
         )
+        self.assertIn(
+            "E_NATIVE_ADAPTER_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_declaration_must_bind_every_answer_field_the_component_checks(self):
+        # The component's own transport refuses an answer whose request id,
+        # snapshot hash, policy hash or question hash does not match, so a port
+        # that binds fewer fields is weaker than the component it ports (#22).
+        for field in sorted(jev_manifest.REQUIRED_ANSWER_BINDING_FIELDS):
+            with self.subTest(field=field):
+                manifest = load_manifest()
+                spec = component(manifest, "jev-codex-approval")[
+                    "native_source_adapter"
+                ]
+                spec["answer_binding_fields"] = [
+                    declared
+                    for declared in spec["answer_binding_fields"]
+                    if declared != field
+                ]
+                self.assertIn(
+                    "E_NATIVE_ADAPTER_BINDING",
+                    codes(jev_manifest.validate_manifest(manifest)),
+                )
+
+    def test_installed_file_must_perform_each_declared_lookup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_tree(root)
+            installed = root / self.INSTALLED
+            installed.write_text(
+                installed.read_text(encoding="utf-8").replace(
+                    jev_manifest._answer_binding_lookup("snapshot_hash"), "response.get"
+                ),
+                encoding="utf-8",
+            )
+            errors = jev_manifest.check_native_adapter(load_manifest(), root, "applied")
+            self.assertIn("E_NATIVE_ADAPTER_BINDING", codes(errors))
+
+    def test_declaration_must_pin_a_wellformed_question_set_digest(self):
+        manifest = load_manifest()
+        spec = component(manifest, "jev-codex-approval")["native_source_adapter"]
+        spec["question_hash"] = "not-a-digest"
+        self.assertIn(
+            "E_NATIVE_ADAPTER_HASH", codes(jev_manifest.validate_manifest(manifest))
+        )
+        del spec["question_hash"]
+        self.assertIn(
+            "E_NATIVE_ADAPTER_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
+        )
+
+    def test_declaration_must_expose_the_binding_it_requires(self):
+        manifest = load_manifest()
+        spec = component(manifest, "jev-codex-approval")["native_source_adapter"]
+        spec["answer_binding_fields"] = "request_id"
+        self.assertIn(
+            "E_NATIVE_ADAPTER_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
+        )
+        spec["answer_binding_fields"] = []
+        self.assertIn(
+            "E_NATIVE_ADAPTER_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
+        )
+        spec["answer_binding_fields"] = ["request_id", "request_id"]
         self.assertIn(
             "E_NATIVE_ADAPTER_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
         )

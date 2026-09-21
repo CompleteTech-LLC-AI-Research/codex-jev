@@ -183,13 +183,21 @@
       "native_source_adapter": {
         "source": "adapters/codex-native/jev.rs",
         "source_sha256": "37d3a1dddf32d26f18a5149b6ed39ab8d27be10f6af9132f6a5889ccafb23f43",
+        "question_hash": "cf231ce0f334b53ddbeea0c25bc1e83e68c168b9ee641386d8720349f4f8c6ed",
         "installed": "codex-rs/core/src/guardian/jev.rs",
         "implements": "approval_preflight",
         "feature": "approval.preflight",
+        "answer_binding_fields": [
+          "request_id",
+          "policy_hash",
+          "snapshot_hash",
+          "question_hash"
+        ],
         "installed_anchors": [
           "const PREFLIGHT_SWITCH: &str = \"approval.preflight\";",
+          "const APPROVED_QUESTION_HASH: &str =",
           "fn action_is_guardian_owned(request: &GuardianApprovalRequest) -> bool {",
-          "fn assessment(response: &Value, request_id: &str) -> Option<GuardianAssessment> {",
+          "fn canonical_json(value: &Value, out: &mut String) {",
           "pub(super) async fn review("
         ],
         "module_declaration": {

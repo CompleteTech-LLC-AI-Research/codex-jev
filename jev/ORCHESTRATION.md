@@ -42,8 +42,9 @@ is incomplete, even when a concurrency slot is free.
 | #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | — | open; CI lane |
 | #70 | Run the real host binary to show projected outgoing content and exact reset | — | in review; from #5 criterion 3 |
 | #19–#20 | Sentinel veto precedence, retrieval screening, incident operations | — | open; blocked by #18 |
-| #21 | Port and compile the pinned native approval adapter | #72 | in review |
-| #22–#23 | Action binding and freshness, shadow comparison | — | open; blocked by #21 |
+| #21 | Port and compile the pinned native approval adapter | #72 | merged; issue closed |
+| #22 | Verify action binding, freshness, and fallback | — | in review; filed from #21 |
+| #23 | Shadow comparison and controlled enforcement configuration | — | open; blocked by #22 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
 
 State above is the GitHub state of each issue and PR, not a local plan.
@@ -67,6 +68,7 @@ merged.
 | #49 | #64 | `842d99d216` | `186198d3fe` |
 | #55 | #63 | `0c10851a79` | `dad9e5ad1e` |
 | #52 | #65 | `0ad456b527` | `f9ba672eeb` |
+| #21 | #72 | `1e03adbaa` | `8ca45b6a7a` |
 
 ## Pinned revisions
 
@@ -123,6 +125,7 @@ ever added as a component.
 | The manifest pin names the pre-patch base; merged revisions are recorded in this ledger. | The `codex-jev` manifest `revision` is the tree the ordered patches apply to, so it must equal `host.base_commit`. A merged revision already contains patch `0002`, so pinning it would make `apply-patches.py` fail and invalidate every profile. Merged revisions therefore live in the *Merged commits* table, and the applied tree is proved by `verify-manifest.py --patch-state applied`. |
 | A ported native adapter is declared, not described. | `jev-codex-approval` ships its Codex adapter as source that its authors never compiled. The port is recorded in the manifest as an installed file, the module declaration and call site it creates, and the two guarded host blobs it was applied to, so `verify-manifest.py --native-adapter` can prove the port is present and wired - and prove it is gone after a rollback - instead of relying on a document. |
 | An eligible preflight may replace one synchronous review attempt, and nothing else. | Concurrency, escalation, retries, mandatory review, non-eligible action classes, incomplete context, and any change of policy text or authorization version all return `None` and run the unchanged Guardian path. Enforcement stays off, and the host re-checks the low-risk boundary itself rather than trusting the engine's own policy. |
+| A port may not accept a weaker answer binding than the component it ports. | `jev-codex-approval`'s own transport refuses an answer whose `request_id`, `snapshot_hash`, `policy_hash` or `question_hash` does not match what it sent (`daemon_response_binding_mismatch`), but the first port checked only the request id, so it would have accepted a decision computed for another action, policy, or question set under a reused review id. #22 binds all four, records the approved question set as a manifest pin the host cannot recompute, and pins the canonical form with digests the component computes so the two implementations cannot drift apart unobserved. |
 
 ## Evidence
 
@@ -138,7 +141,7 @@ ever added as a component.
 | [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) | Duplicate-read proof receipts: the receipt the host proves, the reasons it reverts, and the enforcement invariants (#16). |
 | [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md) | Approved, reversible Fabric prose views: the snapshot binding, preview/apply/reset, the eligibility rules, and the byte/token split (#17). |
 | [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) | The Sentinel hook boundary: the three events, the two switches, the payload bound and refusal, effective coverage, the activation probe, the incident envelope, and the bypass surfaces (#18). |
-| [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) | The ported native approval adapter: the guarded host blobs, the environment and switch contract, eligibility and deferral, and the offline-fixture plus static host compile evidence (#21). |
+| [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) | The ported native approval adapter: the guarded host blobs, the environment and switch contract, eligibility and deferral, the accepted answer's binding to this exact request and policy, the freshness re-derivation, and the offline-fixture plus static host compile evidence (#21, #22). |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being
