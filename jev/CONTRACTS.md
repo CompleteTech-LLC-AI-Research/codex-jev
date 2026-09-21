@@ -57,9 +57,13 @@ request.
 ## C4 — Approved views are reversible
 
 An approved prose-view plan is bound to the post-dedup snapshot and is rejected
-if that snapshot changed. Preview, apply, and reset use the existing package
-approval semantics. Native compaction keeps working; byte counts and measured
-tokens are reported separately and never conflated.
+if that snapshot changed. Preview, apply, and reset are **host-owned**, in
+`jev/scripts/fabric_views.py`, with semantics equivalent to the package's own
+`paging.plan` / `apply` / `reset`. The carrier does not consult the component's
+own stored approval, so approving through the component's CLI (`prune-apply
+<id> --enable-native`) does not cause the boundary to remove anything; only a
+view the host previewed and approved does. Native compaction keeps working; byte
+counts and measured tokens are reported separately and never conflated.
 
 The host's carrier is `jev/scripts/fabric_views.py`, the second half of the
 boundary in `C2`. See [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md).

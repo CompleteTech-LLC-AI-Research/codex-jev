@@ -2,8 +2,12 @@
 
 This document records the host half of contract `C4` in
 [`CONTRACTS.md`](CONTRACTS.md): an approved prose-view plan is bound to the
-post-dedup snapshot, preview/apply/reset follow the package approval semantics,
-and byte counts and token figures are reported separately. It backs issue
+post-dedup snapshot, preview/apply/reset are host-owned with semantics
+equivalent to the package's own, and byte counts and token figures are reported
+separately. The component's own stored approval is **not** consulted by the
+carrier: an operator who approves through `jev-context-fabric`'s own CLI changes
+nothing at the boundary, because a component's claim is never taken on its own
+word (`C3`). It backs issue
 [#17](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/17) and the
 stage-200 half of contract `C2`.
 

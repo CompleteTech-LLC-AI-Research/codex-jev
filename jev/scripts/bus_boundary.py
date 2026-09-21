@@ -119,11 +119,24 @@ def _fingerprint(messages) -> str:
         return repr(messages)
 
 
-def _fingerprints(messages) -> list[str]:
-    """One snapshot per item, so a stage's edits can be located by position."""
+def _tagged(messages) -> dict[int, str]:
+    """Map each boundary tag to a fingerprint of the item carrying it.
+
+    Tags are what make an exact comparison possible: a removal is the tag that
+    disappeared, not a length change that shifts every later position, so a
+    stage's removals can be attributed to that stage instead of guessed from the
+    array's new length.
+    """
     if not isinstance(messages, list):
-        return []
-    return [_fingerprint(message) for message in messages]
+        return {}
+    tagged = {}
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        index = message.get("_jev_index")
+        if isinstance(index, int):
+            tagged[index] = _fingerprint(message)
+    return tagged
 
 
 def _now_ms() -> int:
@@ -479,9 +492,10 @@ def project(
 
     invoke = invoke or _subprocess_invoke
     changed: dict[str, set] = {}
+    removed: dict[str, set] = {}
 
     def observe(stage, stage_request, stage_workspace, budget_ms):
-        """Invoke one stage and record which positions of the array it changed.
+        """Invoke one stage and record what its own output changed and removed.
 
         Which stages project is decided by that stage's own output, never by its
         note vocabulary: the ``action`` strings are another package's wording and
@@ -494,23 +508,30 @@ def project(
         records the decline as a passthrough. Reading the rejected array here would
         credit a stage for an edit the bus threw away, and hand it a receipt for a
         projection that never reached the wire.
+        Both changes and removals are located by boundary tag, from the array
+        itself, so a removal is attributed to the stage that made it.
         """
-        before = _fingerprints(stage_request.get("messages"))
+        before = _tagged(stage_request.get("messages"))
         response = invoke(stage, stage_request, stage_workspace, budget_ms)
-        after = before
-        if (
+        # Only an array the bus accepts is this stage's output; anything else is
+        # declined, and `run_chain` keeps the stage's own input and records the
+        # decline as a passthrough.
+        accepted = (
             op == "transform"
             and isinstance(response, dict)
             and response.get("ok") is True
             and isinstance(response.get("messages"), list)
-        ):
-            after = _fingerprints(response["messages"])
-        moved = {
-            index for index, (was, now) in enumerate(zip(before, after)) if was != now
-        }
-        if len(before) != len(after):
-            moved.add(-1)  # a structural change no single position can describe
-        changed[stage["name"]] = moved
+        )
+        after = _tagged(response["messages"]) if accepted else before
+        name = stage["name"]
+        removed[name] = set(before) - set(after)
+        changed[name] = {
+            index for index in set(before) & set(after) if before[index] != after[index]
+        } | removed[name]
+        if accepted and len(after) != len(response["messages"]):
+            # The output cannot be compared tag-by-tag, so the stage is treated as
+            # having projected: a receipt is never refused on unreadable evidence.
+            changed[name].add(-1)
         return response
 
     produced, notes, _appends = jev_bus.run_chain(
@@ -583,35 +604,56 @@ def project(
                 report["applied"] = [
                     name for name in report["applied"] if name != DEDUP_STAGE
                 ]
-        if VIEW_STAGE in report["applied"]:
+        if VIEW_STAGE in report["applied"] and view is not None:
             # Contract C4: apply an approved prose view bound to the post-dedup
             # snapshot, or refuse (remove nothing) when it is stale/cancelled.
-            if view is None:
-                if len(produced) < len(items):
-                    report["notes"].append(
-                        {
-                            "stage": VIEW_STAGE,
-                            "action": "reverted",
-                            "detail": "unapproved_removal",
-                        }
-                    )
-            else:
-                try:
-                    before = rebuilt
-                    rebuilt, view_report = fabric_views.filter(
-                        before, view, cancelled=cancelled
-                    )
-                except fabric_views.ViewError as exc:
-                    report["notes"].append(
-                        {
-                            "stage": VIEW_STAGE,
-                            "action": "refused",
-                            "detail": str(exc),
-                        }
-                    )
-                    return outgoing, report
-                report["view"] = view_report
-                report["view_metrics"] = fabric_views.metrics(before, rebuilt)
+            try:
+                before = rebuilt
+                rebuilt, view_report = fabric_views.filter(
+                    before, view, cancelled=cancelled
+                )
+            except fabric_views.ViewError as exc:
+                report["notes"].append(
+                    {
+                        "stage": VIEW_STAGE,
+                        "action": "refused",
+                        "detail": str(exc),
+                    }
+                )
+                return outgoing, report
+            report["view"] = view_report
+            report["view_metrics"] = fabric_views.metrics(before, rebuilt)
+        # `_rebuild` restores every item a stage dropped, and the approved-view
+        # filter is the only thing that may keep one out. So a removal is approved
+        # exactly when the filter kept that index out, and every other removal is
+        # reported against the stage the array shows made it: any stage can drop an
+        # item, so naming the view stage by construction misreported the owner, and
+        # gating on `len(produced) < len(items)` left the same removal silent
+        # whenever a view *was* supplied.
+        kept_out = {
+            item["index"] for item in (report.get("view") or {}).get("removed", [])
+        }
+        for name, indexes in removed.items():
+            if indexes - kept_out:
+                report["notes"].append(
+                    {
+                        "stage": name,
+                        "action": "reverted",
+                        "detail": "unapproved_removal",
+                    }
+                )
+        # A receipt records a projection that reached the wire, so a stage whose
+        # removals were all restored reached the wire with nothing.
+        for name in list(report["applied"]):
+            stage_removed = removed.get(name) or set()
+            if (
+                stage_removed
+                and not stage_removed & kept_out
+                and not changed.get(name, set()) - stage_removed
+            ):
+                report["applied"] = [
+                    applied for applied in report["applied"] if applied != name
+                ]
         outgoing["input"] = rebuilt
         by_name = {stage["name"]: stage["priority"] for stage in registry["stages"]}
         for name in report["applied"]:

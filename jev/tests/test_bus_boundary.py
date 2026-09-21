@@ -221,6 +221,27 @@ class BoundaryMutationTests(unittest.TestCase):
             )
         )
 
+    def test_unapproved_removal_is_attributed_to_the_dropping_stage(self):
+        """The note names the stage the array shows dropped the item.
+
+        Every stage in this registry drops, so the report must name each of them
+        rather than defaulting to the view stage.
+        """
+
+        def transform(name, messages):
+            return messages[:-1]
+
+        request = sample_request()
+        _outgoing, report = bus_boundary.project(
+            request, registry=make_registry(), invoke=Recorder(transform)
+        )
+        blamed = [
+            note.get("stage")
+            for note in report["notes"]
+            if note.get("detail") == "unapproved_removal"
+        ]
+        self.assertEqual(blamed, [DEDUP, VIEW])
+
 
 class BoundaryFallbackTests(unittest.TestCase):
     def test_stage_failure_falls_back_to_stage_input(self):
