@@ -43,6 +43,9 @@ jobs:
       - name: Test standalone installer
         run: python3 -m unittest discover -s scripts/install -p 'test_*.py'
 
+      - name: Test the isolated JEV integration profile
+        run: python3 -m unittest discover -s .github/scripts -p 'test_jev_*.py'
+
       - name: Test macOS signing and notarization
         run: python3 -m unittest discover -s .github/scripts/macos-signing -p 'test_*.py'
 
