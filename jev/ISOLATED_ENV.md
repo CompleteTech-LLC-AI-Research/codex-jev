@@ -120,10 +120,11 @@ Phase #4 binds the pinned context fabric to this environment with
 `jev/scripts/fabric_env.py`. The profile's `fabric` pin (component, revision,
 interpreter requirement, harness, MCP server) is cross-checked against the
 manifest, the `--fabric` checkout is refused unless it is a standalone checkout
-at that same revision, and the fabric installer runs only with `HOME`,
-`CODEX_HOME`, `XDG_CONFIG_HOME`, `JEV_CONTEXT_HOME` and `JEV_BUS_HOME`
-redirected into the environment directory; a reported path outside it fails
-closed.
+at that same revision, and a checkout that cannot state its revision at all is
+refused unless `install` is given `--allow-unpinned`. The fabric installer runs
+only with `HOME`, `CODEX_HOME`, `XDG_CONFIG_HOME`, `JEV_CONTEXT_HOME` and
+`JEV_BUS_HOME` redirected into the environment directory; a reported path
+outside it fails closed.
 
 ```
 python3 jev/scripts/fabric_env.py --fabric <fabric-checkout> install

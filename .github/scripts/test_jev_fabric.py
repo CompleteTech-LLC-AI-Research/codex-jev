@@ -40,6 +40,9 @@ class FabricBindingTests(unittest.TestCase):
         self.config.write_text(UNRELATED, encoding="utf-8")
 
     def install(self, **kwargs):
+        # The in-repo double cannot state a revision, so the driver's
+        # default-deny gate needs the same explicit opt-in required CI relies on.
+        kwargs.setdefault("allow_unpinned", True)
         return fabric_env.install(
             self.env_dir, self.stub_dir(), root=REPO_ROOT, **kwargs
         )
@@ -132,8 +135,27 @@ class FabricBindingTests(unittest.TestCase):
     def test_missing_fabric_installer_fails_closed(self):
         with self.assertRaises(fabric_env.FabricError):
             fabric_env.install(
-                self.env_dir, Path(self.work.name) / "absent", root=REPO_ROOT
+                self.env_dir,
+                Path(self.work.name) / "absent",
+                root=REPO_ROOT,
+                allow_unpinned=True,
             )
+
+    def test_unverifiable_checkout_is_refused_by_default(self):
+        with self.assertRaises(fabric_env.FabricError) as caught:
+            fabric_env.install(self.env_dir, self.stub_dir(), root=REPO_ROOT)
+        self.assertIn("--allow-unpinned", str(caught.exception))
+        self.assertFalse(fabric_env.record_path(self.env_dir).is_file())
+        self.assertFalse((Path(self.env_dir) / "fabric").exists())
+        self.assertNotIn("[mcp_servers.jev-context]", self.config.read_text("utf-8"))
+
+    def test_allowed_unverifiable_checkout_is_labelled_in_the_record(self):
+        record = self.install()
+        self.assertTrue(record["checkout"]["unpinned"])
+        self.assertTrue(record["checkout"]["unpinned_allowed"])
+        self.assertFalse(record["checkout"]["pinned"])
+        self.assertIsNone(record["checkout"]["revision"])
+        self.assertEqual(record["tier"], "unpinned-fabric-checkout")
 
     def test_verify_requires_an_installed_runner(self):
         self.install()
@@ -220,11 +242,17 @@ class FabricCheckoutPinTests(unittest.TestCase):
 
     def test_nested_checkout_reports_no_revision(self):
         # The in-repo double is nested inside the host work tree; answering with
-        # the host's HEAD would be wrong, so it reports nothing instead.
-        state = fabric_env.require_pinned_checkout(STUB.parent, "0" * 40)
+        # the host's HEAD would be wrong, so it reports nothing instead, and the
+        # driver refuses it unless the caller opts in.
+        state = fabric_env.require_pinned_checkout(
+            STUB.parent, "0" * 40, allow_unpinned=True
+        )
         self.assertIsNone(state["revision"])
         self.assertFalse(state["pinned"])
         self.assertIsNone(state["dirty"])
+        self.assertTrue(state["unpinned_allowed"])
+        with self.assertRaises(fabric_env.FabricError):
+            fabric_env.require_pinned_checkout(STUB.parent, "0" * 40)
 
     def test_dirty_checkout_is_recorded(self):
         (self.repo / "scratch.txt").write_text("uncommitted\n", encoding="utf-8")
@@ -236,9 +264,36 @@ class FabricCheckoutPinTests(unittest.TestCase):
         plain = Path(self.work.name) / "plain"
         plain.mkdir()
         shutil.copy(STUB, plain / "install.py")
-        state = fabric_env.require_pinned_checkout(plain, "0" * 40)
+        state = fabric_env.require_pinned_checkout(plain, "0" * 40, allow_unpinned=True)
         self.assertIsNone(state["revision"])
         self.assertFalse(state["pinned"])
+        with self.assertRaises(fabric_env.FabricError):
+            fabric_env.require_pinned_checkout(plain, "0" * 40)
+
+    def test_uninstall_refuses_an_unverifiable_checkout_by_default(self):
+        pin = self.profile_pin()
+        with mock.patch.object(
+            fabric_env, "pinned_runtime", return_value=(pin, self.revision)
+        ):
+            fabric_env.install(self.env_dir, self.repo, root=REPO_ROOT)
+        (self.repo / ".git").rename(self.repo / ".git-away")
+        with self.assertRaises(fabric_env.FabricError):
+            fabric_env.uninstall(self.env_dir, fabric_root=self.repo, root=REPO_ROOT)
+        record = json.loads(fabric_env.record_path(self.env_dir).read_text("utf-8"))
+        self.assertNotIn("uninstall", record)
+        self.assertTrue(self.config.is_file())
+        with mock.patch.object(
+            fabric_env, "pinned_runtime", return_value=(pin, self.revision)
+        ):
+            result = fabric_env.uninstall(
+                self.env_dir,
+                fabric_root=self.repo,
+                root=REPO_ROOT,
+                allow_unpinned=True,
+            )
+        self.assertTrue(result["uninstalled"])
+        self.assertTrue(result["checkout"]["unpinned_allowed"])
+        self.assertNotIn("[mcp_servers.jev-context]", self.config.read_text("utf-8"))
 
     def test_uninstall_refuses_a_checkout_at_another_revision(self):
         pin = self.profile_pin()

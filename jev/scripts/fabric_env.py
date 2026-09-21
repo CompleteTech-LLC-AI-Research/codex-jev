@@ -21,7 +21,10 @@ profile, cross-checked against the manifest component table, so the profile and
 the manifest cannot drift apart unnoticed. The checkout that actually runs is
 checked against that same revision: a standalone component checkout that is not
 at the pinned commit is refused, and every record names the revision observed
-on disk as well as the revision the manifest pins.
+on disk as well as the revision the manifest pins. A checkout whose revision
+cannot be read at all is refused by default too; running one requires the
+explicit ``--allow-unpinned`` opt-in, and the record then states that the
+checkout was unverifiable rather than pinned.
 
 Exit codes: 0 = ok, 1 = validation failure, 2 = usage error.
 """
@@ -194,10 +197,28 @@ def checkout_state(fabric_root):
     }
 
 
-def require_pinned_checkout(fabric_root, revision):
-    """Refuse to run a standalone checkout that is not the pinned revision."""
+def require_pinned_checkout(fabric_root, revision, allow_unpinned=False):
+    """Refuse to run a checkout that is not provably the pinned revision.
+
+    A checkout that is at another commit is refused. So is one that cannot state
+    its revision (no readable git metadata, the in-repo double, git missing):
+    accepting it would install an unapproved revision whose identity nothing
+    checked, which is the defect this gate exists to prevent. Callers that
+    deliberately run an unverifiable checkout must opt in with
+    ``allow_unpinned=True``; the returned state then carries ``unpinned`` and
+    ``unpinned_allowed`` so the record can say so.
+    """
     state = checkout_state(fabric_root)
     if state["revision"] is None:
+        if not allow_unpinned:
+            raise FabricError(
+                f"fabric checkout {state['root']} cannot state the revision that "
+                f"would run, so it cannot be checked against {FABRIC_COMPONENT}@"
+                f"{revision}; install the pinned checkout, or pass --allow-unpinned "
+                "to accept an unverifiable checkout explicitly"
+            )
+        state["unpinned"] = True
+        state["unpinned_allowed"] = True
         return state
     if state["revision"] != revision:
         raise FabricError(
@@ -231,11 +252,18 @@ def run_installer(fabric_root, argv, env):
         raise FabricError(f"fabric installer did not report JSON: {error}") from error
 
 
-def install(env_dir, fabric_root, workspace=None, dry_run=False, root=None):
+def install(
+    env_dir,
+    fabric_root,
+    workspace=None,
+    dry_run=False,
+    root=None,
+    allow_unpinned=False,
+):
     env_dir = Path(env_dir)
     plan = isolated_env.read_env(env_dir)
     pin, revision = pinned_runtime(plan, root)
-    checkout = require_pinned_checkout(fabric_root, revision)
+    checkout = require_pinned_checkout(fabric_root, revision, allow_unpinned)
     prefix = fabric_prefix(env_dir)
     workspace = (
         Path(workspace).resolve()
@@ -448,7 +476,7 @@ def verify(env_dir, workspace_a=None, workspace_b=None):
     }
 
 
-def uninstall(env_dir, fabric_root=None, root=None):
+def uninstall(env_dir, fabric_root=None, root=None, allow_unpinned=False):
     env_dir = Path(env_dir)
     record = read_record(env_dir)
     plan = isolated_env.read_env(env_dir)
@@ -456,7 +484,13 @@ def uninstall(env_dir, fabric_root=None, root=None):
     entry = Path(fabric_root) / "install.py" if fabric_root else None
     if entry is None or not entry.is_file():
         raise FabricError("uninstall needs --fabric pointing at the fabric checkout")
-    checkout = require_pinned_checkout(fabric_root, record["component_revision"])
+    # Uninstall must be able to undo an install that was explicitly allowed to
+    # run an unverifiable checkout, so the install-time opt-in survives in the
+    # record and is honoured here without widening anything else.
+    allowed = allow_unpinned or bool(record.get("checkout", {}).get("unpinned_allowed"))
+    checkout = require_pinned_checkout(
+        fabric_root, record["component_revision"], allowed
+    )
     result = run_installer(
         fabric_root, ["--uninstall", "--prefix", str(prefix)], child_env(plan, prefix)
     )
@@ -486,10 +520,16 @@ def parse_args(argv):
     sub = parser.add_subparsers(dest="command", required=True)
     install_parser = sub.add_parser("install", allow_abbrev=False)
     install_parser.add_argument("--dry-run", action="store_true")
+    install_parser.add_argument(
+        "--allow-unpinned",
+        action="store_true",
+        help="accept a checkout whose revision cannot be read (recorded, not evidence)",
+    )
     verify_parser = sub.add_parser("verify", allow_abbrev=False)
     verify_parser.add_argument("--workspace-b", default=None)
     sub.add_parser("status", allow_abbrev=False)
-    sub.add_parser("uninstall", allow_abbrev=False)
+    uninstall_parser = sub.add_parser("uninstall", allow_abbrev=False)
+    uninstall_parser.add_argument("--allow-unpinned", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -508,6 +548,7 @@ def main(argv=None):
                 workspace=args.workspace,
                 dry_run=args.dry_run,
                 root=args.root,
+                allow_unpinned=args.allow_unpinned,
             )
         elif args.command == "status":
             result = status(env_dir)
@@ -519,7 +560,12 @@ def main(argv=None):
                 print(json.dumps(result, indent=2, sort_keys=True))
                 return 1
         else:
-            result = uninstall(env_dir, fabric_root=args.fabric, root=args.root)
+            result = uninstall(
+                env_dir,
+                fabric_root=args.fabric,
+                root=args.root,
+                allow_unpinned=args.allow_unpinned,
+            )
     except (FabricError, isolated_env.EnvError, jev_manifest.ManifestError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

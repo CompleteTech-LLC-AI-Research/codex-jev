@@ -92,9 +92,13 @@ by the host base commit they apply to (`E_PATCH_BASE`, `E_PATCH_HASH`). Patch
 order is unique and recorded. A pin is only real where it is enforced: a
 component checkout that executes must be the pinned revision, so
 `fabric_env.py` refuses a standalone checkout at any other commit and records
-the revision it observed alongside the revision the manifest pins. Disabling the
-integration means building the pinned base without patches and running the
-baseline profile: the original behavior is reproduced rather than approximated.
+the revision it observed alongside the revision the manifest pins. A checkout
+that cannot state its revision at all is refused too, because accepting it would
+install an unapproved revision that nothing checked; running one takes an
+explicit `--allow-unpinned` opt-in that labels the record `unpinned` instead of
+pinned. Disabling the integration means building the pinned base without patches
+and running the baseline profile: the original behavior is reproduced rather
+than approximated.
 
 ## C9 — Host-owned behavior
 

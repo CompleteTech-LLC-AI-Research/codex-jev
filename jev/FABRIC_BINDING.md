@@ -26,9 +26,12 @@ also reads the revision of `--fabric` itself and refuses a standalone checkout
 that is not at the pinned commit. A checkout nested inside another work tree
 (the in-repo test double) is not a component checkout: `git -C <path> rev-parse
 HEAD` would answer for the enclosing repository, so such a path reports no
-revision rather than a misleading one. Without this, a record could name the
-pinned revision while an unapproved one was installed, because the revision in
-the record came from the manifest rather than from the checkout.
+revision rather than a misleading one, and a path that cannot state its revision
+is refused rather than installed anyway: `--allow-unpinned` is the only way to
+run one, and the record then says `unpinned` instead of the pin. Without this, a
+record could name the pinned revision while an unapproved one was installed,
+because the revision in the record came from the manifest rather than from the
+checkout.
 
 ## Containment
 
@@ -117,7 +120,7 @@ WSL distribution.
 | Tier | Source |
 | --- | --- |
 | `real-fabric-installer` | A standalone checkout at the manifest-pinned revision, run against the isolated environment. |
-| `unpinned-fabric-checkout` | An installer run from a path that is not a standalone checkout at the pin, including the in-repo test double. Never evidence that a pinned install ran. |
+| `unpinned-fabric-checkout` | An installer run under the `--allow-unpinned` opt-in from a path that is not a standalone checkout at the pin, including the in-repo test double. Never evidence that a pinned install ran. |
 
 Required CI (`python3 -m unittest discover -s .github/scripts -p 'test_jev_*.py'`)
 drives the in-repo double, because the fabric lives in a separate repository
@@ -133,9 +136,13 @@ Known limits:
   component rather than the host.
 - A checkout nested inside another work tree, or one whose revision cannot be
   read at all (no git metadata, or git unavailable), cannot state which
-  revision it is, so it is recorded as unpinned instead of being refused.
-  Such a run is not pinned-checkout evidence; only a checkout that reports a
-  revision other than the pin is refused.
+  revision it is, so it is refused by default: an approval gate that waves
+  through a checkout just because it hides its revision is not a gate. Running
+  one requires the explicit `--allow-unpinned` opt-in, and the record then
+  states `unpinned: true` and `unpinned_allowed: true` under `checkout` instead
+  of claiming the pin. Such a run is never pinned-checkout evidence. Required CI
+  uses that opt-in for the in-repo double, which by construction has no
+  revision of its own.
 - An uncommitted work tree is recorded (`dirty: true`) rather than refused, so
   the installer's own `__pycache__` cannot make a second install fail. A dirty
   checkout at the pinned revision is evidence that the pin was read, not that
