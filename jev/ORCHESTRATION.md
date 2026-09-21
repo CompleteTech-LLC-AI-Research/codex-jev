@@ -23,9 +23,9 @@ is incomplete, even when a concurrency slot is free.
 | Issue | Scope | PR | State |
 | --- | --- | --- | --- |
 | #5 | Native Codex context projection through jev-bus (phase 3) | #47, #63, #64, #75, #79 | complete; issue closed |
-| #6 | Sentinel boundary checks and veto precedence (phase 4) | #60, #68, #80, #84 | in progress; #84, #20, and #19 merged; the end-to-end claim is still open |
+| #6 | Sentinel boundary checks and veto precedence (phase 4) | #60, #68, #80, #84, #91 | complete; issue closed; the launched-host tier is in review as PR #92 |
 | #7 | Native JEV approval preflight with Guardian fallback (phase 5) | #72, #74, #81 | complete; issue closed; follow-up #85 filed |
-| #8 | Validate and release the combined JEV Codex stack (phase 6) | #24–#26 | open; phase 6, phases 3-5 merged |
+| #8 | Validate and release the combined JEV Codex stack (phase 6) | #89, #90 | open; #24 and #25 merged; waiting on #26 |
 | #9 | Compatibility manifest and integration contracts | #28, #31 | merged; issue closed |
 | #10 | Plaintext collaboration in the pinned build | #32, #37 | merged; issue closed |
 | #11 | Isolated build and integration profile | #35 | merged; issue closed |
@@ -41,28 +41,30 @@ is incomplete, even when a concurrency slot is free.
 | #21 | Port and compile the pinned native approval adapter | #72 | merged; issue closed |
 | #22 | Verify action binding, freshness, and fallback | #74 | merged; issue closed |
 | #23 | Shadow comparison and controlled enforcement configuration | #81 | merged; issue closed; duplicate #83 closed, follow-up #85 filed |
-| #24–#26 | Regression, live-host validation, release package | — | open; phase 6, unblocked by the merged phases |
+| #24 | Build deterministic end-to-end regression scenarios | #89 | merged; issue closed |
+| #25 | Run isolated live-host and performance validation | #90 | merged; issue closed |
+| #26 | Package compatibility, upgrade, and rollback workflow | — | open; in flight, sub-issue of #8 |
 | #41 | Verify the fabric checkout revision against the pinned component | #44 | merged; issue closed |
 | #49 | Canonical capture CLI: report a zero-event capture gap | #64 | merged; issue closed |
 | #52 | Host proof is weaker than the component's own receipt validator | #65 | PR merged; issue left open (the body closes the gaps, not the issue) |
 | #55 | Invoke the bus boundary from the host request path | #63 | merged; issue closed |
-| #57 | Reconcile C4's package-approval semantics with the host-owned view control | #62 | in review; filed from #17 |
-| #58 | Reconcile the host's item-count fallback with the approved-view removal | #73 | in review; filed from #55 |
+| #57 | Reconcile C4's package-approval semantics with the host-owned view control | #62 | merged; issue closed |
+| #58 | Reconcile the host's item-count fallback with the approved-view removal | #73 | merged; issue closed |
 | #61 | Invoke the Sentinel carrier from the host hook path | #84 | merged; issue closed |
 | #66 | repo-checks is red on `main`: root `README.md` asciicheck | #71 | merged; issue closed |
 | #69 | repo-checks is red on `main`: `just fmt-check` needs `ruff format` and a vendored-file exclusion | #77 | merged; issue closed |
 | #70 | Run the real host binary to show projected outgoing content and exact reset | #75 | merged; issue closed |
 | #78 | The host exposes an eligible read tool: prove the pair can arise during a turn | #79 | merged; issue closed |
 | #82 | repo-checks is red on `main`: prettier wants the README entry-point table realigned | #77 | merged; issue closed |
-| #85 | Bind the approval gate to the frozen holdout it was measured on | — | open; filed from #23 |
+| #85 | Bind the approval gate to the frozen holdout it was measured on | #88 | merged; issue closed |
 
 State above is the GitHub state of each issue and PR, not a local plan.
 
 ## Merged commits
 
 The reviewed commit is the head that passed review; the merge commit is what
-landed on `main`. Phase 2 is complete: #12, #13, #14, and the #41 follow-up are
-merged.
+landed on `main`. Phases 3 to 5 are complete and phase 6 is partly merged: #24
+and #25 landed, and #26 is in flight.
 
 | Issue | PR | Reviewed commit | Merge commit |
 | --- | --- | --- | --- |
@@ -88,6 +90,12 @@ merged.
 | #82 | #77 | `902076f724` | `a844c9645f` |
 | #23 | #81 | `9e5ad0682b` | `aef58a0c20` |
 | #61 | #84 | `3fd858ef45` | `d2882fb594` |
+| #57 | #62 | `7e09aeb14c` | `e95eae7595` |
+| #58 | #73 | `3b82f8b82f` | `00e6b3b434` |
+| #85 | #88 | `e6e228cc97` | `d6f53c5e46` |
+| #24 | #89 | `720adab060` | `177f57110a` |
+| #25 | #90 | `af36a77fd9` | `392123ebe5` |
+| #6 | #91 | `259aacd12d` | `3ddf7345a9` |
 
 ## Pinned revisions
 
@@ -181,6 +189,8 @@ ever added as a component.
 | [`APPROVAL_SHADOW.md`](APPROVAL_SHADOW.md) | The shadow comparison: correlation by review id, the raw-content and shape refusals, the every-failure/deferral accounting, the declared enforcement criteria and their manifest home, the frozen scenario-family calibration/holdout, the consent and opt-in boundaries, the Guardian-only return, and why the gate never flips a switch (#23). |
 | [`RETRIEVAL_SCREENING.md`](RETRIEVAL_SCREENING.md) | Screening retrieved context before injection and authorizing memory writes: the division of labour, the two independent switches, the unconditionally-withholding host facts and the exact-set `withhold_on` rule, the shadow signal, `verify_withheld`, and the real-component tier (#20). |
 | [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md) | Bounded, read-only, metadata-only incident operations: the validated field set and the credential-rule refusal, the identifier-only failure report, the bounded scan and its saturation signal, correlation by content or identity, the non-executing disable plan, and the isolated-root policy view (#20). |
+| [`END_TO_END.md`](END_TO_END.md) | The composed regression harness: the strict stage order from capture through retrieval, screening, projection, collaboration, Sentinel veto and approval to execution, the per-step wire and side-effect artifact, the tier census on every assertion, and what the harness does not prove (#24). |
+| [`VALIDATION.md`](VALIDATION.md) | The validation record that keeps the tiers apart: the offline integration-performance numbers with bytes measured separately from a byte-derived token estimate, the two launched-host smokes against a loopback mock, the recorded binary hash, and the live-provider blocker that is left explicitly unrun (#25). |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being
