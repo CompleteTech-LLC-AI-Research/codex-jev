@@ -20,7 +20,9 @@ The real-component run is in ``jev/tests/test_sentinel_boundary.py``.
 """
 
 import json
+import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -96,9 +98,6 @@ def main():
         "message": "JEV Sentinel: stub verdict.",
         "session_ref": hashlib.sha256(canonical([harness, profile, session_id]).encode()).hexdigest() if session_id else "",
     }
-    if command == "check":
-        print(json.dumps(verdict))
-        return 0
     audit.parent.mkdir(parents=True, exist_ok=True)
     row = {
         "id": verdict["id"], "decision": decision, "enforced": enforced, "reason_codes": verdict["reason_codes"],
@@ -109,6 +108,9 @@ def main():
     }
     with audit.open("a") as handle:
         handle.write(json.dumps(row) + "\\n")
+    if command == "check":
+        print(json.dumps(verdict))
+        return 0
     veto = enforced and decision != "DEFER"
     reason = verdict["message"] + " Event: " + verdict["id"]
     if not veto:
@@ -577,3 +579,293 @@ class CoverageTests(SentinelTestCase):
         self.assertIn(
             "integration_switch_off", [s["id"] for s in report["bypass_surfaces"]]
         )
+
+
+class CarrierTests(SentinelTestCase):
+    """#61: the host carrier is the wired command, and Codex runs it as a hook."""
+
+    FABRIC = "command -v fabric-capture && fabric-capture"
+
+    def write_profile(self, *, launcher=None, hooks_path=None):
+        """A profile that already carries an unrelated (Fabric) capture hook."""
+        path = hooks_path or self.profile_root / "hooks.json"
+        document = {
+            "hooks": {
+                "UserPromptSubmit": [
+                    {
+                        "hooks": [
+                            {"type": "command", "command": self.FABRIC, "timeout": 5}
+                        ]
+                    }
+                ]
+            },
+            "disableAllHooks": False,
+            "fabric": {"owner": "jev-context-fabric"},
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+        return path
+
+    def install(
+        self,
+        *,
+        switches=None,
+        remove=False,
+        dry_run=False,
+        component=None,
+        state_dir=None,
+    ):
+        state = (
+            {"sentinel.shadow": True, "sentinel.enforcement": False}
+            if switches is None
+            else switches
+        )
+        return sb.install_hooks(
+            self.profile_root,
+            profile=self.identity["profile"],
+            policy_path=self.policy_path,
+            state_dir=state_dir or self.state,
+            component=component or self.component,
+            switches=state,
+            python=sys.executable,
+            remove=remove,
+            dry_run=dry_run,
+        )
+
+    def hook_commands(self, event_name):
+        document = json.loads(
+            (self.profile_root / "hooks.json").read_text(encoding="utf-8")
+        )
+        commands = []
+        for entry in document["hooks"].get(event_name, []):
+            commands.extend(item["command"] for item in entry["hooks"])
+        return commands
+
+    def carrier_command(self, event_name):
+        for command in self.hook_commands(event_name):
+            if sb.is_carrier_command(command):
+                return command
+        self.fail(f"no carrier wired for {event_name}")
+
+    def run_carrier(self, command, payload, *, enforce=True, env=None):
+        switches = {
+            "JEV_SWITCH_SENTINEL_SHADOW": "1",
+            "JEV_SWITCH_SENTINEL_ENFORCEMENT": "1" if enforce else "0",
+        }
+        active = dict(os.environ)
+        active.pop("JEV_SENTINEL_ROOT", None)
+        active.pop("JEV_COMPONENTS_ROOT", None)
+        active.update(switches)
+        active.update(env or {})
+        return subprocess.run(
+            shlex.split(command),
+            input=json.dumps(payload).encode("utf-8"),
+            capture_output=True,
+            timeout=30,
+            env=active,
+        )
+
+    def test_install_merges_and_preserves_unrelated_entries(self):
+        self.write_profile()
+        record = self.install()
+        document = json.loads(
+            (self.profile_root / "hooks.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(False, document["disableAllHooks"])
+        self.assertEqual({"owner": "jev-context-fabric"}, document["fabric"])
+        self.assertEqual([self.FABRIC], self.hook_commands("UserPromptSubmit")[:1])
+        for event_name, stage in adapter.EVENTS.items():
+            commands = self.hook_commands(event_name)
+            expected = 2 if event_name == "UserPromptSubmit" else 1
+            self.assertEqual(expected, len(commands), event_name)
+            self.assertTrue(sb.is_carrier_command(commands[-1]), event_name)
+            self.assertEqual(stage, record["events"][event_name]["stage"])
+        record_path = self.state / sb.HOOK_INSTALL_RECORD
+        self.assertTrue(record_path.is_file())
+        self.assertEqual(
+            record["schema"],
+            json.loads(record_path.read_text().splitlines()[-1])["schema"],
+        )
+
+    def test_install_is_gated_on_the_declared_switches(self):
+        path = self.write_profile()
+        before = path.read_text(encoding="utf-8")
+        with self.assertRaises(sb.BoundaryError) as caught:
+            self.install(
+                switches={"sentinel.shadow": False, "sentinel.enforcement": False}
+            )
+        self.assertEqual(sb.E_SWITCH_OFF, caught.exception.code)
+        self.assertEqual(before, path.read_text(encoding="utf-8"))
+        self.assertFalse((self.state / sb.HOOK_INSTALL_RECORD).is_file())
+
+    def test_remove_takes_only_the_carrier_entries_and_needs_no_switch(self):
+        self.write_profile()
+        self.install()
+        record = self.install(
+            remove=True,
+            switches={"sentinel.shadow": False, "sentinel.enforcement": False},
+        )
+        document = json.loads(
+            (self.profile_root / "hooks.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual([self.FABRIC], self.hook_commands("UserPromptSubmit"))
+        self.assertFalse(
+            any(
+                sb.is_carrier_command(c) for c in self.hook_commands("UserPromptSubmit")
+            )
+        )
+        for event_name in ("PreToolUse", "PostToolUse"):
+            self.assertNotIn(event_name, document["hooks"], event_name)
+        self.assertEqual(3, record["removed"])
+        self.assertFalse(record["installed"])
+        self.assertEqual({"owner": "jev-context-fabric"}, document["fabric"])
+
+    def test_dry_run_writes_nothing(self):
+        path = self.write_profile()
+        before = path.read_text(encoding="utf-8")
+        record = self.install(dry_run=True)
+        self.assertTrue(record["dry_run"])
+        self.assertEqual(before, path.read_text(encoding="utf-8"))
+        self.assertFalse((self.state / sb.HOOK_INSTALL_RECORD).is_file())
+
+    def test_the_wired_carrier_returns_the_native_response_and_records_an_incident(
+        self,
+    ):
+        self.write_profile()
+        self.install()
+        self.policy(mode="enforce")
+        result = self.run_carrier(
+            self.carrier_command("PreToolUse"),
+            {
+                "session_id": "carrier-1",
+                "tool_name": "shell",
+                "tool_input": {"cmd": adapter.CANARY},
+            },
+        )
+        self.assertEqual(0, result.returncode, result.stderr.decode())
+        response = json.loads(result.stdout)
+        self.assertEqual("PreToolUse", response["hookSpecificOutput"]["hookEventName"])
+        self.assertEqual("deny", response["hookSpecificOutput"]["permissionDecision"])
+        self.assertEqual(
+            {"hookSpecificOutput"},
+            set(response),
+            "a pre-tool veto is a hookSpecificOutput and nothing else",
+        )
+        for field in adapter.REPLACEMENT_FIELDS:
+            self.assertNotIn(field, result.stdout.decode())
+        incidents = sb.read_incidents(sb.incident_path(self.state))
+        self.assertEqual(1, len(incidents))
+        self.assertEqual("sentinel_incident", incidents[0]["kind"])
+        self.assertEqual(
+            ["installation_test_canary"], incidents[0]["sentinel"]["reason_codes"]
+        )
+        self.assertEqual("carrier-1", incidents[0]["session_id"])
+        self.assertEqual(1, len(self.audit_rows()), "the component evaluated the event")
+
+    def test_a_shadow_carrier_records_but_returns_no_judgement(self):
+        self.write_profile()
+        self.install()
+        result = self.run_carrier(
+            self.carrier_command("PreToolUse"),
+            {
+                "session_id": "carrier-2",
+                "tool_name": "shell",
+                "tool_input": {"cmd": adapter.CANARY},
+            },
+            enforce=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr.decode())
+        self.assertEqual({}, json.loads(result.stdout))
+        self.assertEqual(1, len(sb.read_incidents(sb.incident_path(self.state))))
+
+    def test_an_oversize_payload_fails_closed_and_never_spawns_the_component(self):
+        self.write_profile()
+        self.install()
+        self.policy(mode="enforce")
+        result = self.run_carrier(
+            self.carrier_command("UserPromptSubmit"),
+            {"prompt": "x" * (adapter.MAX_INPUT + 1)},
+        )
+        self.assertEqual(0, result.returncode, result.stderr.decode())
+        response = json.loads(result.stdout)
+        self.assertEqual("block", response["decision"])
+        self.assertEqual(
+            [],
+            self.audit_rows(),
+            "a payload the host cannot bound must not reach the component",
+        )
+        self.assertEqual([], sb.read_incidents(sb.incident_path(self.state)))
+
+    def test_the_carrier_fails_open_at_the_process_level(self):
+        self.write_profile()
+        self.install()
+        argv = shlex.split(self.carrier_command("UserPromptSubmit"))
+        argv[argv.index("--event") + 1] = "NotAnEvent"
+        result = self.run_carrier(shlex.join(argv), {"prompt": "hi"})
+        self.assertEqual(0, result.returncode)
+        self.assertEqual({}, json.loads(result.stdout))
+        self.assertEqual(b"", result.stderr)
+
+    def test_a_carrier_wired_probe_requires_a_correlated_host_incident(self):
+        self.write_profile()
+        self.install()
+        report = sb.coverage_report(
+            manifest=sb.load_manifest(),
+            component=self.component,
+            profile_root=self.profile_root,
+            policy_path=self.policy_path,
+            hooks_path=None,
+            switches={"sentinel.shadow": True, "sentinel.enforcement": False},
+            probe=True,
+            nonce="carrier-probe",
+        )
+        self.assertTrue(report["activation"]["activated"])
+        for stage, item in report["activation"]["evidence"].items():
+            self.assertTrue(item["host_carrier"], stage)
+            self.assertGreaterEqual(item["audit_rows"], 1, stage)
+            self.assertGreaterEqual(item["host_incidents"], 1, stage)
+            self.assertEqual(["installation_test_canary"], item["reason_codes"], stage)
+
+    def test_a_carrier_wired_without_its_state_dir_is_not_activation(self):
+        # A carrier the operator wired by hand without the pinned --state-dir
+        # still evaluates, but the host journal it writes is not the one the
+        # probe reads - so the correlated incident is missing and the path is
+        # not claimed as activated.
+        self.write_profile()
+        argv = sb.carrier_argv(
+            "PreToolUse",
+            python=sys.executable,
+            profile=self.identity["profile"],
+            policy_path=self.policy_path,
+            state_dir=self.state,
+            component=self.component,
+        )
+        index = argv.index("--state-dir")
+        hand_wired = shlex.join(argv[:index] + argv[index + 2 :])
+        document = json.loads(
+            (self.profile_root / "hooks.json").read_text(encoding="utf-8")
+        )
+        document["hooks"]["PreToolUse"] = [
+            {
+                "hooks": [{"type": "command", "command": hand_wired, "timeout": 12}],
+                "matcher": ".*",
+            }
+        ]
+        (self.profile_root / "hooks.json").write_text(
+            json.dumps(document), encoding="utf-8"
+        )
+        report = sb.coverage_report(
+            manifest=sb.load_manifest(),
+            component=self.component,
+            profile_root=self.profile_root,
+            policy_path=self.policy_path,
+            hooks_path=None,
+            switches={"sentinel.shadow": True, "sentinel.enforcement": False},
+            probe=True,
+            nonce="carrier-probe-nostate",
+        )
+        evidence = report["activation"]["evidence"]["tool_before"]
+        self.assertTrue(evidence["host_carrier"])
+        self.assertGreaterEqual(evidence["audit_rows"], 1)
+        self.assertEqual(0, evidence["host_incidents"])
+        self.assertFalse(report["activation"]["activated"])

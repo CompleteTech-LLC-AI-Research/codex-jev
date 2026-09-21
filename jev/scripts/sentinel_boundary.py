@@ -32,7 +32,11 @@ Subcommands:
               ``--probe`` runs the canaries through the wired commands;
 ``canary``    run the deterministic canaries through this boundary and emit
               correlated ``sentinel_incident`` envelopes;
-``observe``   normalize, bound, evaluate, and record one native host event.
+``observe``   normalize, bound, evaluate, and record one native host event;
+``hook``      the wired carrier itself: Codex runs this as a hook, so its stdout
+              *is* the native response (it fails open at the process level);
+``install-hooks``  merge the carrier's three hook entries into ``hooks.json``
+              (or remove them), gated on the declared switches.
 
 Exit codes: 0 ok, 1 refused or incomplete, 2 usage error.
 """
@@ -70,6 +74,9 @@ HARD_RAW_BOUND = jev_bus.MAX_WIRE
 COMPONENT_STDOUT_BOUND = 65536
 # Matches the ``timeout`` the installer writes into ``hooks.json``.
 HOOK_TIMEOUT_S = 12
+# The component's own ``read_stdin`` bound: read ``MAX_INPUT + 1`` and refuse
+# rather than assess a shortened payload.
+HOOK_READ_LIMIT = FORWARD_LIMIT
 # The component's ``outbox`` caps ``--limit`` at 100; the probe reports a
 # saturated scan as inconclusive rather than as an inactive integration.
 OUTBOX_SCAN_LIMIT = 100
@@ -88,10 +95,22 @@ E_COMPONENT_MISSING = "E_COMPONENT_MISSING"
 E_COMPONENT_FAILED = "E_COMPONENT_FAILED"
 E_VERDICT_SHAPE = "E_VERDICT_SHAPE"
 E_POLICY_SHAPE = "E_POLICY_SHAPE"
+E_SWITCH_OFF = "E_SWITCH_OFF"
 
 # The switch pair the manifest declares for this phase, in dependency order.
 SHADOW_SWITCH = "sentinel.shadow"
 ENFORCE_SWITCH = "sentinel.enforcement"
+
+# The host carrier itself is the wired command (#61). Codex runs it as a hook,
+# so its stdout is the native hook response; the component's own ``launch.py``
+# stays the only verdict source and is spawned by the carrier.
+CARRIER_SCRIPT = "sentinel_boundary.py"
+CARRIER_STAGES = ("ingress", "tool_before", "tool_after")
+# A wired command is "reachable" when one of these scripts is a real file: the
+# component launcher the installer writes, or this host carrier.
+LAUNCHER_MARKERS = ("launch.py", CARRIER_SCRIPT)
+# What ``install-hooks`` recorded, next to the state it wrote into.
+HOOK_INSTALL_RECORD = "codex-jev-sentinel-hooks.json"
 
 # The boundaries that carry a native tool matcher, in evaluation order.
 TOOL_STAGES = ("tool_before", "tool_after")
@@ -228,6 +247,24 @@ def load_policy(path: Path) -> dict:
     if type(limit) is not int or not 256 <= limit <= 100000:
         raise BoundaryError(E_POLICY_SHAPE, "policy max_content_bytes is out of range")
     return {"mode": mode, "backend": backend, "max_content_bytes": limit}
+
+
+def load_policy_fail_closed(path: Path) -> dict:
+    """A corrupt or missing policy must not silently disable the gate.
+
+    Mirrors the component's own ``is_enforced``: an unreadable policy is treated
+    as *enforcing* with the default content bound, so editing or deleting a
+    policy file can never open the gate.
+    """
+    try:
+        return load_policy(path)
+    except BoundaryError:
+        return {
+            "mode": "enforce",
+            "backend": "local",
+            "max_content_bytes": 65536,
+            "fail_closed": True,
+        }
 
 
 # ---------------------------------------------------------------- bound
@@ -516,6 +553,143 @@ def observe(
     }
 
 
+# ---------------------------------------------------------------- the wired hook
+
+
+def read_hook_payload(stream=None, limit: int = HOOK_READ_LIMIT):
+    """Read one native hook payload under the component's own input bound.
+
+    Faithful to the component's ``read_stdin``: read ``MAX_INPUT + 1`` bytes and
+    refuse rather than truncate. ``None`` means "over the bound" and the caller
+    must fail closed, because assessing a shortened payload would assess it as if
+    it were complete.
+    """
+    stream = sys.stdin.buffer if stream is None else stream
+    raw = stream.read(limit + 1)
+    if len(raw) > limit:
+        return None
+    return raw
+
+
+def hook_identity(
+    raw, profile: str, *, session="", turn="", tool_call_id="", workspace=""
+) -> dict:
+    """The identity of one native event: what the payload carries, then the flags.
+
+    The wired command cannot know a session id at install time, so the payload's
+    own identity is what a live session correlates on; the flags stay available
+    for an operator probe.
+    """
+    data = raw if isinstance(raw, dict) else {}
+    return {
+        "profile": profile,
+        "session_id": data.get("session_id")
+        or data.get("sessionId")
+        or data.get("conversation_id")
+        or session,
+        "turn_id": data.get("turn_id") or data.get("turnId") or turn,
+        "tool_call_id": data.get("tool_call_id")
+        or data.get("toolCallId")
+        or tool_call_id,
+        "workspace": data.get("cwd") or data.get("workspace") or workspace,
+        "parent_event_id": "",
+    }
+
+
+def hook(
+    payload,
+    *,
+    event_name: str,
+    profile: str,
+    identity: dict,
+    component,
+    policy_path: Path,
+    policy: dict,
+    enforce: bool,
+    state_dir,
+) -> dict:
+    """One wired hook invocation: the native response plus the host provenance.
+
+    ``payload`` is the parsed native payload, or ``None`` when the read exceeded
+    the component's own input bound. Everything a host can still decide is
+    decided here and everything it cannot is left to the component: a payload
+    that parses goes through the veto carrier, so the component's own evaluator
+    remains the only verdict source, the host records the correlated incident,
+    and the session latch is applied.
+
+    A payload the host could not read or parse - or a ``component`` the host
+    could not resolve - never reaches the component and never spawns it; it
+    fails closed to the component's own failure shape rendered for that stage,
+    so a ``PreToolUse`` refuses under enforcement. Like the component's own
+    hook it records no incident, because a payload the host refused to read
+    carries no identity to correlate one to.
+    """
+    import sentinel_veto as veto  # local import: sentinel_veto imports this module
+
+    refusal = ""
+    if component is None:
+        refusal = E_COMPONENT_MISSING
+    elif payload is None:
+        refusal = E_PAYLOAD_BOUND
+    elif not isinstance(payload, dict):
+        refusal = E_PAYLOAD_SHAPE
+
+    if not refusal:
+        report = veto.handle(
+            payload,
+            event_name=event_name,
+            profile=profile,
+            identity=identity,
+            component=component,
+            policy_path=policy_path,
+            policy=policy,
+            enforce=enforce,
+            state_dir=state_dir,
+        )
+        adapter.assert_no_replacement(report["response"])
+        return {
+            "response": report["response"],
+            "report": report,
+            "spawned": True,
+            "refused": report["refused"],
+        }
+
+    verdict = veto.failure_verdict(
+        "host_" + refusal.removeprefix("E_").lower(), enforce
+    )
+    outcome = veto.gate(
+        verdict=verdict,
+        latched_state=None,
+        enforced=enforce,
+        event_name=event_name,
+        raw=None,
+    )
+    adapter.assert_no_replacement(outcome["response"])
+    return {
+        "response": outcome["response"],
+        "report": {
+            "event_name": event_name,
+            "stage": adapter.stage_of(event_name),
+            "profile": profile,
+            "enforce": bool(enforce),
+            "failure": refusal,
+            "verdict": verdict,
+            "verdict_source": "carrier_refusal",
+            "effective_decision": outcome["effective_decision"],
+            "vetoed": outcome["vetoed"],
+            "source": "failure",
+            "response": outcome["response"],
+            "latch_before": None,
+            "latch": {"written": False, "reason": "no_identity", "row": None},
+            "latch_after": None,
+            "incident_event_id": "",
+            "observed": None,
+        },
+        "spawned": False,
+        "refused": refusal,
+    }
+
+
 # ---------------------------------------------------------------- coverage
 
 
@@ -547,12 +721,13 @@ def _commands(entry) -> list:
 
 
 def _launcher_of(command: str) -> str:
+    """The wired script a command runs: the component launcher or this carrier."""
     try:
         argv = shlex.split(command)
     except ValueError:
         return ""
     for token in argv:
-        if token.endswith("launch.py"):
+        if token.endswith(LAUNCHER_MARKERS):
             return token
     return ""
 
@@ -629,6 +804,191 @@ def covered_tools(matchers: list) -> list:
         else:
             return [f"<opaque:{matcher}>"]
     return sorted(names)
+
+
+# ---------------------------------------------------------------- the wired carrier
+
+
+def is_carrier_command(command: str) -> bool:
+    """Whether a wired command runs this host carrier rather than a component hook."""
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return False
+    return any(token.endswith(CARRIER_SCRIPT) for token in argv)
+
+
+def carrier_argv(
+    event_name: str,
+    *,
+    python: str,
+    profile: str,
+    policy_path,
+    state_dir,
+    component,
+    harness: str = HOST,
+) -> list:
+    """The command Codex runs for one native event: this carrier's hook entry.
+
+    Everything the live path must not be able to drift from is pinned in the
+    command - the policy, the state directory the host journal goes to, and the
+    pinned component checkout - while the switches stay environment-resolved at
+    run time, because that is what an operator turns on and off.
+    """
+    return [
+        python,
+        "-I",
+        str(Path(__file__).resolve()),
+        "hook",
+        "--harness",
+        harness,
+        "--event",
+        event_name,
+        "--profile",
+        profile,
+        "--policy",
+        str(policy_path),
+        "--state-dir",
+        str(state_dir),
+        "--component",
+        str(component),
+    ]
+
+
+def hook_entry(event_name: str, command: str) -> dict:
+    """One Codex hook entry, in the shape the component's own installer writes."""
+    entry = {
+        "hooks": [{"type": "command", "command": command, "timeout": HOOK_TIMEOUT_S}]
+    }
+    if adapter.stage_of(event_name) != "ingress":
+        entry["matcher"] = ".*"
+    return entry
+
+
+def _carrier_commands(entry) -> list:
+    """The carrier commands inside one entry; empty when the entry is not ours."""
+    return [command for command in _commands(entry) if is_carrier_command(command)]
+
+
+def install_hooks(
+    profile_root,
+    *,
+    profile: str,
+    policy_path,
+    state_dir,
+    component,
+    switches: dict,
+    hooks_path=None,
+    python: str = "",
+    remove: bool = False,
+    dry_run: bool = False,
+) -> dict:
+    """Merge the three host-carrier hook entries into ``hooks.json``, or remove them.
+
+    Merge, never replace: the isolated home's ``hooks.json`` already carries the
+    Fabric capture hooks, so every unrelated entry and every unrelated key is
+    preserved byte-for-byte in meaning. Only entries that name this carrier are
+    ever replaced or removed.
+
+    Installation is gated on the declared switches: with ``sentinel.shadow`` and
+    ``sentinel.enforcement`` both off nothing is written and the caller is told
+    why (``E_SWITCH_OFF``), so a dark integration never puts a command in the
+    host's path. What was written is appended to a record next to the state.
+    """
+    python = python or sys.executable
+    path = Path(hooks_path) if hooks_path else Path(profile_root) / "hooks.json"
+    created = False
+    if path.is_file():
+        try:
+            document = adapter.strict_json(path.read_bytes())
+        except OSError as exc:
+            raise BoundaryError(
+                E_HOOKS_MISSING, f"hook wiring unreadable: {path.name}"
+            ) from exc
+        except adapter.AdapterError as exc:
+            raise BoundaryError(E_HOOKS_SHAPE, f"hook wiring invalid: {exc}") from exc
+        if not isinstance(document, dict):
+            raise BoundaryError(E_HOOKS_SHAPE, "hook wiring must hold an object")
+    else:
+        document = {}
+        created = True
+    hooks = document.get("hooks")
+    if hooks is None:
+        hooks = {}
+        document["hooks"] = hooks
+    if not isinstance(hooks, dict):
+        raise BoundaryError(E_HOOKS_SHAPE, "hook wiring must hold a hooks object")
+
+    enabled = bool(switches.get(SHADOW_SWITCH)) or bool(switches.get(ENFORCE_SWITCH))
+    if not remove and not enabled:
+        raise BoundaryError(
+            E_SWITCH_OFF, f"{SHADOW_SWITCH} and {ENFORCE_SWITCH} are both off"
+        )
+
+    written = {}
+    removed = 0
+    for event_name in adapter.EVENTS:
+        kept = []
+        for entry in _entries(hooks, event_name):
+            if _carrier_commands(entry):
+                removed += 1
+                continue
+            kept.append(entry)
+        if not remove:
+            command = shlex.join(
+                carrier_argv(
+                    event_name,
+                    python=python,
+                    profile=profile,
+                    policy_path=policy_path,
+                    state_dir=state_dir,
+                    component=component,
+                )
+            )
+            entry = hook_entry(event_name, command)
+            if entry not in kept:
+                kept.append(entry)
+            written[event_name] = {
+                "stage": adapter.stage_of(event_name),
+                "command": command,
+                "matcher": entry.get("matcher", ""),
+                "entries": len(kept),
+            }
+        if kept:
+            hooks[event_name] = kept
+        elif event_name in hooks:
+            del hooks[event_name]
+
+    record = {
+        "schema": "jev-sentinel.hook-install.v1",
+        "host": HOST,
+        "carrier": str(Path(__file__).resolve()),
+        "component": str(component) if component else "",
+        "policy": str(policy_path),
+        "state_dir": str(state_dir),
+        "profile": profile,
+        "hooks_path": str(path),
+        "switches": dict(switches),
+        "enabled": enabled,
+        "installed": bool(written),
+        "removed": removed,
+        "created": created,
+        "dry_run": bool(dry_run),
+        "disable_all_hooks": document.get("disableAllHooks") is True,
+        "events": written,
+        "commands": sorted({item["command"] for item in written.values()}),
+        "record": "" if dry_run else str(Path(state_dir) / HOOK_INSTALL_RECORD),
+    }
+    if not dry_run:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        record_path = Path(state_dir) / HOOK_INSTALL_RECORD
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        with record_path.open("a", encoding="utf-8") as handle:
+            handle.write(_canonical(record) + "\n")
+    return record
 
 
 def bypass_surfaces(
@@ -874,6 +1234,23 @@ def _wired_profile(coverage: dict, stage: str) -> str:
     return ""
 
 
+def _wired_state_dir(coverage: dict, stage: str) -> Path:
+    """The ``--state-dir`` a wired carrier writes its host journal into.
+
+    Only the host carrier carries one; a command that does not is the component's
+    own hook, which keeps its audit store beside the policy the same way.
+    """
+    for command in _wired_commands(coverage, stage):
+        try:
+            argv = shlex.split(command)
+        except ValueError:
+            continue
+        for index, token in enumerate(argv):
+            if token == "--state-dir" and index + 1 < len(argv):
+                return Path(argv[index + 1])
+    return Path(coverage["hooks_path"]).parent / "state"
+
+
 def probe_activation(
     coverage: dict, *, component: Path, policy_path: Path, policy: dict, nonce: str
 ) -> dict:
@@ -907,7 +1284,10 @@ def probe_activation(
         expected = digest_content(event)
         expected_ref = session_ref(event)
         responses = []
+        carrier_wired = False
         for command in _wired_commands(coverage, stage):
+            carrier = is_carrier_command(command)
+            carrier_wired = carrier_wired or carrier
             try:
                 result = subprocess.run(
                     shlex.split(command),
@@ -916,7 +1296,9 @@ def probe_activation(
                     timeout=HOOK_TIMEOUT_S,
                 )
             except (OSError, subprocess.SubprocessError) as exc:
-                responses.append({"ok": False, "reason": type(exc).__name__})
+                responses.append(
+                    {"ok": False, "reason": type(exc).__name__, "carrier": carrier}
+                )
                 continue
             try:
                 parsed = adapter.strict_json(result.stdout)
@@ -935,6 +1317,7 @@ def probe_activation(
                     and not replaced,
                     "response_keys": sorted(parsed) if isinstance(parsed, dict) else [],
                     "replacement_fields": replaced,
+                    "carrier": carrier,
                 }
             )
         scanned = outbox(component, policy_path)
@@ -946,12 +1329,29 @@ def probe_activation(
             and row.get("stage") == stage
             and row.get("session_ref") == expected_ref
         ]
+        # A carrier-wired path must *also* show the host's own correlated
+        # incident, or the wired command reached the component without the host
+        # boundary between them - which is the whole thing #61 wires.
+        host_rows = []
+        if carrier_wired:
+            host_rows = [
+                row
+                for row in read_incidents(
+                    incident_path(_wired_state_dir(coverage, stage))
+                )
+                if isinstance(row, dict)
+                and (row.get("sentinel") or {}).get("session_ref") == expected_ref
+                and (row.get("sentinel") or {}).get("content_sha256") == expected
+            ]
         saturated = len(scanned) >= OUTBOX_SCAN_LIMIT
         evidence[stage] = {
             "probed": True,
             "commands": len(responses),
             "responses": responses,
             "audit_rows": len(rows),
+            "host_carrier": carrier_wired,
+            "host_incidents": len(host_rows),
+            "host_incident_event_ids": [row.get("event_id", "") for row in host_rows],
             "reason_codes": sorted(
                 {code for row in rows for code in row.get("reason_codes", [])}
             ),
@@ -970,7 +1370,9 @@ def probe_activation(
         }
     inconclusive = any(item.get("inconclusive") for item in evidence.values())
     activated = not inconclusive and all(
-        item.get("audit_rows", 0) >= 1 for item in evidence.values()
+        item.get("audit_rows", 0) >= 1
+        and (not item.get("host_carrier") or item.get("host_incidents", 0) >= 1)
+        for item in evidence.values()
     )
     return {
         "activated": activated,
@@ -1111,6 +1513,97 @@ def _default_profile_root() -> Path:
     return Path(env) if env else Path.home() / ".codex"
 
 
+def _install_main(args, manifest, switches: dict, policy_path: Path) -> int:
+    """Wire (or unwire) the host carrier into the Codex hook path."""
+    profile_root = (
+        Path(args.profile_root) if args.profile_root else _default_profile_root()
+    )
+    state_dir = Path(args.state_dir) if args.state_dir else policy_path.parent
+    try:
+        component = resolve_component(args.component, manifest=manifest)
+    except BoundaryError:
+        if not args.remove:
+            raise
+        # Removing the wiring must not require a resolvable component: the
+        # command being removed is the host carrier, not the component.
+        component = None
+    record = install_hooks(
+        profile_root,
+        profile=args.profile,
+        policy_path=policy_path,
+        state_dir=state_dir,
+        component=component,
+        switches=switches,
+        hooks_path=Path(args.hooks) if args.hooks else None,
+        python=args.python,
+        remove=args.remove,
+        dry_run=args.dry_run,
+    )
+    print(json.dumps(record, indent=2 if args.json else None))
+    return 0
+
+
+def _hook_main(args) -> int:
+    """The carrier's own entry: Codex runs this command, so stdout is the response.
+
+    A host hook must never show the operator a hard error, so every path here
+    prints a JSON response and exits 0. When the boundary cannot decide it
+    prints ``{}`` (no judge) rather than raising: the fail-closed decision, when
+    one is owed, is already carried by the response ``hook`` returns and by the
+    durable latch, never by a process exit code the host does not read.
+    """
+    response = {}
+    try:
+        import sentinel_veto as veto
+
+        if args.harness != HOST:
+            raise BoundaryError(E_EVENT_NAME, f"this carrier speaks {HOST} only")
+        manifest = load_manifest()
+        switches = feature_switches(manifest)
+        policy_path = Path(args.policy) if args.policy else _default_policy()
+        policy = load_policy_fail_closed(policy_path)
+        enforce = veto.enforcement_enabled(policy, switches)
+        try:
+            component = resolve_component(args.component, manifest=manifest)
+        except BoundaryError:
+            component = None
+        event_name = _resolve_event_name(args.event)
+        raw = read_hook_payload()
+        if raw is None:
+            payload = None
+        else:
+            try:
+                payload = adapter.strict_json(raw)
+            except adapter.AdapterError:
+                # A payload that is not even JSON is a shape refusal, not a bound
+                # refusal; ``hook`` distinguishes the two by identity, not type.
+                payload = ""
+        identity = hook_identity(
+            payload if isinstance(payload, dict) else {},
+            args.profile,
+            session=args.session,
+            turn=args.turn,
+            tool_call_id=args.tool_call_id,
+            workspace=args.workspace,
+        )
+        result = hook(
+            payload,
+            event_name=event_name,
+            profile=args.profile,
+            identity=identity,
+            component=component,
+            policy_path=policy_path,
+            policy=policy,
+            enforce=enforce,
+            state_dir=Path(args.state_dir) if args.state_dir else policy_path.parent,
+        )
+        response = result["response"]
+    except Exception:  # noqa: BLE001 - a hook must never surface a hard error
+        response = {}
+    print(json.dumps(response))
+    return 0
+
+
 def _add_component_args(node):
     node.add_argument("--component", default="", help="pinned jev-sentinel checkout")
     node.add_argument("--policy", default="", help="sentinel policy.json")
@@ -1161,11 +1654,55 @@ def main(argv=None) -> int:
         "--request", default="-", help="native payload JSON file, or - for stdin"
     )
 
+    hook_node = sub.add_parser(
+        "hook",
+        help="the wired carrier: read one native payload and print the host response",
+    )
+    hook_node.add_argument("--harness", default=HOST)
+    hook_node.add_argument(
+        "--event", required=True, help="native event name or boundary stage"
+    )
+    hook_node.add_argument("--profile", default="default")
+    hook_node.add_argument("--policy", default="", help="sentinel policy.json")
+    hook_node.add_argument("--state-dir", default="")
+    hook_node.add_argument(
+        "--component", default="", help="pinned jev-sentinel checkout"
+    )
+    hook_node.add_argument("--session", default="")
+    hook_node.add_argument("--turn", default="")
+    hook_node.add_argument("--tool-call-id", default="")
+    hook_node.add_argument("--workspace", default="")
+
+    inst = sub.add_parser(
+        "install-hooks", help="wire the host carrier into the Codex hook path"
+    )
+    _add_component_args(inst)
+    inst.add_argument(
+        "--profile-root", default="", help="Codex profile root holding hooks.json"
+    )
+    inst.add_argument("--hooks", default="", help="explicit hooks.json path")
+    inst.add_argument("--profile", default="default")
+    inst.add_argument(
+        "--python", default="", help="interpreter to pin into the command"
+    )
+    inst.add_argument("--state-dir", default="")
+    inst.add_argument(
+        "--remove", action="store_true", help="remove the carrier entries"
+    )
+    inst.add_argument("--dry-run", action="store_true", help="report without writing")
+
     args = parser.parse_args(argv)
+
+    if args.command == "hook":
+        return _hook_main(args)
+
     manifest = load_manifest()
     switches = feature_switches(manifest)
     policy_path = Path(args.policy) if args.policy else _default_policy()
     try:
+        if args.command == "install-hooks":
+            return _install_main(args, manifest, switches, policy_path)
+
         component = resolve_component(args.component, manifest=manifest)
 
         if args.command == "coverage":

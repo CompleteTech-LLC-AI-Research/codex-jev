@@ -17,6 +17,7 @@ Run with: python3 -m unittest discover -s jev/tests -t jev/tests
 import json
 import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -228,3 +229,131 @@ class RealCoverageTests(RealComponentTestCase):
         self.assertIn("hook_not_wired.tool_before", ids)
         self.assertIn("hook_not_wired.tool_after", ids)
         self.assertFalse(report["activation"]["activated"])
+
+
+class RealCarrierTests(RealComponentTestCase):
+    """#61: the wired carrier drives the real component and the host journal."""
+
+    def install(self, *, remove=False):
+        return sb.install_hooks(
+            self.profile_root,
+            profile=self.identity["profile"],
+            policy_path=self.policy_path,
+            state_dir=self.root,
+            component=COMPONENT,
+            switches={"sentinel.shadow": True, "sentinel.enforcement": False},
+            python=sys.executable,
+            remove=remove,
+        )
+
+    def carrier_command(self, event_name):
+        document = json.loads(
+            (self.profile_root / "hooks.json").read_text(encoding="utf-8")
+        )
+        for entry in document["hooks"][event_name]:
+            for item in entry["hooks"]:
+                if sb.is_carrier_command(item["command"]):
+                    return item["command"]
+        self.fail(f"no carrier wired for {event_name}")
+
+    def run_carrier(self, event_name, payload, *, enforce=True):
+        active = dict(os.environ)
+        active.pop("JEV_SENTINEL_ROOT", None)
+        active.pop("JEV_COMPONENTS_ROOT", None)
+        active["JEV_SWITCH_SENTINEL_SHADOW"] = "1"
+        active["JEV_SWITCH_SENTINEL_ENFORCEMENT"] = "1" if enforce else "0"
+        return subprocess.run(
+            shlex.split(self.carrier_command(event_name)),
+            input=json.dumps(payload).encode("utf-8"),
+            capture_output=True,
+            timeout=30,
+            env=active,
+        )
+
+    def test_install_wires_the_carrier_and_keeps_removal_reversible(self):
+        self.install()
+        for event_name in adapter.EVENTS:
+            self.assertTrue(
+                sb.is_carrier_command(self.carrier_command(event_name)), event_name
+            )
+        record = self.install(remove=True)
+        self.assertEqual(3, record["removed"])
+        document = json.loads(
+            (self.profile_root / "hooks.json").read_text(encoding="utf-8")
+        )
+        for event_name in adapter.EVENTS:
+            self.assertNotIn(event_name, document["hooks"], event_name)
+
+    def test_the_carrier_vetoes_and_records_both_journals(self):
+        self.install()
+        self.policy("enforce")
+        result = self.run_carrier(
+            "PreToolUse",
+            {
+                "session_id": "real-carrier-1",
+                "tool_name": "shell",
+                "tool_input": {"cmd": adapter.CANARY},
+            },
+        )
+        self.assertEqual(0, result.returncode, result.stderr.decode())
+        response = json.loads(result.stdout)
+        self.assertEqual("deny", response["hookSpecificOutput"]["permissionDecision"])
+        incidents = sb.read_incidents(sb.incident_path(self.root))
+        self.assertEqual(1, len(incidents))
+        self.assertEqual(
+            ["installation_test_canary"], incidents[0]["sentinel"]["reason_codes"]
+        )
+        rows = sb.outbox(COMPONENT, self.policy_path)
+        self.assertEqual(1, len(rows), "the component wrote its own audit row")
+        self.assertEqual(
+            incidents[0]["sentinel"]["content_sha256"], rows[0]["content_sha256"]
+        )
+        self.assertEqual(
+            incidents[0]["sentinel"]["session_ref"], rows[0]["session_ref"]
+        )
+
+    def test_a_shadow_carrier_records_but_returns_no_judgement(self):
+        self.install()
+        result = self.run_carrier(
+            "PreToolUse",
+            {
+                "session_id": "real-carrier-2",
+                "tool_name": "shell",
+                "tool_input": {"cmd": adapter.CANARY},
+            },
+            enforce=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr.decode())
+        self.assertEqual({}, json.loads(result.stdout))
+        self.assertEqual(1, len(sb.read_incidents(sb.incident_path(self.root))))
+
+    def test_an_oversize_payload_through_the_carrier_never_reaches_the_component(self):
+        self.install()
+        self.policy("enforce")
+        result = self.run_carrier(
+            "UserPromptSubmit", {"prompt": "z" * (adapter.MAX_INPUT + 1)}
+        )
+        self.assertEqual(0, result.returncode, result.stderr.decode())
+        self.assertEqual("block", json.loads(result.stdout)["decision"])
+        self.assertEqual([], sb.read_incidents(sb.incident_path(self.root)))
+        self.assertEqual([], sb.outbox(COMPONENT, self.policy_path))
+
+    def test_the_probe_activates_only_with_the_correlated_host_incident(self):
+        self.install()
+        report = sb.coverage_report(
+            manifest=sb.load_manifest(),
+            component=COMPONENT,
+            profile_root=self.profile_root,
+            policy_path=self.policy_path,
+            hooks_path=None,
+            switches={"sentinel.shadow": True, "sentinel.enforcement": False},
+            probe=True,
+            nonce="real-carrier",
+        )
+        self.assertTrue(report["activation"]["activated"])
+        self.assertEqual("probe_canary", report["activation"]["basis"])
+        for stage, item in report["activation"]["evidence"].items():
+            self.assertTrue(item["host_carrier"], stage)
+            self.assertGreaterEqual(item["audit_rows"], 1, stage)
+            self.assertGreaterEqual(item["host_incidents"], 1, stage)
+            self.assertEqual(1, len(item["host_incident_event_ids"]), stage)
