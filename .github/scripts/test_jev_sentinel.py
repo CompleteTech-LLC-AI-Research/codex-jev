@@ -36,7 +36,7 @@ GOLDEN = REPO_ROOT / "jev" / "tests" / "sentinel_fixtures" / "codex-translation.
 
 # A stand-in for the pinned component. It implements only the documented wire
 # (hook/check/outbox) and the two digests the component's audit row carries.
-STUB_LAUNCH = '''
+STUB_LAUNCH = """
 import hashlib, json, sys
 from pathlib import Path
 
@@ -124,7 +124,7 @@ def main():
 
 
 sys.exit(main())
-'''
+"""
 
 
 class SentinelTestCase(unittest.TestCase):
@@ -140,7 +140,8 @@ class SentinelTestCase(unittest.TestCase):
         self.state.mkdir()
         self.policy_path = self.state / "policy.json"
         self.policy_path.write_text(
-            json.dumps({"schema_version": 1, "mode": "shadow", "backend": "local"}), encoding="utf-8"
+            json.dumps({"schema_version": 1, "mode": "shadow", "backend": "local"}),
+            encoding="utf-8",
         )
         self.profile_root = self.root / "profile"
         self.profile_root.mkdir()
@@ -176,7 +177,11 @@ class SentinelTestCase(unittest.TestCase):
                 "--profile",
                 self.identity["profile"],
             ]
-            entry = {"hooks": [{"type": "command", "command": shlex.join(argv), "timeout": 12}]}
+            entry = {
+                "hooks": [
+                    {"type": "command", "command": shlex.join(argv), "timeout": 12}
+                ]
+            }
             if stage != "ingress":
                 entry["matcher"] = matcher
             hooks[event_name] = [entry]
@@ -189,7 +194,8 @@ class SentinelTestCase(unittest.TestCase):
 
     def policy(self, mode="shadow"):
         self.policy_path.write_text(
-            json.dumps({"schema_version": 1, "mode": mode, "backend": "local"}), encoding="utf-8"
+            json.dumps({"schema_version": 1, "mode": mode, "backend": "local"}),
+            encoding="utf-8",
         )
         return sb.load_policy(self.policy_path)
 
@@ -211,7 +217,9 @@ class SentinelTestCase(unittest.TestCase):
         path = self.state / "stub-audit.jsonl"
         if not path.is_file():
             return []
-        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        return [
+            json.loads(line) for line in path.read_text().splitlines() if line.strip()
+        ]
 
     def run_canary(self, enabled=True, mode="shadow"):
         return sb.canary(
@@ -262,7 +270,8 @@ class TranslationFidelityTests(unittest.TestCase):
         self.assertTrue(self.golden["render"])
         for case in self.golden["render"]:
             self.assertEqual(
-                case["result"], adapter.render(case["event"], case["verdict"], case["raw"])
+                case["result"],
+                adapter.render(case["event"], case["verdict"], case["raw"]),
             )
 
     def test_codex_never_emits_an_output_replacement(self):
@@ -281,7 +290,8 @@ class TranslationFidelityTests(unittest.TestCase):
         self.assertEqual("jev-sentinel", component["id"])
         self.assertIn("sentinel_incident", manifest["events"]["kinds"])
         self.assertEqual(
-            "jev-sentinel", manifest["ownership"]["interface_owners"]["sentinel_boundary"]
+            "jev-sentinel",
+            manifest["ownership"]["interface_owners"]["sentinel_boundary"],
         )
 
 
@@ -299,7 +309,10 @@ class SwitchTests(unittest.TestCase):
     def test_environment_selects_the_switches(self):
         state = sb.feature_switches(
             sb.load_manifest(),
-            env={"JEV_SWITCH_SENTINEL_SHADOW": "1", "JEV_SWITCH_SENTINEL_ENFORCEMENT": "0"},
+            env={
+                "JEV_SWITCH_SENTINEL_SHADOW": "1",
+                "JEV_SWITCH_SENTINEL_ENFORCEMENT": "0",
+            },
         )
         self.assertTrue(state["sentinel.shadow"])
         self.assertFalse(state["sentinel.enforcement"])
@@ -380,10 +393,15 @@ class IncidentTests(SentinelTestCase):
 
     def test_enforce_maps_each_stage_onto_its_supported_response(self):
         result = self.run_canary(mode="enforce")
-        responses = {canary["stage"]: canary["host_response_keys"] for canary in result["canaries"]}
+        responses = {
+            canary["stage"]: canary["host_response_keys"]
+            for canary in result["canaries"]
+        }
         self.assertEqual(["decision", "reason"], responses["ingress"])
         self.assertEqual(["hookSpecificOutput"], responses["tool_before"])
-        self.assertEqual(["decision", "hookSpecificOutput", "reason"], responses["tool_after"])
+        self.assertEqual(
+            ["decision", "hookSpecificOutput", "reason"], responses["tool_after"]
+        )
         for canary in result["canaries"]:
             self.assertTrue(canary["host_vetoed"])
             self.assertTrue(canary["enforced"])
@@ -391,7 +409,10 @@ class IncidentTests(SentinelTestCase):
     def test_incidents_never_carry_raw_payload_text(self):
         self.observe(
             "PostToolUse",
-            {"tool_name": "shell", "tool_response": {"stdout": f"secret {adapter.CANARY}"}},
+            {
+                "tool_name": "shell",
+                "tool_response": {"stdout": f"secret {adapter.CANARY}"},
+            },
         )
         text = sb.incident_path(self.state).read_text(encoding="utf-8")
         self.assertNotIn(adapter.CANARY, text)
@@ -405,10 +426,14 @@ class IncidentTests(SentinelTestCase):
         self.assertTrue(all(c["skipped"] == "switch_off" for c in result["canaries"]))
 
     def test_enforced_flag_follows_the_policy_not_the_switch(self):
-        shadow = self.observe("PreToolUse", {"tool_name": "shell", "tool_input": {"a": 1}})
+        shadow = self.observe(
+            "PreToolUse", {"tool_name": "shell", "tool_input": {"a": 1}}
+        )
         self.assertFalse(shadow["verdict"]["enforced"])
         enforced = self.observe(
-            "PreToolUse", {"tool_name": "shell", "tool_input": {"a": 1}}, policy=self.policy("enforce")
+            "PreToolUse",
+            {"tool_name": "shell", "tool_input": {"a": 1}},
+            policy=self.policy("enforce"),
         )
         self.assertTrue(enforced["verdict"]["enforced"])
 
@@ -429,7 +454,9 @@ class CoverageTests(SentinelTestCase):
     def test_report_names_every_covered_path_and_tool(self):
         self.write_hooks()
         report = self.report()
-        self.assertEqual(["ingress", "tool_after", "tool_before"], report["wired_stages"])
+        self.assertEqual(
+            ["ingress", "tool_after", "tool_before"], report["wired_stages"]
+        )
         self.assertEqual(["*"], report["covered_tools"])
         self.assertTrue(report["shadow"]["effective"])
         self.assertFalse(report["response_platform"]["replacement_fields"])
@@ -451,7 +478,9 @@ class CoverageTests(SentinelTestCase):
         self.write_hooks(events={"ingress", "tool_before"})
         report = self.report()
         self.assertNotIn("tool_after", report["wired_stages"])
-        self.assertIn("hook_not_wired.tool_after", [s["id"] for s in report["bypass_surfaces"]])
+        self.assertIn(
+            "hook_not_wired.tool_after", [s["id"] for s in report["bypass_surfaces"]]
+        )
         self.assertFalse(report["shadow"]["effective"])
 
     def test_native_disable_all_hooks_unwires_everything(self):
@@ -459,7 +488,9 @@ class CoverageTests(SentinelTestCase):
         report = self.report(probe=True)
         self.assertEqual([], report["wired_stages"])
         self.assertTrue(report["disable_all_hooks"])
-        self.assertIn("native_disable_all_hooks", [s["id"] for s in report["bypass_surfaces"]])
+        self.assertIn(
+            "native_disable_all_hooks", [s["id"] for s in report["bypass_surfaces"]]
+        )
         self.assertFalse(report["activation"]["activated"])
 
     def test_installation_alone_is_not_activation(self):
@@ -473,7 +504,10 @@ class CoverageTests(SentinelTestCase):
         self.write_hooks(launcher=self.root / "missing" / "launch.py")
         report = self.report(probe=True)
         self.assertEqual([], report["reachable_stages"])
-        self.assertIn("launcher_unreachable.tool_before", [s["id"] for s in report["bypass_surfaces"]])
+        self.assertIn(
+            "launcher_unreachable.tool_before",
+            [s["id"] for s in report["bypass_surfaces"]],
+        )
         self.assertFalse(report["activation"]["activated"])
 
     def test_probe_shows_activation_through_the_wired_commands(self):
@@ -492,18 +526,28 @@ class CoverageTests(SentinelTestCase):
 
     def test_a_reachable_launcher_that_does_not_evaluate_is_not_activation(self):
         echoing = self.root / "launch.py"
-        echoing.write_text("import sys, json\nsys.stdin.read()\nprint(json.dumps({}))\n", encoding="utf-8")
+        echoing.write_text(
+            "import sys, json\nsys.stdin.read()\nprint(json.dumps({}))\n",
+            encoding="utf-8",
+        )
         self.write_hooks(launcher=echoing)
         report = self.report(probe=True, nonce="probe-b")
         self.assertFalse(report["activation"]["activated"])
 
     def test_probe_evidence_cannot_be_satisfied_by_an_earlier_run(self):
         self.write_hooks()
-        self.assertTrue(self.report(probe=True, nonce="probe-1")["activation"]["activated"])
+        self.assertTrue(
+            self.report(probe=True, nonce="probe-1")["activation"]["activated"]
+        )
         echoing = self.root / "launch.py"
-        echoing.write_text("import sys, json\nsys.stdin.read()\nprint(json.dumps({}))\n", encoding="utf-8")
+        echoing.write_text(
+            "import sys, json\nsys.stdin.read()\nprint(json.dumps({}))\n",
+            encoding="utf-8",
+        )
         self.write_hooks(launcher=echoing)
-        self.assertFalse(self.report(probe=True, nonce="probe-2")["activation"]["activated"])
+        self.assertFalse(
+            self.report(probe=True, nonce="probe-2")["activation"]["activated"]
+        )
 
     def test_bypass_surfaces_include_the_documented_set(self):
         self.write_hooks()
@@ -530,4 +574,6 @@ class CoverageTests(SentinelTestCase):
             switches={"sentinel.shadow": False, "sentinel.enforcement": False},
             probe=False,
         )
-        self.assertIn("integration_switch_off", [s["id"] for s in report["bypass_surfaces"]])
+        self.assertIn(
+            "integration_switch_off", [s["id"] for s in report["bypass_surfaces"]]
+        )

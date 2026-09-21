@@ -1,1 +1,4 @@
-extend-exclude = ["sdk/python", "codex-rs/vendor"]
+# `jev/scripts/jev_bus.py` is vendored byte-identically from the pinned
+# `jev-prune-kit` component, and a digest test asserts that equality, so it is
+# excluded here rather than reformatted.
+extend-exclude = ["sdk/python", "codex-rs/vendor", "jev/scripts/jev_bus.py"]

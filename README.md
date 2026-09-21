@@ -26,12 +26,12 @@ cd codex-jev
 
 Follow the [build prerequisites](docs/install.md#build-from-source) using this checkout, and read [AGENTS.md](AGENTS.md) before modifying the code.
 
-| Area | Entry point |
-| --- | --- |
-| Rust agent and terminal UI | [codex-rs/](codex-rs/) |
+| Area                        | Entry point                                               |
+| --------------------------- | --------------------------------------------------------- |
+| Rust agent and terminal UI  | [codex-rs/](codex-rs/)                                    |
 | Application server protocol | [App-server documentation](codex-rs/app-server/README.md) |
-| TypeScript SDK | [SDK guide](sdk/typescript/README.md) |
-| Development workflow | [Contributing](docs/contributing.md) |
+| TypeScript SDK              | [SDK guide](sdk/typescript/README.md)                     |
+| Development workflow        | [Contributing](docs/contributing.md)                      |
 
 ## Upstream Codex
 

@@ -41,7 +41,7 @@ MODULE = SCRIPTS / "sentinel_veto.py"
 
 # A stand-in for the pinned component: only ``check``, plus fault markers the
 # tests use to drive the host's fail-closed paths.
-STUB_LAUNCH = '''
+STUB_LAUNCH = """
 import hashlib, json, sys, time
 from pathlib import Path
 
@@ -85,7 +85,7 @@ def main():
 
 
 sys.exit(main())
-'''
+"""
 
 
 class VetoTestCase(unittest.TestCase):
@@ -125,14 +125,24 @@ class VetoTestCase(unittest.TestCase):
         )
         return sb.load_policy(self.policy_path)
 
-    def run_event(self, payload, *, event_name="UserPromptSubmit", session="session-1",
-                  enforce=True, mode="enforce", turn="turn-1", identity=None):
+    def run_event(
+        self,
+        payload,
+        *,
+        event_name="UserPromptSubmit",
+        session="session-1",
+        enforce=True,
+        mode="enforce",
+        turn="turn-1",
+        identity=None,
+    ):
         policy = self.policy(mode)
         return sv.handle(
             payload,
             event_name=event_name,
             profile="codex-stub",
-            identity=identity or {**self.identity, "session_id": session, "turn_id": turn},
+            identity=identity
+            or {**self.identity, "session_id": session, "turn_id": turn},
             component=self.component,
             policy_path=self.policy_path,
             policy=policy,
@@ -191,13 +201,20 @@ class MappingTests(VetoTestCase):
             event_name="PostToolUse",
         )
         self.assertTrue(result["vetoed"])
-        self.assertEqual({"decision", "reason", "hookSpecificOutput"}, set(result["response"]))
-        self.assertEqual("PostToolUse", result["response"]["hookSpecificOutput"]["hookEventName"])
+        self.assertEqual(
+            {"decision", "reason", "hookSpecificOutput"}, set(result["response"])
+        )
+        self.assertEqual(
+            "PostToolUse", result["response"]["hookSpecificOutput"]["hookEventName"]
+        )
 
     def test_no_response_path_carries_an_output_replacement(self):
         for event_name, payload in (
             ("UserPromptSubmit", {"prompt": "JEV_SENTINEL_TEST_BLOCK"}),
-            ("PreToolUse", {"tool_name": "Bash", "tool_input": {"command": "JEV_QUARANTINE"}}),
+            (
+                "PreToolUse",
+                {"tool_name": "Bash", "tool_input": {"command": "JEV_QUARANTINE"}},
+            ),
             ("PostToolUse", {"tool_name": "Bash", "tool_response": "JEV_REVIEW"}),
         ):
             with self.subTest(event=event_name):
@@ -232,7 +249,9 @@ class PrecedenceTests(VetoTestCase):
         self.assertTrue(second["vetoed"])
         self.assertEqual("latch", second["source"])
         self.assertEqual("BLOCK", second["effective_decision"])
-        self.assertEqual("deny", second["response"]["hookSpecificOutput"]["permissionDecision"])
+        self.assertEqual(
+            "deny", second["response"]["hookSpecificOutput"]["permissionDecision"]
+        )
         reason = second["response"]["hookSpecificOutput"]["permissionDecisionReason"]
         self.assertIn("latched BLOCK veto", reason)
 
@@ -283,14 +302,16 @@ class PrecedenceTests(VetoTestCase):
         event = adapter.normalize("UserPromptSubmit", {"prompt": "x"}, "codex-stub")
         event["session_id"] = "session-1"
         self.assertEqual(
-            sb.session_ref(event), sb.session_ref_for("codex", "codex-stub", "session-1")
+            sb.session_ref(event),
+            sb.session_ref_for("codex", "codex-stub", "session-1"),
         )
         self.assertEqual("", sb.session_ref_for("codex", "codex-stub", ""))
 
     def test_the_incident_chain_points_at_the_latched_cause(self):
         first = self.run_event({"prompt": "JEV_SENTINEL_TEST_BLOCK"})
         second = self.run_event(
-            {"tool_name": "Bash", "tool_input": {"command": "ls"}}, event_name="PreToolUse"
+            {"tool_name": "Bash", "tool_input": {"command": "ls"}},
+            event_name="PreToolUse",
         )
         chained = second["observed"]["incident"]
         self.assertEqual(first["incident_event_id"], chained["parent_event_id"])
@@ -304,7 +325,9 @@ class PrecedenceTests(VetoTestCase):
             enforce=False,
             turn="turn-2",
         )
-        self.assertEqual("BLOCK", shadow["verdict"]["decision"], "shadow still reports the finding")
+        self.assertEqual(
+            "BLOCK", shadow["verdict"]["decision"], "shadow still reports the finding"
+        )
         self.assertFalse(shadow["vetoed"])
         self.assertEqual({}, shadow["response"])
         self.assertEqual("BLOCK", shadow["latch_after"]["decision"])
@@ -359,10 +382,14 @@ class FailClosedTests(VetoTestCase):
         self.fail_closed({"prompt": "JEV_SLEEP now"}, expected=sb.E_COMPONENT_FAILED)
 
     def test_a_malformed_component_response_fails_closed(self):
-        self.fail_closed({"prompt": "JEV_MALFORMED_JSON"}, expected=sb.E_COMPONENT_FAILED)
+        self.fail_closed(
+            {"prompt": "JEV_MALFORMED_JSON"}, expected=sb.E_COMPONENT_FAILED
+        )
 
     def test_a_malformed_verdict_fails_closed(self):
-        self.fail_closed({"prompt": "JEV_MALFORMED_VERDICT"}, expected=sb.E_VERDICT_SHAPE)
+        self.fail_closed(
+            {"prompt": "JEV_MALFORMED_VERDICT"}, expected=sb.E_VERDICT_SHAPE
+        )
 
     def test_a_nonzero_component_exit_fails_closed(self):
         self.fail_closed({"prompt": "JEV_EXIT"}, expected=sb.E_COMPONENT_FAILED)
@@ -425,7 +452,9 @@ class FailClosedTests(VetoTestCase):
             sb.observe = original
         ref = sb.session_ref_for("codex", "codex-stub", "session-1")
         state = sv.latched(self.rows(), ref)
-        self.assertIsNotNone(state, "a cancelled evaluation must not leave the session ungated")
+        self.assertIsNotNone(
+            state, "a cancelled evaluation must not leave the session ungated"
+        )
         self.assertEqual("REVIEW", state["decision"])
         self.assertEqual("failure", state["source"])
 
@@ -453,7 +482,9 @@ class ConcurrencyTests(VetoTestCase):
             thread.start()
         for thread in threads:
             thread.join()
-        self.assertEqual([], overlap, "two threads were inside one session lock at once")
+        self.assertEqual(
+            [], overlap, "two threads were inside one session lock at once"
+        )
 
     def test_parallel_escalations_never_lose_a_raise(self):
         ref = "a" * 64
@@ -474,7 +505,9 @@ class ConcurrencyTests(VetoTestCase):
         rows = self.rows()
         self.assertEqual("QUARANTINE", sv.latched(rows, ref)["decision"])
         ranks = [row["rank"] for row in rows]
-        self.assertEqual(sorted(set(ranks)), ranks, "the ledger is strictly increasing in rank")
+        self.assertEqual(
+            sorted(set(ranks)), ranks, "the ledger is strictly increasing in rank"
+        )
         self.assertEqual(3, ranks[-1], "the strongest concurrent raise survives")
 
     def test_two_parallel_calls_cannot_both_become_the_winner(self):
@@ -525,7 +558,9 @@ class ConcurrencyTests(VetoTestCase):
 
     def test_parallel_calls_under_an_existing_latch_are_all_vetoed(self):
         ref = sb.session_ref_for("codex", "codex-stub", "session-1")
-        sv.escalate(sv.latch_path(self.state), session_ref=ref, decision="BLOCK", source="event")
+        sv.escalate(
+            sv.latch_path(self.state), session_ref=ref, decision="BLOCK", source="event"
+        )
         policy = self.policy("enforce")
         outcomes = []
         barrier = threading.Barrier(4)
@@ -546,7 +581,9 @@ class ConcurrencyTests(VetoTestCase):
                 )
             )
 
-        threads = [threading.Thread(target=worker, args=(f"turn-{i}",)) for i in range(4)]
+        threads = [
+            threading.Thread(target=worker, args=(f"turn-{i}",)) for i in range(4)
+        ]
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -648,7 +685,10 @@ class CliTests(VetoTestCase):
             "--session",
             "cli-session",
             "--force-enforce",
-            payload={"tool_name": "Bash", "tool_input": {"command": "JEV_SENTINEL_TEST_BLOCK"}},
+            payload={
+                "tool_name": "Bash",
+                "tool_input": {"command": "JEV_SENTINEL_TEST_BLOCK"},
+            },
         )
         self.assertEqual(0, done.returncode, done.stderr)
         response = json.loads(done.stdout)
@@ -664,7 +704,10 @@ class CliTests(VetoTestCase):
             "codex-stub",
             "--session",
             "cli-session",
-            payload={"tool_name": "Bash", "tool_input": {"command": "JEV_SENTINEL_TEST_BLOCK"}},
+            payload={
+                "tool_name": "Bash",
+                "tool_input": {"command": "JEV_SENTINEL_TEST_BLOCK"},
+            },
         )
         self.assertEqual(0, done.returncode, done.stderr)
         self.assertEqual({}, json.loads(done.stdout))
@@ -682,7 +725,14 @@ class CliTests(VetoTestCase):
             payload={"prompt": "JEV_SENTINEL_TEST_BLOCK"},
         )
         listed = subprocess.run(
-            [sys.executable, str(MODULE), "latch", "--state-dir", str(self.state), "--json"],
+            [
+                sys.executable,
+                str(MODULE),
+                "latch",
+                "--state-dir",
+                str(self.state),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -691,9 +741,18 @@ class CliTests(VetoTestCase):
         self.assertEqual(1, len(report["sessions"]))
         self.assertEqual("BLOCK", report["sessions"][0]["decision"])
         ref = report["sessions"][0]["session_ref"]
-        args = [sys.executable, str(MODULE), "clear", "--state-dir", str(self.state),
-                "--session-ref", ref]
-        without_confirm = subprocess.run(args, capture_output=True, text=True, check=False)
+        args = [
+            sys.executable,
+            str(MODULE),
+            "clear",
+            "--state-dir",
+            str(self.state),
+            "--session-ref",
+            ref,
+        ]
+        without_confirm = subprocess.run(
+            args, capture_output=True, text=True, check=False
+        )
         self.assertEqual(1, without_confirm.returncode)
         cleared = subprocess.run(
             [*args, "--confirm", "--json"], capture_output=True, text=True, check=False

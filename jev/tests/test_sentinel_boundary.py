@@ -28,7 +28,9 @@ sys.path.insert(0, str(SCRIPTS))
 import jev_sentinel_adapter as adapter  # noqa: E402
 import sentinel_boundary as sb  # noqa: E402
 
-GOLDEN = Path(__file__).resolve().parent / "sentinel_fixtures" / "codex-translation.json"
+GOLDEN = (
+    Path(__file__).resolve().parent / "sentinel_fixtures" / "codex-translation.json"
+)
 DEFAULT_CHECKOUTS = Path("/home/agent/jev/checkouts")
 
 
@@ -55,7 +57,8 @@ class RealComponentTestCase(unittest.TestCase):
         self.root = Path(self.work.name)
         self.policy_path = self.root / "policy.json"
         self.policy_path.write_text(
-            json.dumps({"schema_version": 1, "mode": "shadow", "backend": "local"}), encoding="utf-8"
+            json.dumps({"schema_version": 1, "mode": "shadow", "backend": "local"}),
+            encoding="utf-8",
         )
         self.identity = {
             "profile": "codex-real",
@@ -73,7 +76,8 @@ class RealComponentTestCase(unittest.TestCase):
 
     def policy(self, mode="shadow"):
         self.policy_path.write_text(
-            json.dumps({"schema_version": 1, "mode": mode, "backend": "local"}), encoding="utf-8"
+            json.dumps({"schema_version": 1, "mode": mode, "backend": "local"}),
+            encoding="utf-8",
         )
         return sb.load_policy(self.policy_path)
 
@@ -96,7 +100,11 @@ class RealComponentTestCase(unittest.TestCase):
                 "--profile",
                 self.identity["profile"],
             ]
-            entry = {"hooks": [{"type": "command", "command": shlex.join(argv), "timeout": 12}]}
+            entry = {
+                "hooks": [
+                    {"type": "command", "command": shlex.join(argv), "timeout": 12}
+                ]
+            }
             if stage != "ingress":
                 entry["matcher"] = ".*"
             hooks[event_name] = [entry]
@@ -131,7 +139,8 @@ class RealTranslationTests(RealComponentTestCase):
             )
         for case in golden["render"]:
             self.assertEqual(
-                case["result"], adapter.render(case["event"], case["verdict"], case["raw"])
+                case["result"],
+                adapter.render(case["event"], case["verdict"], case["raw"]),
             )
 
 
@@ -151,10 +160,15 @@ class RealCanaryTests(RealComponentTestCase):
 
     def test_enforce_canary_vetoes_each_stage(self):
         result = self.run_canary(mode="enforce")
-        responses = {canary["stage"]: canary["host_response_keys"] for canary in result["canaries"]}
+        responses = {
+            canary["stage"]: canary["host_response_keys"]
+            for canary in result["canaries"]
+        }
         self.assertEqual(["decision", "reason"], responses["ingress"])
         self.assertEqual(["hookSpecificOutput"], responses["tool_before"])
-        self.assertEqual(["decision", "hookSpecificOutput", "reason"], responses["tool_after"])
+        self.assertEqual(
+            ["decision", "hookSpecificOutput", "reason"], responses["tool_after"]
+        )
 
     def test_oversize_prompt_refuses_before_the_component_runs(self):
         observed = sb.observe(
@@ -169,7 +183,9 @@ class RealCanaryTests(RealComponentTestCase):
             state_dir=self.root,
         )
         self.assertEqual(sb.E_PAYLOAD_BOUND, observed["refused"])
-        self.assertEqual("host_payload_bound", observed["incident"]["sentinel"]["reason_codes"][0])
+        self.assertEqual(
+            "host_payload_bound", observed["incident"]["sentinel"]["reason_codes"][0]
+        )
         self.assertEqual("REVIEW", observed["incident"]["sentinel"]["decision"])
 
 
@@ -201,7 +217,9 @@ class RealCoverageTests(RealComponentTestCase):
         self.write_hooks()
         report = self.report(probe=False)
         self.assertFalse(report["activation"]["activated"])
-        self.assertEqual(["ingress", "tool_after", "tool_before"], report["wired_stages"])
+        self.assertEqual(
+            ["ingress", "tool_after", "tool_before"], report["wired_stages"]
+        )
 
     def test_uncovered_path_is_named(self):
         self.write_hooks(events={"ingress"})
@@ -210,4 +228,3 @@ class RealCoverageTests(RealComponentTestCase):
         self.assertIn("hook_not_wired.tool_before", ids)
         self.assertIn("hook_not_wired.tool_after", ids)
         self.assertFalse(report["activation"]["activated"])
-

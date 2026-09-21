@@ -151,7 +151,9 @@ def feature_switches_for(manifest, features, env=None) -> dict:
     for feature in features:
         spec = declared.get(feature)
         if spec is None:
-            raise BoundaryError(E_POLICY_SHAPE, f"manifest declares no feature {feature}")
+            raise BoundaryError(
+                E_POLICY_SHAPE, f"manifest declares no feature {feature}"
+            )
         key = "JEV_SWITCH_" + feature.upper().replace(".", "_")
         raw = env.get(key)
         state[feature] = bool(spec["default"]) if raw is None else raw == "1"
@@ -209,7 +211,9 @@ def load_policy(path: Path) -> dict:
     try:
         configured = adapter.strict_json(Path(path).read_bytes())
     except OSError as exc:
-        raise BoundaryError(E_POLICY_SHAPE, f"policy unreadable: {Path(path).name}") from exc
+        raise BoundaryError(
+            E_POLICY_SHAPE, f"policy unreadable: {Path(path).name}"
+        ) from exc
     except adapter.AdapterError as exc:
         raise BoundaryError(E_POLICY_SHAPE, str(exc)) from exc
     if not isinstance(configured, dict):
@@ -266,7 +270,9 @@ def bound_event(event: dict, policy: dict) -> dict:
     """
     size = len(_canonical(event).encode("utf-8"))
     if size > FORWARD_LIMIT:
-        raise BoundaryError(E_PAYLOAD_BOUND, f"normalized event {size}B exceeds {FORWARD_LIMIT}B")
+        raise BoundaryError(
+            E_PAYLOAD_BOUND, f"normalized event {size}B exceeds {FORWARD_LIMIT}B"
+        )
     content_bytes = len(event["content"].encode("utf-8"))
     if content_bytes > policy["max_content_bytes"]:
         raise BoundaryError(
@@ -294,7 +300,9 @@ def _run_component(root: Path, argv: list, payload, timeout: int):
     try:
         return adapter.strict_json(result.stdout)
     except adapter.AdapterError as exc:
-        raise BoundaryError(E_COMPONENT_FAILED, f"component output invalid: {exc}") from exc
+        raise BoundaryError(
+            E_COMPONENT_FAILED, f"component output invalid: {exc}"
+        ) from exc
 
 
 def verdict_for(root: Path, policy: Path, event: dict) -> dict:
@@ -305,17 +313,27 @@ def verdict_for(root: Path, policy: Path, event: dict) -> dict:
         _canonical(event).encode("utf-8"),
         HOOK_TIMEOUT_S,
     )
-    if not isinstance(verdict, dict) or verdict.get("decision") not in adapter.DECISIONS:
+    if (
+        not isinstance(verdict, dict)
+        or verdict.get("decision") not in adapter.DECISIONS
+    ):
         raise BoundaryError(E_VERDICT_SHAPE, "component returned no usable verdict")
-    if type(verdict.get("enforced")) is not bool or not isinstance(verdict.get("id"), str):
-        raise BoundaryError(E_VERDICT_SHAPE, "component verdict is missing identity fields")
+    if type(verdict.get("enforced")) is not bool or not isinstance(
+        verdict.get("id"), str
+    ):
+        raise BoundaryError(
+            E_VERDICT_SHAPE, "component verdict is missing identity fields"
+        )
     return verdict
 
 
 def outbox(root: Path, policy: Path, limit: int = OUTBOX_SCAN_LIMIT) -> list:
     """The component's pending audit records: the activation evidence source."""
     rows = _run_component(
-        root, ["outbox", "--policy", str(policy), "--limit", str(limit)], None, HOOK_TIMEOUT_S
+        root,
+        ["outbox", "--policy", str(policy), "--limit", str(limit)],
+        None,
+        HOOK_TIMEOUT_S,
     )
     return rows if isinstance(rows, list) else []
 
@@ -547,10 +565,14 @@ def read_coverage(profile_root, hooks_path=None) -> dict:
     try:
         document = adapter.strict_json(path.read_bytes())
     except OSError as exc:
-        raise BoundaryError(E_HOOKS_MISSING, f"hook wiring unreadable: {path.name}") from exc
+        raise BoundaryError(
+            E_HOOKS_MISSING, f"hook wiring unreadable: {path.name}"
+        ) from exc
     except adapter.AdapterError as exc:
         raise BoundaryError(E_HOOKS_SHAPE, f"hook wiring invalid: {exc}") from exc
-    if not isinstance(document, dict) or not isinstance(document.get("hooks", {}), dict):
+    if not isinstance(document, dict) or not isinstance(
+        document.get("hooks", {}), dict
+    ):
         raise BoundaryError(E_HOOKS_SHAPE, "hook wiring must hold a hooks object")
     hooks = document["hooks"]
     if document.get("disableAllHooks") is True:
@@ -609,7 +631,9 @@ def covered_tools(matchers: list) -> list:
     return sorted(names)
 
 
-def bypass_surfaces(coverage: dict, policy: dict, switches: dict, revision_match: bool) -> list:
+def bypass_surfaces(
+    coverage: dict, policy: dict, switches: dict, revision_match: bool
+) -> list:
     """Every observed way a finding can be skipped or an action left ungated."""
     surfaces = []
     if coverage["disable_all_hooks"]:
@@ -641,10 +665,16 @@ def bypass_surfaces(coverage: dict, policy: dict, switches: dict, revision_match
                 }
             )
         if spec["wired"] and spec["covered_tools"] != ["*"]:
-            opaque = any(str(tool).startswith("<opaque:") for tool in spec["covered_tools"])
+            opaque = any(
+                str(tool).startswith("<opaque:") for tool in spec["covered_tools"]
+            )
             surfaces.append(
                 {
-                    "id": (f"matcher_opaque.{stage}" if opaque else f"tools_outside_matcher.{stage}"),
+                    "id": (
+                        f"matcher_opaque.{stage}"
+                        if opaque
+                        else f"tools_outside_matcher.{stage}"
+                    ),
                     "kind": "bypass",
                     "observable": True,
                     "detail": (
@@ -745,7 +775,11 @@ def canary_payloads() -> list:
         ),
         (
             "PostToolUse",
-            {"tool_name": "shell", "tool_input": {}, "tool_response": {"stdout": adapter.CANARY}},
+            {
+                "tool_name": "shell",
+                "tool_input": {},
+                "tool_response": {"stdout": adapter.CANARY},
+            },
             "shell",
         ),
     ]
@@ -766,7 +800,9 @@ def canary(
     for event_name, raw, _tool in canary_payloads():
         stage = adapter.stage_of(event_name)
         if not enabled:
-            results.append({"stage": stage, "native_event": event_name, "skipped": "switch_off"})
+            results.append(
+                {"stage": stage, "native_event": event_name, "skipped": "switch_off"}
+            )
             continue
         payload = dict(raw)
         if stage != "ingress":
@@ -894,7 +930,9 @@ def probe_activation(
                     replaced = list(adapter.REPLACEMENT_FIELDS)
             responses.append(
                 {
-                    "ok": result.returncode == 0 and isinstance(parsed, dict) and not replaced,
+                    "ok": result.returncode == 0
+                    and isinstance(parsed, dict)
+                    and not replaced,
                     "response_keys": sorted(parsed) if isinstance(parsed, dict) else [],
                     "replacement_fields": replaced,
                 }
@@ -914,7 +952,9 @@ def probe_activation(
             "commands": len(responses),
             "responses": responses,
             "audit_rows": len(rows),
-            "reason_codes": sorted({code for row in rows for code in row.get("reason_codes", [])}),
+            "reason_codes": sorted(
+                {code for row in rows for code in row.get("reason_codes", [])}
+            ),
             "content_sha256": expected,
             "session_ref": expected_ref,
             "tool_name": tool_name,
@@ -922,14 +962,21 @@ def probe_activation(
             "inconclusive": bool(saturated and not rows),
         }
     if not evidence:
-        return {"activated": False, "basis": "none", "policy_mode": policy["mode"], "evidence": {}}
+        return {
+            "activated": False,
+            "basis": "none",
+            "policy_mode": policy["mode"],
+            "evidence": {},
+        }
     inconclusive = any(item.get("inconclusive") for item in evidence.values())
     activated = not inconclusive and all(
         item.get("audit_rows", 0) >= 1 for item in evidence.values()
     )
     return {
         "activated": activated,
-        "basis": "probe_canary" if activated else ("inconclusive" if inconclusive else "none"),
+        "basis": "probe_canary"
+        if activated
+        else ("inconclusive" if inconclusive else "none"),
         "policy_mode": policy["mode"],
         "evidence": evidence,
     }
@@ -989,7 +1036,9 @@ def coverage_report(
         "reachable_stages": reachable,
         "covered_tools": ["*"] if "*" in covered else covered,
         "shadow": {
-            "effective": bool(paths) and len(reachable) == len(paths) and policy["mode"] == "shadow",
+            "effective": bool(paths)
+            and len(reachable) == len(paths)
+            and policy["mode"] == "shadow",
             "observational": policy["mode"] == "shadow",
             "detail": (
                 "shadow records every finding and returns an empty host response, so a "
@@ -1011,7 +1060,11 @@ def coverage_report(
     )
     if probe:
         report["activation"] = probe_activation(
-            coverage, component=component, policy_path=policy_path, policy=policy, nonce=nonce
+            coverage,
+            component=component,
+            policy_path=policy_path,
+            policy=policy,
+            nonce=nonce,
         )
     return report
 
@@ -1031,7 +1084,11 @@ def _identity(args, profile: str) -> dict:
 
 
 def _read_request(path):
-    raw = Path(path).read_text(encoding="utf-8") if path and path != "-" else sys.stdin.read()
+    raw = (
+        Path(path).read_text(encoding="utf-8")
+        if path and path != "-"
+        else sys.stdin.read()
+    )
     return adapter.strict_json(raw)
 
 
@@ -1068,9 +1125,15 @@ def main(argv=None) -> int:
 
     cov = sub.add_parser("coverage", help="report effective hook coverage")
     _add_component_args(cov)
-    cov.add_argument("--profile-root", default="", help="Codex profile root holding hooks.json")
+    cov.add_argument(
+        "--profile-root", default="", help="Codex profile root holding hooks.json"
+    )
     cov.add_argument("--hooks", default="", help="explicit hooks.json path")
-    cov.add_argument("--probe", action="store_true", help="run the canaries through the wired commands")
+    cov.add_argument(
+        "--probe",
+        action="store_true",
+        help="run the canaries through the wired commands",
+    )
     cov.add_argument("--nonce", default="", help="probe run identity (default: random)")
 
     can = sub.add_parser("canary", help="run the deterministic canaries")
@@ -1081,16 +1144,22 @@ def main(argv=None) -> int:
     can.add_argument("--workspace", default="")
     can.add_argument("--state-dir", default="")
 
-    obs = sub.add_parser("observe", help="normalize, bound, evaluate and record one event")
+    obs = sub.add_parser(
+        "observe", help="normalize, bound, evaluate and record one event"
+    )
     _add_component_args(obs)
-    obs.add_argument("--event", required=True, help="native event name or boundary stage")
+    obs.add_argument(
+        "--event", required=True, help="native event name or boundary stage"
+    )
     obs.add_argument("--profile", default="default")
     obs.add_argument("--session", default="")
     obs.add_argument("--turn", default="")
     obs.add_argument("--tool-call-id", default="")
     obs.add_argument("--workspace", default="")
     obs.add_argument("--state-dir", default="")
-    obs.add_argument("--request", default="-", help="native payload JSON file, or - for stdin")
+    obs.add_argument(
+        "--request", default="-", help="native payload JSON file, or - for stdin"
+    )
 
     args = parser.parse_args(argv)
     manifest = load_manifest()
@@ -1100,7 +1169,11 @@ def main(argv=None) -> int:
         component = resolve_component(args.component, manifest=manifest)
 
         if args.command == "coverage":
-            profile_root = Path(args.profile_root) if args.profile_root else _default_profile_root()
+            profile_root = (
+                Path(args.profile_root)
+                if args.profile_root
+                else _default_profile_root()
+            )
             report = coverage_report(
                 manifest=manifest,
                 component=component,

@@ -264,7 +264,9 @@ class CanonicalTranscriptTests(unittest.TestCase):
         outgoing, _ = bus_boundary.project(
             request, registry=registry(), invoke=Recorder(view_prose(6, "viewed"))
         )
-        self.assertEqual(outgoing["input"][OPAQUE_INDEX], request["input"][OPAQUE_INDEX])
+        self.assertEqual(
+            outgoing["input"][OPAQUE_INDEX], request["input"][OPAQUE_INDEX]
+        )
         self.assertEqual(outgoing["input"][1], request["input"][1])
         self.assertEqual(
             outgoing["input"][6]["content"], [{"type": "output_text", "text": "viewed"}]
@@ -417,7 +419,7 @@ class ReceiptRuleTests(unittest.TestCase):
         recorder = Recorder(
             prove(2, witness="call_2"),
             notes={DEDUP: [{"action": "passthrough", "detail": "1 stale receipt"}]},
-            )
+        )
         request = sample_request()  # the pair is protected, so this is unproven
         outgoing, report = bus_boundary.project(
             request, registry=registry(), invoke=recorder
@@ -554,7 +556,12 @@ class SubprocessTransportTests(unittest.TestCase):
         self.assertEqual(outgoing["input"][3]["output"], BODY)  # retained witness
         self.assertEqual(
             outgoing["input"][VIEW_INDEX]["content"],
-            [{"type": "output_text", "text": "[Jev view: approved prose view applied]"}],
+            [
+                {
+                    "type": "output_text",
+                    "text": "[Jev view: approved prose view applied]",
+                }
+            ],
         )
         self.assertEqual(len(outgoing["input"]), len(before["input"]))
         self.assertEqual(outgoing["input"][2], before["input"][2])

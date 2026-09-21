@@ -88,7 +88,14 @@ class VetoPrecedenceTestCase(unittest.TestCase):
         )
         return sb.load_policy(self.policy_path)
 
-    def run_event(self, payload, *, event_name="UserPromptSubmit", enforce=True, turn="real-turn-1"):
+    def run_event(
+        self,
+        payload,
+        *,
+        event_name="UserPromptSubmit",
+        enforce=True,
+        turn="real-turn-1",
+    ):
         return sv.handle(
             payload,
             event_name=event_name,
@@ -201,11 +208,15 @@ class TwoLatchTests(VetoPrecedenceTestCase):
 
         sensitive = self.bash_tool()
         self.assertEqual(
-            "REVIEW", sensitive["verdict"]["decision"], "the component's own taint still applies"
+            "REVIEW",
+            sensitive["verdict"]["decision"],
+            "the component's own taint still applies",
         )
         self.assertIn("tainted_session", sensitive["verdict"]["reason_codes"])
         self.assertTrue(sensitive["vetoed"])
-        self.assertEqual("event", sensitive["source"], "the finding is the component's own")
+        self.assertEqual(
+            "event", sensitive["source"], "the finding is the component's own"
+        )
 
 
 class LedgerTests(VetoPrecedenceTestCase):
@@ -228,7 +239,9 @@ class LedgerTests(VetoPrecedenceTestCase):
         chained = later["observed"]["incident"]
         self.assertEqual(first["incident_event_id"], chained["parent_event_id"])
         self.assertEqual("latch", later["source"])
-        self.assertEqual(first["incident_event_id"], later["latch_before"]["incident_event_id"])
+        self.assertEqual(
+            first["incident_event_id"], later["latch_before"]["incident_event_id"]
+        )
 
 
 if __name__ == "__main__":

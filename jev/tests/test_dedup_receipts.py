@@ -222,9 +222,7 @@ class EnforceTests(unittest.TestCase):
         outgoing[1]["output"] = marker("call_2")
         out, report = enforced(items, outgoing)
         self.assertEqual(report["accepted"], [])
-        self.assertEqual(
-            report["reverted"][0]["reason"], dedup_receipts.R_NON_REDUCING
-        )
+        self.assertEqual(report["reverted"][0]["reason"], dedup_receipts.R_NON_REDUCING)
         self.assertEqual(out[1]["output"], "aaaa")
 
     def test_reducing_marker_is_still_accepted(self):

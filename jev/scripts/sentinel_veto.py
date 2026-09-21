@@ -132,7 +132,11 @@ def decision_for(value: int) -> str:
 
 def is_veto(verdict) -> bool:
     """The component's own veto predicate: enforced, and not DEFER."""
-    return bool(verdict) and bool(verdict.get("enforced")) and verdict.get("decision") != "DEFER"
+    return (
+        bool(verdict)
+        and bool(verdict.get("enforced"))
+        and verdict.get("decision") != "DEFER"
+    )
 
 
 def failure_verdict(code: str, enforced: bool = True) -> dict:
@@ -175,7 +179,9 @@ def read_latch(path) -> list:
     path = Path(path)
     if not path.is_file():
         return []
-    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    lines = [
+        line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
     if len(lines) > MAX_LATCH_ROWS:
         lines = lines[-MAX_LATCH_ROWS:]
     rows = []
@@ -183,7 +189,9 @@ def read_latch(path) -> list:
         try:
             row = adapter.strict_json(line)
         except adapter.AdapterError as exc:
-            raise VetoError(E_LATCH_SHAPE, f"latch row is not valid JSON: {exc}") from exc
+            raise VetoError(
+                E_LATCH_SHAPE, f"latch row is not valid JSON: {exc}"
+            ) from exc
         if not isinstance(row, dict) or row.get("kind") != LATCH_KIND:
             raise VetoError(E_LATCH_SHAPE, "latch ledger carries a foreign row")
         rows.append(row)
@@ -295,13 +303,23 @@ def escalate(
 ) -> dict:
     """Raise a session latch. Idempotent: a covered latch writes nothing."""
     if not session_ref:
-        return {"written": False, "reason": "no_session_identity", "row": None, "state": None}
+        return {
+            "written": False,
+            "reason": "no_session_identity",
+            "row": None,
+            "state": None,
+        }
     if decision not in SEVERITY or SEVERITY[decision] == 0:
         return {"written": False, "reason": "not_a_veto", "row": None, "state": None}
     rows = read_latch(path)
     current = latched(rows, session_ref)
     if current is not None and current["rank"] >= SEVERITY[decision]:
-        return {"written": False, "reason": "already_latched", "row": None, "state": current}
+        return {
+            "written": False,
+            "reason": "already_latched",
+            "row": None,
+            "state": current,
+        }
     row = latch_row(
         session_ref=session_ref,
         action="escalate",
@@ -319,13 +337,20 @@ def escalate(
         occurred_at_ms=occurred_at_ms,
     )
     append_latch(path, row)
-    return {"written": True, "reason": "escalated", "row": row, "state": latched(rows + [row], session_ref)}
+    return {
+        "written": True,
+        "reason": "escalated",
+        "row": row,
+        "state": latched(rows + [row], session_ref),
+    }
 
 
 def clear(path, *, session_ref: str, confirm: bool, occurred_at_ms=None) -> dict:
     """Clear one session latch, exactly like the component's ``clear-session``."""
     if not confirm:
-        raise VetoError(E_CONFIRM, "clearing a session latch requires explicit --confirm")
+        raise VetoError(
+            E_CONFIRM, "clearing a session latch requires explicit --confirm"
+        )
     if len(session_ref) != 64:
         raise VetoError(E_SESSION_REF, "a 64-character session_ref is required")
     row = latch_row(
@@ -407,7 +432,9 @@ def latch_verdict(verdict, state: dict) -> dict:
         "id": verdict.get("id") or state.get("event_id", ""),
         "decision": state["decision"],
         "enforced": True,
-        "reason_codes": sorted(set(verdict.get("reason_codes", [])) | {"latched_session_veto"}),
+        "reason_codes": sorted(
+            set(verdict.get("reason_codes", [])) | {"latched_session_veto"}
+        ),
         "route": verdict.get("route") or FAILURE_ROUTE,
         "backend": verdict.get("backend") or "local",
         "session_ref": verdict.get("session_ref", ""),
@@ -454,7 +481,9 @@ def gate(*, verdict, latched_state, enforced: bool, event_name: str, raw=None) -
     else:
         # A later approval or DEFER cannot clear an earlier veto; the latch vetoes.
         result["source"] = "latch"
-        response = adapter.render(event_name, latch_verdict(verdict, latched_state), raw)
+        response = adapter.render(
+            event_name, latch_verdict(verdict, latched_state), raw
+        )
     adapter.assert_no_replacement(response)
     result["response"] = response
     result["reason"] = response.get("reason", "")
@@ -520,7 +549,10 @@ def handle(
         # Chain the incident to the event that latched the session (#18 left this
         # unset on purpose; the latch is what makes the cause knowable).
         if before is not None:
-            identity = {**identity, "parent_event_id": before.get("incident_event_id", "")}
+            identity = {
+                **identity,
+                "parent_event_id": before.get("incident_event_id", ""),
+            }
 
         observed = None
         failure = ""
@@ -566,7 +598,9 @@ def handle(
                 code=failure,
                 enforce=enforce,
             )
-            verdict = failure_verdict("host_" + failure.removeprefix("E_").lower(), enforce)
+            verdict = failure_verdict(
+                "host_" + failure.removeprefix("E_").lower(), enforce
+            )
             source = "failure"
         elif observed.get("refused"):
             # The boundary refused a payload it could not bound and recorded a
@@ -589,7 +623,11 @@ def handle(
             raw=raw,
         )
 
-        transition = {"written": False, "reason": "shadow" if not enforce else "no_veto", "row": None}
+        transition = {
+            "written": False,
+            "reason": "shadow" if not enforce else "no_veto",
+            "row": None,
+        }
         if enforce and outcome["vetoed"]:
             transition = escalate(
                 path,
@@ -650,7 +688,11 @@ def _identity(args) -> dict:
 
 
 def _read_request(path):
-    raw = Path(path).read_text(encoding="utf-8") if path and path != "-" else sys.stdin.read()
+    raw = (
+        Path(path).read_text(encoding="utf-8")
+        if path and path != "-"
+        else sys.stdin.read()
+    )
     return adapter.strict_json(raw)
 
 
@@ -678,18 +720,24 @@ def main(argv=None) -> int:
         ("latch", "list the latch ledger"),
     ):
         node = sub.add_parser(name, help=help_text)
-        node.add_argument("--component", default="", help="pinned jev-sentinel checkout")
+        node.add_argument(
+            "--component", default="", help="pinned jev-sentinel checkout"
+        )
         node.add_argument("--policy", default="", help="sentinel policy.json")
         node.add_argument("--state-dir", default="")
         node.add_argument("--json", action="store_true")
         if name == "enforce":
-            node.add_argument("--event", required=True, help="native event name or boundary stage")
+            node.add_argument(
+                "--event", required=True, help="native event name or boundary stage"
+            )
             node.add_argument("--profile", default="default")
             node.add_argument("--session", default="")
             node.add_argument("--turn", default="")
             node.add_argument("--tool-call-id", default="")
             node.add_argument("--workspace", default="")
-            node.add_argument("--request", default="-", help="native payload JSON, or - for stdin")
+            node.add_argument(
+                "--request", default="-", help="native payload JSON, or - for stdin"
+            )
             node.add_argument(
                 "--force-enforce",
                 action="store_true",
@@ -705,15 +753,23 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "latch":
-            state_dir = Path(args.state_dir) if args.state_dir else _default_policy().parent
+            state_dir = (
+                Path(args.state_dir) if args.state_dir else _default_policy().parent
+            )
             rows = read_latch(latch_path(state_dir))
             report = {"rows": len(rows), "sessions": latch_summary(rows)}
             print(json.dumps(report, indent=2 if args.json else None))
             return 0
 
         if args.command == "clear":
-            state_dir = Path(args.state_dir) if args.state_dir else _default_policy().parent
-            result = clear(latch_path(state_dir), session_ref=args.session_ref, confirm=args.confirm)
+            state_dir = (
+                Path(args.state_dir) if args.state_dir else _default_policy().parent
+            )
+            result = clear(
+                latch_path(state_dir),
+                session_ref=args.session_ref,
+                confirm=args.confirm,
+            )
             print(json.dumps(result, indent=2 if args.json else None))
             return 0
 

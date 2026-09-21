@@ -31,7 +31,10 @@ def handle(request):
             "notes": [{"action": "prose view eligible", "count": 1}],
         }
     for index, message in enumerate(messages):
-        if message.get("_jev_shape") == "message" and message.get("role") == "assistant":
+        if (
+            message.get("_jev_shape") == "message"
+            and message.get("role") == "assistant"
+        ):
             renames[index] = message.get("content")
     for index in renames:
         messages[index]["content"] = VIEW
