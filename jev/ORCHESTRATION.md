@@ -27,14 +27,27 @@ is incomplete, even when a concurrency slot is free.
 | #11 | Isolated build and integration profile | #35 | merged; issue closed |
 | #12 | Fabric runtime and MCP bound to the isolated workspace | #38 | merged; issue closed |
 | #13 | Canonical capture and event correlation | #40 | merged; issue closed |
-| #14 | Budgeted retrieval and hydration | #42 | open; in review |
-| #41 | Verify the fabric checkout revision against the pinned component | #44 | open; follow-up found by verifying #12 |
-| #15–#17 | Native bus adapter, receipts, views | — | open; blocked by phase 2 |
+| #14 | Budgeted retrieval and hydration | #42 | merged; issue closed |
+| #41 | Verify the fabric checkout revision against the pinned component | #44 | merged; issue closed |
+| #15–#17 | Native bus adapter, receipts, views | — | open; phase 2 complete |
 | #18–#20 | Sentinel hooks, veto precedence, screening | — | open; blocked by phase 3 |
 | #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
 
 State above is the GitHub state of each issue and PR, not a local plan.
+
+## Merged commits
+
+The reviewed commit is the head that passed review; the merge commit is what
+landed on `main`. Phase 2 is complete: #12, #13, #14, and the #41 follow-up are
+merged.
+
+| Issue | PR | Reviewed commit | Merge commit |
+| --- | --- | --- | --- |
+| #12 | #38 | `b720e9c2f6` | `017b472be5` |
+| #13 | #40 | `30e8588e19` | `7826a887ac` |
+| #14 | #42 | `1a355cfe66` | `afd973e17e` |
+| #41 | #44 | `3bfc68389c` | `9ba51473e0` |
 
 ## Pinned revisions
 
@@ -64,6 +77,7 @@ ever added as a component.
 | Remote inference is gated by credentials consent *and* a positive budget, not by a feature switch alone. | Optional remote inference stays disabled unless separately authorized and budgeted. |
 | Shared interfaces have exactly one declared owner. | One writable owner per shared interface keeps the transformation boundary unambiguous. |
 | Concurrent duplicate work is consolidated into one canonical change per issue. | Three sessions opened an implementation of #9 at once (#27, #28, #29); merging duplicates would land incompatible trees, so the strongest artifact was adopted, its defects fixed, and the duplicates closed with a cross-reference. |
+| A duplicate phase-2 capture/retrieval implementation is not landed. | A second session built an independent capture/retrieval pair (`capture_correlation.py`/`retrieval_budget.py`) for #13–#14 while `canonical_capture.py`/`retrieval.py` (#40, #42) were merged. The merged work is the canonical artifact; the duplicate stays in its own worktree and is not pushed, so one canonical change lands per issue. |
 | A declared pin is not an enforced pin. | Verifying #12 showed the binding driver read the fabric revision from the manifest and never from the `--fabric` checkout it executed, so a record could name the pin while another revision installed. #41 fixes that and records the observed checkout revision; C8 states the rule. |
 | A component checkout that is not its own work-tree root is recorded as unpinned, not refused. | Required CI drives an in-repo test double whose `rev-parse HEAD` would answer for the enclosing repository; only a checkout that reports a revision other than the pin is refused. |
 
@@ -74,6 +88,8 @@ ever added as a component.
 | [`evidence/plaintext-pinned-build.md`](evidence/plaintext-pinned-build.md) | The host-driven plaintext smoke (real host, loopback mock) and the isolated-profile checks, with the unpatched pinned base as a negative control. |
 | [`ISOLATED_ENV.md`](ISOLATED_ENV.md) | How to build the pinned host and run the isolated profile offline. |
 | [`FABRIC_BINDING.md`](FABRIC_BINDING.md) | How the pinned fabric is bound to the isolated home, what `verify` proves, the checkout-revision rule, and the evidence tiers. |
+| [`CAPTURE.md`](CAPTURE.md) | Canonical capture and event correlation: store layout, correlation, gaps, and evidence tiers (#13). |
+| [`RETRIEVAL.md`](RETRIEVAL.md) | Budgeted retrieval and hydration: budgets, provenance-not-authority, refusals, and remote-enrichment refusal (#14). |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being
