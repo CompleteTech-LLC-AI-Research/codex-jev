@@ -272,7 +272,11 @@ fn an_approved_removal_is_applied_when_a_view_is_configured() {
     let fixture = Fixture::with_view("remove:0", Duration::from_secs(5));
     let input = prose_input();
 
-    let outgoing = project_with(&fixture.config, input.clone(), &ProjectionContext::default());
+    let outgoing = project_with(
+        &fixture.config,
+        input.clone(),
+        &ProjectionContext::default(),
+    );
 
     assert_eq!(outgoing, input[1..].to_vec());
     assert_eq!(fixture.invocations(), 1);
@@ -285,7 +289,11 @@ fn a_removal_with_no_configured_view_is_refused() {
     let fixture = Fixture::new("remove:0", Duration::from_secs(5));
     let input = prose_input();
 
-    let outgoing = project_with(&fixture.config, input.clone(), &ProjectionContext::default());
+    let outgoing = project_with(
+        &fixture.config,
+        input.clone(),
+        &ProjectionContext::default(),
+    );
 
     assert_eq!(outgoing, input);
     assert_eq!(fixture.invocations(), 1);
@@ -298,7 +306,11 @@ fn a_removal_the_report_does_not_account_for_is_refused() {
     let fixture = Fixture::with_view("remove-mismatch:2", Duration::from_secs(5));
     let input = prose_input();
 
-    let outgoing = project_with(&fixture.config, input.clone(), &ProjectionContext::default());
+    let outgoing = project_with(
+        &fixture.config,
+        input.clone(),
+        &ProjectionContext::default(),
+    );
 
     assert_eq!(outgoing, input);
     assert_eq!(fixture.invocations(), 1);
@@ -309,7 +321,11 @@ fn a_report_naming_more_removals_than_the_array_lost_is_refused() {
     let fixture = Fixture::with_view("remove-overclaim:0", Duration::from_secs(5));
     let input = prose_input();
 
-    let outgoing = project_with(&fixture.config, input.clone(), &ProjectionContext::default());
+    let outgoing = project_with(
+        &fixture.config,
+        input.clone(),
+        &ProjectionContext::default(),
+    );
 
     assert_eq!(outgoing, input);
     assert_eq!(fixture.invocations(), 1);
@@ -322,7 +338,11 @@ fn a_removal_of_an_item_that_is_not_assistant_prose_is_refused() {
     let fixture = Fixture::with_view("remove:3", Duration::from_secs(5));
     let input = prose_input();
 
-    let outgoing = project_with(&fixture.config, input.clone(), &ProjectionContext::default());
+    let outgoing = project_with(
+        &fixture.config,
+        input.clone(),
+        &ProjectionContext::default(),
+    );
 
     assert_eq!(outgoing, input);
     assert_eq!(fixture.invocations(), 1);

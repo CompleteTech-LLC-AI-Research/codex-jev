@@ -72,7 +72,7 @@
       "order": 20,
       "component": "codex-jev",
       "file": "jev/patches/0002-jev-bus-boundary.patch",
-      "sha256": "59d56d4f69b8e057494eac858bd7e6f03e5b11b83ea9ee4e4de10d5296bba353",
+      "sha256": "f8bb76eaf105e2f2235148992992b6b3b92e4e1010da21634ec89485cf2338db",
       "applies_to_host_base": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
       "targets": [
         "codex-rs/core/src/client.rs",
