@@ -46,8 +46,8 @@ is incomplete, even when a concurrency slot is free.
 | #19 | Sentinel veto precedence and the subsequent-action latch | #68 | merged; issue closed |
 | #20 | Retrieval screening and incident operations | #80 | in review; filed from #18 |
 | #21 | Port and compile the pinned native approval adapter | #72 | merged; issue closed |
-| #22 | Verify action binding, freshness, and fallback | — | in review; filed from #21 |
-| #23 | Shadow comparison and controlled enforcement configuration | — | open; blocked by #22 |
+| #22 | Verify action binding, freshness, and fallback | #74 | merged; issue closed |
+| #23 | Shadow comparison and controlled enforcement configuration | #81 | in review; filed from #21 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
 
 State above is the GitHub state of each issue and PR, not a local plan.
@@ -75,6 +75,7 @@ merged.
 | #66 | #71 | `aab06717a6` | `997b33da76` |
 | #70 | #75 | `89615fdaab` | `220c6e5023` |
 | #19 | #68 | `6a0ec2a841` | `660bab6c89` |
+| #22 | #74 | `aeffd4bcfc` | `f18c00627f` |
 
 ## Pinned revisions
 
@@ -132,6 +133,7 @@ ever added as a component.
 | A ported native adapter is declared, not described. | `jev-codex-approval` ships its Codex adapter as source that its authors never compiled. The port is recorded in the manifest as an installed file, the module declaration and call site it creates, and the two guarded host blobs it was applied to, so `verify-manifest.py --native-adapter` can prove the port is present and wired - and prove it is gone after a rollback - instead of relying on a document. |
 | An eligible preflight may replace one synchronous review attempt, and nothing else. | Concurrency, escalation, retries, mandatory review, non-eligible action classes, incomplete context, and any change of policy text or authorization version all return `None` and run the unchanged Guardian path. Enforcement stays off, and the host re-checks the low-risk boundary itself rather than trusting the engine's own policy. |
 | A port may not accept a weaker answer binding than the component it ports. | `jev-codex-approval`'s own transport refuses an answer whose `request_id`, `snapshot_hash`, `policy_hash` or `question_hash` does not match what it sent (`daemon_response_binding_mismatch`), but the first port checked only the request id, so it would have accepted a decision computed for another action, policy, or question set under a reused review id. #22 binds all four, records the approved question set as a manifest pin the host cannot recompute, and pins the canonical form with digests the component computes so the two implementations cannot drift apart unobserved. |
+| Enforcement promotion is a declared, gated state, not an inferred one. | Shadow mode is `approval.preflight` on with `approval.enforcement` off, so a candidate answer is recorded and never applied. The gate reports readiness and writes no switch, and the manifest's `evaluation` block is the reviewed home of the criteria, the consent credential, the opt-in categories, and the Guardian-only return - so "enforcement stays disabled until the criteria are met" is validated (`E_EVALUATION_*`) and computed rather than promised. |
 | A veto already latched for a session is never downgraded. | The host orders the decisions `DEFER < REVIEW < BLOCK < QUARANTINE` and takes `max(this event, the session latch)`, so a later approval-shaped event, a later `DEFER`, or a weaker finding cannot clear a veto. The component's finding is still the only detection: the latch only decides which veto keeps the session, and the strongest concurrent finding survives. |
 | A latched veto gates the action that follows it, and only the pre-tool stage can prevent the exact action before execution. | After a veto the session stays vetoed, so the next `PreToolUse` is denied even though its own finding defers. Codex has no output-replacement field, so a `PostToolUse` veto is feedback plus that latch — a result that already executed cannot be un-executed, and the host never fabricates a replacement. |
 | Concurrent evaluations of one session are serialized, and the guarantee is no stale read and no lost raise. | A per-session `threading.Lock` plus an `flock(2)` file lock serialize the read-modify-write of the latch. Arrival order is not observable to the host, so an event evaluated before the veto exists legitimately inherits nothing; what is enforced is that no call reads a pre-veto ledger and no raise is dropped. |
@@ -159,6 +161,7 @@ ever added as a component.
 | [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) | The Sentinel hook boundary: the three events, the two switches, the payload bound and refusal, effective coverage, the activation probe, the incident envelope, and the bypass surfaces (#18). |
 | [`VETO_PRECEDENCE.md`](VETO_PRECEDENCE.md) | Veto precedence and the subsequent-action latch: the decision lattice, the stage mapping, the per-session latch and its operator controls, concurrent-action handling, every fail-closed path, and the unavoidable races (#19). |
 | [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) | The ported native approval adapter: the guarded host blobs, the environment and switch contract, eligibility and deferral, the accepted answer's binding to this exact request and policy, the freshness re-derivation, and the offline-fixture plus static host compile evidence (#21, #22). |
+| [`APPROVAL_SHADOW.md`](APPROVAL_SHADOW.md) | The shadow comparison: correlation by review id, the raw-content and shape refusals, the every-failure/deferral accounting, the declared enforcement criteria and their manifest home, the frozen scenario-family calibration/holdout, the consent and opt-in boundaries, the Guardian-only return, and why the gate never flips a switch (#23). |
 | [`RETRIEVAL_SCREENING.md`](RETRIEVAL_SCREENING.md) | Screening retrieved context before injection and authorizing memory writes: the division of labour, the two independent switches, the unconditionally-withholding host facts and the exact-set `withhold_on` rule, the shadow signal, `verify_withheld`, and the real-component tier (#20). |
 | [`INCIDENT_OPERATIONS.md`](INCIDENT_OPERATIONS.md) | Bounded, read-only, metadata-only incident operations: the validated field set and the credential-rule refusal, the identifier-only failure report, the bounded scan and its saturation signal, correlation by content or identity, the non-executing disable plan, and the isolated-root policy view (#20). |
 

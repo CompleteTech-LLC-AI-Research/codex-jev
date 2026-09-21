@@ -49,6 +49,15 @@ def parse_args(argv):
         help="Assert that the declared native source adapter is installed and wired (or removed).",
     )
     parser.add_argument(
+        "--approval-enforcement",
+        choices=["disabled"],
+        default=None,
+        help=(
+            "Assert that the approval enforcement gate is declared and still disabled "
+            "by default."
+        ),
+    )
+    parser.add_argument(
         "--check-checkout",
         action="store_true",
         help="Assert that HEAD is the pinned host base commit.",
@@ -92,6 +101,10 @@ def main(argv=None):
     if args.native_adapter:
         errors += jev_manifest.check_native_adapter(
             manifest, repo_root, args.native_adapter
+        )
+    if args.approval_enforcement:
+        errors += jev_manifest.check_approval_enforcement(
+            manifest, args.approval_enforcement
         )
     if args.check_checkout:
         errors += jev_manifest.check_checkout(manifest, repo_root)

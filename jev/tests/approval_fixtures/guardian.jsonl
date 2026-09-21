@@ -1,0 +1,6 @@
+{"request_id": "rev-101", "decision": "allow", "elapsed_ms": 412.0}
+{"request_id": "rev-102", "decision": "allow", "elapsed_ms": 388.5}
+{"request_id": "rev-103", "decision": "deny", "elapsed_ms": 455.0}
+{"request_id": "rev-104", "decision": "defer", "elapsed_ms": 501.0}
+{"request_id": "rev-105", "decision": "deny", "elapsed_ms": 823.0}
+{"request_id": "rev-106", "decision": "allow", "elapsed_ms": 610.0}
