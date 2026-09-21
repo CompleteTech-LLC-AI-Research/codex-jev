@@ -234,6 +234,173 @@ class BoundaryViewTests(unittest.TestCase):
             )
         )
 
+    def test_unapproved_removal_names_the_stage_that_dropped_it(self):
+        """C4 attribution comes from the array, not from which stage is the view stage.
+
+        A removal by stage 100 was previously reported against
+        `jev-context-fabric.view`, so the report blamed a stage that had changed
+        nothing. The wire array was right either way; the owner was not.
+        """
+
+        def transform(name, messages):
+            if name != DEDUP:
+                return messages
+            return messages[1:]
+
+        request = request_with_prose()
+        outgoing, report = bus_boundary.project(
+            request, registry=make_registry(), invoke=Recorder(transform)
+        )
+        self.assertEqual(outgoing, request)
+        blamed = [
+            n.get("stage")
+            for n in report["notes"]
+            if n.get("detail") == "unapproved_removal"
+        ]
+        self.assertEqual(blamed, [DEDUP])
+
+    def test_unapproved_removal_is_reported_while_the_view_stage_is_disabled(self):
+        """The finding is about the array, so it does not depend on the view switch.
+
+        With `projection.fabric_views` off, a drop by stage 100 was restored by
+        `_rebuild` without any note at all.
+        """
+
+        def transform(name, messages):
+            return messages[1:]
+
+        request = request_with_prose()
+        state = enabled_state()
+        state["projection.fabric_views"] = False
+        outgoing, report = bus_boundary.project(
+            request, registry=make_registry(state), invoke=Recorder(transform)
+        )
+        self.assertEqual(outgoing, request)
+        self.assertTrue(
+            any(
+                n.get("stage") == DEDUP
+                and n.get("action") == "reverted"
+                and n.get("detail") == "unapproved_removal"
+                for n in report["notes"]
+            )
+        )
+
+    def test_a_reverted_removal_earns_no_receipt(self):
+        """A receipt records a projection that reached the wire.
+
+        `_rebuild` restored the dropped item — only the approved-view filter can
+        keep one out — so a stage whose only change was that removal projected
+        nothing and must not hold a receipt for it.
+        """
+
+        def transform(name, messages):
+            if name != DEDUP:
+                return messages
+            return messages[1:]
+
+        request = request_with_prose()
+        _outgoing, report = bus_boundary.project(
+            request, registry=make_registry(), invoke=Recorder(transform)
+        )
+        self.assertNotIn(DEDUP, report["applied"])
+        self.assertNotIn(100, [r["stage"] for r in report["receipts"]])
+
+    def test_a_stray_removal_is_reported_even_when_a_view_is_supplied(self):
+        """A view approves its own indices, not whatever a stage decided to drop.
+
+        The dropped reasoning item is restored and the removal is reported against
+        the stage that made it. The earlier `len(produced) < len(items)` test could
+        not see this at all whenever a view was supplied.
+        """
+
+        def transform(name, messages):
+            if name != DEDUP:
+                return messages
+            return messages[:-1]  # a reasoning item no prose view may approve
+
+        request = request_with_prose()
+        outgoing, report = bus_boundary.project(
+            request,
+            registry=make_registry(),
+            invoke=Recorder(transform),
+            view=self._view(request["input"]),
+        )
+        # Exactly the two approved prose items leave; the reasoning item returns.
+        self.assertEqual(len(outgoing["input"]), len(request["input"]) - 2)
+        self.assertTrue(
+            any(
+                n.get("stage") == DEDUP
+                and n.get("action") == "reverted"
+                and n.get("detail") == "unapproved_removal"
+                for n in report["notes"]
+            )
+        )
+
+    def _view_of(self, items, approved):
+        return {
+            "kind": fabric_views.KIND,
+            "version": fabric_views.STATE_VERSION,
+            "fingerprint": fabric_views.snapshot(items),
+            "keys": [fabric_views.message_key(items[i], i) for i in approved],
+        }
+
+    def test_an_approved_removal_credits_the_stage_that_made_it(self):
+        """`kept_out` shares the stage's index space, so credit is positional.
+
+        A stage's removal is the boundary tag that vanished, and the approved-view
+        filter numbers the same positions: it is handed `_rebuild`'s output, which
+        is positionally the original wire input. So a stage that dropped exactly
+        the item the view approves reached the wire with that removal and keeps its
+        receipt, while a stage that dropped a different item had its removal
+        restored and earns nothing.
+        """
+
+        def drop(index):
+            def transform(name, messages):
+                if name != DEDUP:
+                    return messages
+                return messages[:index] + messages[index + 1 :]
+
+            return transform
+
+        # Same index: the stage dropped what the view approves -> it reaches the wire.
+        request = request_with_prose()
+        items = request["input"]
+        outgoing, report = bus_boundary.project(
+            request,
+            registry=make_registry(),
+            invoke=Recorder(drop(0)),
+            view=self._view_of(items, [0]),
+        )
+        self.assertEqual([r["index"] for r in report["view"]["removed"]], [0])
+        self.assertEqual(outgoing["input"], items[1:])  # the stage's own item left
+        self.assertIn(DEDUP, report["applied"])
+        self.assertFalse(
+            any(n.get("detail") == "unapproved_removal" for n in report["notes"])
+        )
+
+        # Different index: the stage's removal was restored, so it earns nothing.
+        request = request_with_prose()
+        items = request["input"]
+        outgoing, report = bus_boundary.project(
+            request,
+            registry=make_registry(),
+            invoke=Recorder(drop(1)),
+            view=self._view_of(items, [0]),
+        )
+        self.assertEqual([r["index"] for r in report["view"]["removed"]], [0])
+        self.assertEqual(outgoing["input"], items[1:])  # the approved item left
+        self.assertIn(items[1], outgoing["input"])  # the stage's item was restored
+        self.assertNotIn(DEDUP, report["applied"])
+        self.assertTrue(
+            any(
+                n.get("stage") == DEDUP
+                and n.get("action") == "reverted"
+                and n.get("detail") == "unapproved_removal"
+                for n in report["notes"]
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

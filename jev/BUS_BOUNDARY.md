@@ -122,9 +122,13 @@ which prose is approvable, or what a receipt must prove: those stay with
 - **No canonical transcript mutation.** The caller's request object is never
   modified. Only a freshly built outgoing payload replaces `input`.
 - **Unsupported shapes retain original content.** An opaque item is restored from
-  the original item. A stage that edits one is refused (`E_UNSUPPORTED_MUTATED`).
+  the original item. A stage that edits one is refused: the refusal is recorded as
+  a `refused` **note** tagged `E_UNSUPPORTED_MUTATED` (not a raised exception), and
+  the original payload is kept.
 - **No reorder or removal.** A stage that changes the item count or order is
-  refused (`E_CHAIN_SHAPE`); the original request is returned unchanged.
+  refused (`E_CHAIN_SHAPE`); the original request is returned unchanged. An item
+  dropped without an approved view is restored, and the `unapproved_removal` note
+  names the stage the array shows dropped it, never the view stage by construction.
 - **Switches gate invocation, not just output.** A disabled switch means the
   stage is never registered, so it is never invoked. `projection.fabric_views`
   requires `projection.dedup_receipts` (`E_SWITCH_ORDER`).
@@ -207,12 +211,12 @@ call was made.
 
 | Check | Result |
 | --- | --- |
-| `jev/tests/test_bus_boundary.py` wire-request tests | 23 tests, ok: ordering, single invocation, no mutation, opaque retention, refusal, fallback, deadline, switches, receipts, bounds. |
+| `jev/tests/test_bus_boundary.py` wire-request tests | 24 tests, ok (23 on `main` `aef58a0c2` before this change): ordering, single invocation, no mutation, opaque retention, refusal, fallback, deadline, switches, receipts, bounds, removal attribution. |
 | `codex-rs/core/src/jev_bus_tests.rs` host-boundary tests | 9 tests, ok: exact single invocation, replacement of the outgoing view only, byte-identical opaque retention, and passthrough on a disabled switch, a missing adapter, a failure, a deadline, malformed output, and a changed item count. |
 | `.github/scripts/test_jev_bus.py` — the required-CI home (`repo-checks` discovers `.github/scripts/test_jev_*.py`; it does not run `jev/tests`) | 28 tests, ok: the same invariants, the receipt rule (including a declined response earning nothing), and three `bus-stage-stub` subprocess-transport runs. |
 | `.github/scripts/test_jev_bus_host.py` — the host-invocation home | 10 tests, ok: the switch names the launcher exports are byte-identical to the names the native boundary reads, the adapter's documented CLI reduces a real request over the real subprocess transport, one `projection_receipt` is written per applied stage, and the disabled/declining/failing paths return the request unchanged. |
-| Required CI battery (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) | 198 tests, ok (188 before this change). |
-| `jev/tests` | 93 tests, ok. |
+| Required CI battery (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) | 341 tests, ok (336 on `main` `aef58a0c2` before this change). |
+| `jev/tests` | 160 tests, ok (159 on `main` `aef58a0c2` before this change). |
 | `verify-manifest.py --patch-state applied` | ok. |
 | `real-component` transport run, proven pair (`bus_boundary.py apply` against the pinned `jev-prune-kit` checkout at `2ecc8ff4`, `runner.py --bus-stage`) | Stage 100 invoked; the substitution is proven, so `C3` accepts it (`accepted: [1]`, `reverted: []`); marker `[Jev prune: repeated read-result body omitted; retained witness: call_2]` in the outgoing payload; `call_2` body retained; one `projection_receipt` at stage 100; item count preserved; on-disk request unchanged. |
 | `real-component` transport run, protected pair (same pinned stage, pair inside the current turn) | The component still substitutes; `C3` reverts it (`reverted: [{index: 2, reason: protected_turn}]`), the outgoing request equals the input byte-for-byte, and stage 100 holds no receipt. |
