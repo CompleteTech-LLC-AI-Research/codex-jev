@@ -15,15 +15,24 @@ superseded: it predates the patch landing on `main`, before
 
 | Item | Value |
 | --- | --- |
-| Verified revision of this repository | `017b472be51ce3750d245f143657447db574af52` (`main`) |
+| Verified revision of this repository | `6b24d07e016e708b0e53c4de76d3983f2b60342f` (`main`) |
 | `host.base_commit` pin | `8198a91a4f46b01647bc6c0d8d63afafbf4c9180` |
 | Patch | `jev/patches/0001-disable-collab-message-encryption.patch`, sha256 `13bc90c385bce43110c2aaeda9333fe7b35f448c5e7ab78736091d68b8de21e7`, 14 targets |
-| Manifest digest | `compatibility-manifest.json` sha256 `ccc41a4b54659b833a4dba29b1ea46fd87b53827d09a207147cbb358d72b8428` |
+| Manifest digest | `compatibility-manifest.json` sha256 `e9c24cede9f0403a9c78fde7b4ba6be2eeed00c94e62b58f0c352c342af8860f` |
 | Toolchain | `rustc 1.95.0 (59807616e 2026-04-14)`, `cargo 1.95.0 (f2d3ce0bd 2026-03-21)`, from `codex-rs/rust-toolchain.toml` |
 
 The manifest digest and the patch digest were re-derived on the verified
 revision (`sha256sum` over the checked-in files); the manifest records the same
 patch digest, so the executable check and the reviewable artifact agree.
+
+The manifest digest advanced from `ccc41a4b…` (on `017b472be5`) to `e9c24ced…`
+because [#13](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/13)
+inserted the `capture` stage (`{"order": 0, "id": "capture"}`) into the
+manifest's pipeline. That is the only change to the file: the `patches` entry,
+its sha256, and every plaintext-relevant pin are identical. The smoke and the
+evidence sweep were re-run on `6b24d07e01` with the same three binaries (all
+three sha256 values below are unchanged), so the pins still hold on the merged
+revision.
 
 ## Artifacts exercised
 
