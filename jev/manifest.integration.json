@@ -1,0 +1,423 @@
+{
+  "schema": "jev-codex.integration-manifest.v1",
+  "manifest_version": 1,
+  "generated": "2026-09-21",
+  "epic": {
+    "repository": "CompleteTech-LLC-AI-Research/codex-jev",
+    "issue": 2
+  },
+  "integration_host": {
+    "id": "codex-jev",
+    "repository": "CompleteTech-LLC-AI-Research/codex-jev",
+    "upstream_repository": "openai/codex",
+    "default_branch": "main",
+    "revision": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+    "upstream_base_revision": "9fdff739ea0eca7881f180858dfd71b7bd1fa483",
+    "version": "0.0.0-dev",
+    "cargo_workspace": "codex-rs",
+    "product_binary": "codex"
+  },
+  "exclusions": [
+    {
+      "id": "omniroute-codex-docker",
+      "repository": "CompleteTech-LLC-AI-Research/omniroute-codex-docker",
+      "scope": "component-and-integration",
+      "reason": "Epic #2 excludes OmniRoute. No pin, adapter, manifest entry, profile value or documented path in this stack may reference it."
+    }
+  ],
+  "components": [
+    {
+      "id": "codex-plaintext-collab",
+      "repository": "CompleteTech-LLC-AI-Research/codex-plaintext-collab",
+      "revision": "073b3a99e4fa0eebe5417fd096f2e37abd7a7527",
+      "version": "unversioned",
+      "license": "MIT",
+      "integration_kind": "source-patch",
+      "applies_to": "codex-jev",
+      "artifact": {
+        "path": "patches/0001-disable-collab-message-encryption.patch",
+        "sha256": "81ea56612bd7de1e0a72ae5421257539f75c76f24d661144a4daaed9370b8440",
+        "base_revision": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+        "targets": [
+          "codex-rs/core/src/tools/handlers/multi_agents_spec.rs",
+          "codex-rs/core/src/tools/router.rs"
+        ]
+      },
+      "runtime": {
+        "kind": "rust-toolchain",
+        "requires": ["cargo", "rustc"]
+      },
+      "host_surfaces": [
+        "multi-agent v2 collaboration tool construction (spawn_agent, send_message, followup_task)",
+        "recipient rendering of agent_message in the parent/child transcript"
+      ],
+      "feature_switch": "collab_plaintext",
+      "credentials": { "required": [], "remote_consent_required": false },
+      "failure_behavior": "Build without the patch to disable. Already-written ciphertext stays ciphertext: nothing in this stack decrypts existing records."
+    },
+    {
+      "id": "jev-context-fabric",
+      "repository": "CompleteTech-LLC-AI-Research/jev-context-fabric",
+      "revision": "5079099211c0d39a6ead347633a99d675a210c64",
+      "version": "0.1.0",
+      "license": "MIT",
+      "integration_kind": "installed-package",
+      "runtime": {
+        "kind": "python",
+        "python": ">=3.11",
+        "third_party_dependencies": []
+      },
+      "entry_points": {
+        "mcp_server": "python -m jev_context mcp",
+        "bus_stage": "python run.py --home {profile_home} --workspace {workspace} bus-stage",
+        "installer": "python install.py"
+      },
+      "host_surfaces": [
+        "$CODEX_HOME/config.toml -> mcp_servers.jev-context-fabric (merge-key)",
+        "$CODEX_HOME/hooks.json -> capture hook groups (merge-arrays)",
+        "~/.agents/skills/jev-context/SKILL.md (owned file)"
+      ],
+      "feature_switch": "fabric_capture",
+      "credentials": { "required": [], "remote_consent_required": false },
+      "failure_behavior": "Disable by uninstalling the package or by not loading its hooks; capture and retrieval degrade to absent, never to fabricated evidence."
+    },
+    {
+      "id": "jev-prune-kit",
+      "repository": "CompleteTech-LLC-AI-Research/jev-prune-kit",
+      "revision": "2ecc8ff4e0976991c7abc09287d8f2f736d3164c",
+      "version": "0.1.0",
+      "license": "MIT (declared in package metadata; repository LICENSE file is not present)",
+      "integration_kind": "installed-package",
+      "runtime": {
+        "kind": "python",
+        "python": ">=3.10",
+        "third_party_dependencies": []
+      },
+      "entry_points": {
+        "bus_stage": "python runner.py --bus-stage --state-dir {state_dir} --profile {profile} --format {format}",
+        "installer": "python install.py"
+      },
+      "host_surfaces": [
+        "~/.agents/skills/jev-prune/SKILL.md (owned file)",
+        "~/.agents/skills/jev-prune/agents/openai.yaml (owned file)"
+      ],
+      "codex_tier": "assessment-skill-only",
+      "feature_switch": "dedup_projection",
+      "credentials": { "required": [], "remote_consent_required": false },
+      "failure_behavior": "A declined, errored, timed-out or malformed stage contributes nothing; the chain continues from that stage's own input."
+    },
+    {
+      "id": "jev-sentinel",
+      "repository": "CompleteTech-LLC-AI-Research/jev-sentinel",
+      "revision": "4ecd748d38fbe9ed5c770e7e69a1e03a3db4bf7a",
+      "version": "0.1.0",
+      "license": "MIT",
+      "integration_kind": "installed-package",
+      "runtime": {
+        "kind": "python",
+        "python": ">=3.11",
+        "third_party_dependencies": []
+      },
+      "entry_points": {
+        "installer": "python install.py",
+        "launcher": "python launch.py"
+      },
+      "host_surfaces": [
+        "$CODEX_HOME/hooks.json -> UserPromptSubmit, PreToolUse, PostToolUse (merge-arrays)"
+      ],
+      "codex_coverage": {
+        "captured": ["UserPromptSubmit"],
+        "gated": ["PreToolUse (nested deny shape only)"],
+        "observed": ["PostToolUse (feedback plus local latch)"],
+        "unsupported": [
+          "output replacement for tool results",
+          "hosted WebSearch",
+          "re-running PreToolUse for an existing exec session via write_stdin"
+        ],
+        "trust": "Non-managed Codex hooks require exact-definition hash trust approval in /hooks; staging a file never bypasses that review."
+      },
+      "feature_switch": "sentinel_hooks",
+      "default_mode": "shadow",
+      "credentials": { "required": [], "remote_consent_required": false },
+      "failure_behavior": "Invalid or unsupported hook output can be treated as hook failure with the tool continuing. Veto outcomes are host-owned enforcement, not a permission grant."
+    },
+    {
+      "id": "jev-codex-approval",
+      "repository": "CompleteTech-LLC-AI-Research/jev-codex-approval",
+      "revision": "0b931ee24a907c9dc47dc1828a94a6afcd7775b6",
+      "version": "0.1.0",
+      "license": "MIT",
+      "integration_kind": "source-transform",
+      "applies_to": "codex-jev",
+      "targets_codex_revision": "c45ea25ffb72d5f7324489d824d0c677283aa0b4",
+      "native_adapter": {
+        "source": "adapters/codex-native/jev.rs",
+        "installs_as": "codex-rs/core/src/guardian/jev.rs",
+        "installer": "scripts/install_native.py",
+        "modifies": [
+          "codex-rs/core/src/guardian/mod.rs",
+          "codex-rs/core/src/guardian/review_request.rs"
+        ],
+        "expected_blobs": {
+          "codex-rs/core/src/guardian/mod.rs": "c8765943a57d65eb1186133d584cbf70bc0989b0",
+          "codex-rs/core/src/guardian/review_request.rs": "3ac51383012724857723385974c5a8c15ba87c5a"
+        },
+        "blob_check_result": {
+          "checked_at": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+          "result": "match",
+          "note": "Both expected blobs are byte-identical at the integration pin and at the component's own inspected commit, so the transform may be applied at the integration revision without porting."
+        }
+      },
+      "runtime": {
+        "kind": "python-plus-rust",
+        "python": ">=3.11",
+        "third_party_dependencies": []
+      },
+      "host_surfaces": [
+        "guardian synchronous review attempt (eligible paths only)",
+        "launch environment: CODEX_JEV_PYTHON, CODEX_JEV_LAUNCHER, CODEX_JEV_CONFIG"
+      ],
+      "feature_switch": "approval_preflight",
+      "default_mode": "off",
+      "modes": ["off", "shadow", "enforce"],
+      "credentials": {
+        "required": ["TYPESAFE_API_KEY (only for direct remote requests)"],
+        "remote_consent_required": true,
+        "consent_control": "allow_remote_context must be explicitly true; default false"
+      },
+      "failure_behavior": "Unset CODEX_JEV_* variables start no process and the original review route remains. Absent, stale, failed or uncertain results never grant permission."
+    }
+  ],
+  "patch_order": [
+    {
+      "order": 1,
+      "component": "codex-plaintext-collab",
+      "kind": "git-apply",
+      "base_revision": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180"
+    },
+    {
+      "order": 2,
+      "component": "jev-codex-approval",
+      "kind": "source-transform",
+      "base_revision": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+      "depends_on_order": 1
+    },
+    {
+      "order": 3,
+      "component": "codex-jev",
+      "kind": "native-adapter",
+      "base_revision": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+      "depends_on_order": 2,
+      "note": "The jev-bus carrier and stage invoker (issues #15-#17) is the last source change, so it can call into the approval and collaboration surfaces already in place."
+    }
+  ],
+  "bus": {
+    "contract": "jev-bus.v1",
+    "contract_document": "docs/BUS.md, vendored byte-identical in jev-context-fabric and jev-prune-kit",
+    "package_carrier_hosts": ["pi", "opencode", "hermes"],
+    "registry": {
+      "path": "~/.jev/bus/v1/registry.json",
+      "env_override": "JEV_BUS_HOME",
+      "mode": "additive metadata, never a file-ownership claim"
+    },
+    "vendored_files": [
+      {
+        "path_hint": "src/jev_context/bus.py (jev-context-fabric) and jev_prune/bus.py (jev-prune-kit)",
+        "sha256": "514e59a2776ae1adbed5bbcf8e669d4fa15972877440a15cf8b00516bbfb87b7"
+      },
+      {
+        "path_hint": "adapters/bus.mjs (both packages)",
+        "sha256": "907758980cd5939a341eb9ab04bed183c1b928f19e5faad690508581f9882cf0"
+      }
+    ],
+    "stages": [
+      {
+        "id": "jev-prune.dedup",
+        "package": "jev-prune-kit",
+        "priority": 100,
+        "claims": ["tool-result:read"],
+        "transform": "substitutes duplicate read bodies in place without changing array length",
+        "transport": { "kind": "subprocess-json", "argv": ["{python}", "{prune_kit}/runner.py", "--bus-stage", "--state-dir", "{state_dir}", "--profile", "{profile}", "--format", "{format}"] }
+      },
+      {
+        "id": "jev-context.view",
+        "package": "jev-context-fabric",
+        "priority": 200,
+        "claims": ["assistant-prose", "message-remove", "system-append"],
+        "transform": "removes approved assistant prose and appends retrieved evidence",
+        "transport": { "kind": "subprocess-json", "argv": ["{python}", "{fabric}/run.py", "--home", "{profile_home}", "--workspace", "{workspace}", "bus-stage"] }
+      }
+    ],
+    "native_carrier": {
+      "host": "codex",
+      "owner": "codex-jev",
+      "identity": "codex-jev-native-adapter",
+      "boundary": "codex-rs/core/src/client.rs::build_responses_request over Prompt.input (Vec<ResponseItem>)",
+      "invocations_per_turn": 1,
+      "amendment": "codex is added as a carrier host whose carrier is the integration host itself, not a package. The packages keep refusing a codex carrier claim, TRANSFORM_HOSTS and the hash-pinned vendored files are unchanged, and priority order (100 before 200) plus single-invocation semantics hold exactly as documented."
+    }
+  },
+  "feature_switches": [
+    {
+      "name": "collab_plaintext",
+      "component": "codex-plaintext-collab",
+      "kind": "build-time",
+      "default": "off",
+      "enable": "build from a checkout with the patch applied",
+      "disable": "build the unpatched revision"
+    },
+    {
+      "name": "fabric_capture",
+      "component": "jev-context-fabric",
+      "kind": "install-time",
+      "default": "off",
+      "enable": "install the package into the isolated profile",
+      "disable": "uninstall, or leave hooks.json without the package's entries"
+    },
+    {
+      "name": "dedup_projection",
+      "component": "jev-prune-kit",
+      "kind": "runtime",
+      "default": "off",
+      "enable": "carrier invokes the registered dedup stage",
+      "disable": "omit the stage from the resolved chain"
+    },
+    {
+      "name": "prose_view",
+      "component": "jev-context-fabric",
+      "kind": "runtime-plus-approval",
+      "default": "off",
+      "enable": "apply an approved, unexpired prose-view plan",
+      "disable": "reset the view"
+    },
+    {
+      "name": "sentinel_hooks",
+      "component": "jev-sentinel",
+      "kind": "install-time",
+      "default": "off",
+      "enable": "install into the isolated profile and complete Codex hook trust approval",
+      "disable": "remove the package's hooks.json entries"
+    },
+    {
+      "name": "sentinel_enforce",
+      "component": "jev-sentinel",
+      "kind": "runtime",
+      "default": "shadow",
+      "enable": "explicit operator configuration after shadow evidence is reviewed",
+      "disable": "return to shadow"
+    },
+    {
+      "name": "approval_preflight",
+      "component": "jev-codex-approval",
+      "kind": "environment-plus-config",
+      "default": "off",
+      "enable": "CODEX_JEV_PYTHON, CODEX_JEV_LAUNCHER, CODEX_JEV_CONFIG plus mode = shadow",
+      "disable": "unset the variables"
+    },
+    {
+      "name": "approval_remote_context",
+      "component": "jev-codex-approval",
+      "kind": "config",
+      "default": "off",
+      "enable": "allow_remote_context = true with credentials provisioned separately",
+      "disable": "allow_remote_context = false"
+    },
+    {
+      "name": "optional_remote_inference",
+      "scope": "integration",
+      "kind": "policy",
+      "default": "disabled",
+      "enable": "requires separate authorization and an explicit budget",
+      "disable": "stays disabled by default"
+    }
+  ],
+  "event_model": {
+    "schema": "jev-codex.event.v1",
+    "correlation_fields": [
+      "trace_id",
+      "span_id",
+      "parent_span_id",
+      "session_id",
+      "turn_id",
+      "agent_id",
+      "tool_call_id",
+      "workspace_id",
+      "component",
+      "stage"
+    ],
+    "produced_by": [
+      {
+        "component": "jev-context-fabric",
+        "events": ["capture.user", "capture.assistant", "capture.tool", "retrieval.request", "retrieval.result"]
+      },
+      {
+        "component": "jev-prune-kit",
+        "events": ["projection.dedup.applied", "projection.dedup.declined"]
+      },
+      {
+        "component": "codex-jev",
+        "events": ["projection.stage.invoked", "projection.stage.failed", "projection.applied", "projection.reset"]
+      },
+      {
+        "component": "jev-sentinel",
+        "events": ["sentinel.observation", "sentinel.decision", "sentinel.incident.opened", "sentinel.quarantine.applied"]
+      },
+      {
+        "component": "jev-codex-approval",
+        "events": ["approval.candidate", "approval.shadow.disagreement", "approval.deferred", "approval.enforced"]
+      }
+    ],
+    "rules": [
+      "One turn yields one trace_id; every event names its immediate parent in parent_span_id.",
+      "Identifiers describe observed host identities only where the host supplies them; absent identifiers are absent, never synthesized.",
+      "Incident and projection records carry hashes and metadata, never raw secret-bearing payloads."
+    ]
+  },
+  "ownership": {
+    "rule": "One writable owner per worktree and per shared interface. Shared files are merged additively; each package removes only its own entries.",
+    "entries": [
+      { "path": "$CODEX_HOME/config.toml", "owner": "shared", "mode": "merge-key", "keys": ["mcp_servers.jev-context-fabric"], "writers": ["jev-context-fabric"] },
+      { "path": "$CODEX_HOME/hooks.json", "owner": "shared", "mode": "merge-arrays", "writers": ["jev-context-fabric", "jev-sentinel"], "rule": "additive only; unrelated entries are preserved byte-for-byte" },
+      { "path": "~/.agents/skills/jev-context/SKILL.md", "owner": "jev-context-fabric", "mode": "owned-file", "writers": ["jev-context-fabric"] },
+      { "path": "~/.agents/skills/jev-prune/SKILL.md", "owner": "jev-prune-kit", "mode": "owned-file", "writers": ["jev-prune-kit"] },
+      { "path": "~/.jev/bus/v1/registry.json", "owner": "shared", "mode": "locked-atomic-merge", "writers": ["jev-context-fabric", "jev-prune-kit", "codex-jev"], "rule": "host codex entries are written only by codex-jev; package entries only by their package" },
+      { "path": "codex-rs/core/src/guardian/jev.rs", "owner": "jev-codex-approval", "mode": "new-file", "writers": ["jev-codex-approval"] },
+      { "path": "codex-rs/core/src/tools/router.rs", "owner": "codex-plaintext-collab", "mode": "patch-hunk", "writers": ["codex-plaintext-collab"] },
+      { "path": "codex-rs/jev-bus/**", "owner": "codex-jev", "mode": "owned-tree", "writers": ["codex-jev"] }
+    ]
+  },
+  "runtime_requirements": {
+    "build": { "rust": ">=1.85 (observed 1.97.1)", "cargo": true, "just": true, "python": ">=3.11" },
+    "integration_profile": { "python": ">=3.11", "node": ">=20 (JS adapter tests only)", "shell": "bash" },
+    "network": {
+      "build_time": "crates.io and the component repositories",
+      "run_time": "none required; every stage runs locally",
+      "remote_inference": "disabled unless separately authorized"
+    },
+    "platform_note": "The reference build environment has no system OpenSSL development files. codex-rs/cli/Cargo.toml declares openssl 0.10 with the vendored feature as a build-environment adaptation; this is recorded in jev/docs/BUILD.md and is not part of any component pin."
+  },
+  "supported_platforms": [
+    {
+      "platform": "linux-x86_64",
+      "status": "reference",
+      "note": "Integration, isolation and offline fixture evidence are produced here."
+    },
+    {
+      "platform": "darwin-aarch64",
+      "status": "untested",
+      "note": "Upstream supports it; no evidence was produced in this integration."
+    },
+    {
+      "platform": "windows-x86_64",
+      "status": "untested",
+      "note": "Component installers document POSIX mode checks that are not an equivalent Windows ACL verifier."
+    }
+  ],
+  "unsupported_combinations": [
+    { "combination": "a component revision other than the recorded pin", "behavior": "fail explicitly; re-pin deliberately with a new manifest revision" },
+    { "combination": "the approval source transform at a revision whose guardian blobs differ", "behavior": "fail explicitly; the transform refuses to apply" },
+    { "combination": "a carrier claim for host codex by a package", "behavior": "refused; codex-jev is the sole carrier" },
+    { "combination": "any invocation of omniroute-codex-docker", "behavior": "out of scope; refused" },
+    { "combination": "remote inference without explicit authorization and budget", "behavior": "stays disabled" }
+  ]
+}
