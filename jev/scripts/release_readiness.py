@@ -20,6 +20,8 @@ tracking issue is closed. A gate therefore carries:
               ``recorded`` - a checked-in run record, with its revision and tier.
               ``claimed`` - an assertion with no run behind it. This value exists
               only so a claim can be *rejected*; no gate passes as ``claimed``.
+              ``not-run`` - no run exists to point at, for a gate reported as
+              ``not-run`` rather than dropped from the document.
 
 ``release_ready`` is true only when every gate passes, so a partially validated
 matrix produces a candidate artifact and a ``release_ready: false`` verdict with
@@ -1005,7 +1007,11 @@ def write_platform_evidence(
 
 
 GATE_STATUSES = ("pass", "fail", "not-run")
-GATE_EVIDENCE = ("verified-here", "recorded", "claimed")
+#: ``not-run`` is both a status and an evidence kind: a gate whose evidence does
+#: not exist yet - the platform gate on a tree with no record, and the round-trip
+#: gate under ``--skip-roundtrip`` (#98) - reports it here instead of vanishing
+#: from the conjunction. Every gate's ``evidence`` is a member of this tuple.
+GATE_EVIDENCE = ("verified-here", "recorded", "claimed", "not-run")
 
 
 def summarize_gates(gates: list[dict]) -> dict:
