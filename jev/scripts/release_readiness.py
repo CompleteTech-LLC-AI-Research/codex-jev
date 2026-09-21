@@ -1067,6 +1067,20 @@ def evaluate_gates(
             if owned_scratch:
                 shutil.rmtree(scratch, ignore_errors=True)
         gates.append(roundtrip_record["gate"])
+    else:
+        # A skipped round trip is not a pass and not an omission: it is emitted
+        # as `not-run`, so it blocks `release_ready` instead of disappearing from
+        # the conjunction (issue #98). The flag's own contract is "not-run".
+        gates.append(
+            _gate(
+                "isolated.roundtrip",
+                "A fresh isolated setup reproduces the validated configuration and rolls back.",
+                "not-run",
+                "not-run",
+                TIER_OFFLINE,
+                "the round trip was skipped (--skip-roundtrip); run it before crediting release readiness",
+            )
+        )
 
     candidate_record = evaluate_candidate_gate(repo_root)
     gates.append(candidate_record["gate"])
