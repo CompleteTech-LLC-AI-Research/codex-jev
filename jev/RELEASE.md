@@ -300,6 +300,13 @@ same revision produce the same bytes whatever the output path.
   workflow relies on is `repo-checks / build-test`.
 - `main` carries no branch protection, so there is no enforceable required-check
   rule; merges rely on the checks recorded in each PR.
+- Two follow-ups weaken the gate bindings and are **open**, not fixed: #97 — the
+  platform gate credits a record whose `revision` is unresolvable in the local
+  clone instead of treating it as stale; and #98 — `gates --skip-roundtrip`
+  removes the round-trip gate rather than emitting it as `not-run`, so a
+  `release_ready: true` document is possible with the round trip never proven.
+  Both are reproduced in
+  [`evidence/release-phase-claim.md`](evidence/release-phase-claim.md).
 
 ## 13. Recorded evidence
 
@@ -308,6 +315,7 @@ same revision produce the same bytes whatever the output path.
 | [`evidence/platform-matrix.json`](evidence/platform-matrix.json)           | the recorded real-host platform run and the gates' freshness inputs |
 | [`VALIDATION.md`](VALIDATION.md)                                           | offline, real-host, and live-provider tiers                         |
 | [`END_TO_END.md`](END_TO_END.md)                                           | the composed regression harness and its tiers                       |
+| [`evidence/release-phase-claim.md`](evidence/release-phase-claim.md)       | the composed phase-6 release verdict and why it is `false` here      |
 | [`evidence/plaintext-pinned-build.md`](evidence/plaintext-pinned-build.md) | the plaintext collaboration host run                                |
 | [`evidence/projection-real-host.md`](evidence/projection-real-host.md)     | the projection and exact-reset host run                             |
 | [`ISOLATED_ENV.md`](ISOLATED_ENV.md)                                       | build and isolated-environment instructions                         |
