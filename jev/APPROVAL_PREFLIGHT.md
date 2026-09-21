@@ -99,19 +99,68 @@ None of them changes what the host does.
 
 ## What a preflight may not decide
 
-An accepted answer must carry `schema_version: 1`, the exact `request_id`, a
-`jev-`-prefixed model identifier, and one of the declared decisions. On top of
-that the host re-checks the boundary itself instead of trusting the engine's
-policy: an `allow` is accepted only at `low` risk with `explicit` or
-`within_task` authorization. `deny` and every ambiguity keep the existing
-reviewer. Enforcement stays disabled; a shadow record is a candidate answer,
-not a granted permission.
+An accepted answer must carry `schema_version: 1`, the exact `request_id`, the
+bound `policy_hash`, `snapshot_hash` and `question_hash` (see *Answer binding and
+freshness* below), a `jev-`-prefixed model identifier, and one of the declared
+decisions. On top of that the host re-checks the boundary itself instead of
+trusting the engine's policy: an `allow` is accepted only at `low` risk with
+`explicit` or `within_task` authorization. `deny` and every ambiguity keep the
+existing reviewer. Enforcement stays disabled; a shadow record is a candidate
+answer, not a granted permission.
 
 The budget is `min(guardian_deadline, now + 2s)`, the wire bound is `256 KiB`
 in each direction, the child has stdout piped and stderr discarded, and
 `kill_on_drop(true)` means an abandoned attempt cannot outlive the review. The
 per-request cost is therefore one interpreter start plus one bounded local
 invocation, and it is paid only on eligible attempts (#25 measures it).
+
+## Answer binding and freshness
+
+The engine names the request it answered, and the component's own transport
+refuses an answer whose `request_id`, `snapshot_hash`, `policy_hash` or
+`question_hash` does not match what it sent (`daemon_response_binding_mismatch`
+in `jev_approval/daemon.py`). A port that checks less than the component it
+ports is weaker than that component, so the port checks the same four fields and
+treats every disagreement as "no answer":
+
+- `snapshot_hash` is `sha256` over the canonical envelope the host sent, the
+  `request_id` included. The component's own comment on it is "no cross-request
+  permission reuse", so an answer computed for another request, another action,
+  or another authorization revision cannot be replayed onto this one.
+- `policy_hash` is `sha256` over the exact policy object that was sent, so a
+  decision taken under different instructions is refused even when it carries
+  the right risk and authorization choices.
+- `question_hash` names the approved question set. It is a pin the host cannot
+  recompute, because the host does not carry the question text; the manifest's
+  adapter record holds the value, `verify-manifest.py` checks its shape, and the
+  required CI lane proves the compiled constant equals the declared one.
+
+The canonical form is exactly `json.dumps(value, ensure_ascii=False,
+allow_nan=False, sort_keys=True, separators=(',', ':'))`
+(`jev_approval/schema.py:canonical`). The port reimplements it, and a parity
+test pins three digests the pinned component computes for the same JSON text, so
+the two implementations cannot drift apart unobserved. The one place they can
+legitimately differ is number formatting for extreme exponents; the port's
+vectors cover integers, and a divergence fails the comparison and runs Guardian
+rather than accepting an answer.
+
+Freshness is re-derived after the answer arrives rather than taken from it. A
+completed answer is discarded and Guardian runs, unchanged and still inside the
+original overall deadline, when any of these is true:
+
+| Condition | Why it defers |
+| --- | --- |
+| The review was cancelled, or the deadline passed | The turn it belonged to is gone. |
+| Local or root authorization version changed | The answer was computed under another authorization. |
+| The selected Guardian policy text changed | The answer was computed under another policy. |
+| Managed policy now requires a live review, or the reviewer is pinned | The host is not allowed to substitute a preflight. |
+| The answer is absent, malformed, unbound, `defer`, or an `adapter_failure` envelope | There is nothing to bind, so there is nothing to trust. |
+
+None of these paths can widen permission: the fallback is the original
+synchronous review, the host re-checks the low-risk and high/medium
+authorization boundary itself, and Sentinel's veto runs where it always ran. A
+preflight never overrides a Sentinel refusal and never runs without Guardian as
+the fallback.
 
 ## Evidence
 
@@ -122,20 +171,23 @@ provider answered.
 | Check | Command | Result |
 | --- | --- | --- |
 | Host compiles with the port | `cargo check -p codex-core --lib --offline` | ok. |
-| Adapter unit tests | `cargo test -p codex-core --lib jev:: --offline` | 10 passed; 0 failed. |
-| Guardian behaviour is unchanged | `cargo test -p codex-core --lib guardian:: --offline` | 89 passed; 0 failed. |
+| Adapter unit tests | `cargo test -p codex-core --lib jev:: --offline` | 16 passed; 0 failed. |
+| Guardian behaviour is unchanged | `cargo test -p codex-core --lib guardian:: --offline` | 95 passed; 0 failed. |
+| Answer binding and canonical-form parity | `cargo test -p codex-core --lib jev:: --offline` | The binding tests and the three component-computed digests above. |
 | Formatting | `cargo fmt --all -- --config imports_granularity=Item --check` | ok. |
 | Ported-tree checks | `python3 jev/scripts/verify-manifest.py --patch-state applied --native-adapter applied` | ok, exit 0. |
 | Rollback direction fails closed | `python3 jev/scripts/verify-manifest.py --native-adapter absent` | `E_NATIVE_ADAPTER_STATE`, exit 1. |
-| Manifest and validator tests | `python3 -m unittest discover -s jev/tests -t jev/tests` | 95 passed. |
-| Required-CI Python suites | `python3 -m unittest discover -s .github/scripts -p 'test_jev_*.py'` | 163 passed. |
+| Manifest and validator tests | `python3 -m unittest discover -s jev/tests -t jev/tests` | 111 passed. |
+| Required-CI Python suites | `python3 -m unittest discover -s .github/scripts -p 'test_jev_*.py'` | 221 passed. |
 
-Not performed, and not claimed: a live model review, a real Python engine
-invocation, cancellation while a subprocess is running, authorization changes
-during a response, managed required-review policies, background or
-multi-environment sessions, and per-OS runs. The adapter records its own five
-parser and binding tests; the rest of the list above is exactly what issue #21
-leaves to the real-host phase (#22 and #25).
+The binding, freshness and fallback paths above are asserted by host tests at
+the `offline-fixture` tier: they drive `assessment` and `review`'s guards with
+captured and constructed answers, not with a live engine. Not performed, and not
+claimed: a live model review, a real Python engine invocation, cancellation while
+a subprocess is actually running, an authorization change arriving while a real
+response is in flight, managed required-review policies, background or
+multi-environment sessions, and per-OS runs. Those remain the real-host phase
+(#25).
 
 ## Disable and rollback
 

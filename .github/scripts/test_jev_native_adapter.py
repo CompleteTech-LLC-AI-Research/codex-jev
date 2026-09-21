@@ -6,7 +6,10 @@ What they can prove, and what this file checks on the real tree, is that the
 declared port is installed exactly where the manifest says it is, that it keeps
 the single module declaration and the single call site the installer creates,
 that it reads only the declared switch, and that it adds no permission-mutating
-surface to the host.
+surface to the host. It also proves the port binds the answers it accepts: the
+component's own transport refuses an answer whose `request_id`, `snapshot_hash`,
+`policy_hash` or `question_hash` does not match what it sent, so a port that
+checks less than that is weaker than the component it ports (#22).
 """
 
 import json
@@ -110,6 +113,45 @@ class NativeAdapterPortTests(unittest.TestCase):
         )
         self.assertIs(profile["features"]["approval.preflight"], False)
         self.assertIs(profile["features"]["approval.enforcement"], False)
+
+    def test_the_port_binds_every_answer_field_the_component_checks(self):
+        _, spec = adapter_spec(load_manifest())
+        text = read(spec["installed"])
+        declared = spec["answer_binding_fields"]
+        for field in jev_manifest.REQUIRED_ANSWER_BINDING_FIELDS:
+            with self.subTest(field=field):
+                # The declaration must cover it, and the port must actually read it.
+                self.assertIn(field, declared)
+                self.assertIn(jev_manifest._answer_binding_lookup(field), text)
+        # One lookup per field, so a field cannot be "bound" by an unrelated read.
+        for field in declared:
+            with self.subTest(lookup=field):
+                self.assertEqual(
+                    text.count(jev_manifest._answer_binding_lookup(field)), 1
+                )
+
+    def test_the_approved_question_set_is_a_pinned_digest(self):
+        manifest = load_manifest()
+        _, spec = adapter_spec(manifest)
+        text = read(spec["installed"])
+        self.assertRegex(spec["question_hash"], jev_manifest.SHA256_RE)
+        # The host cannot recompute a digest over question text it does not carry,
+        # so the declared pin and the compiled constant must be the same value.
+        self.assertIn(f'"{spec["question_hash"]}"', text)
+        self.assertIn("const APPROVED_QUESTION_HASH", text)
+
+    def test_the_canonical_form_the_digests_use_is_declared(self):
+        _, spec = adapter_spec(load_manifest())
+        text = read(spec["installed"])
+        # The engine hashes `json.dumps(..., sort_keys=True, separators=(',',':'))`
+        # bytes, so the port must canonicalize keys and must not rely on the order
+        # or spacing of the JSON it happens to serialize.
+        self.assertIn("fn canonical_json(value: &Value, out: &mut String)", text)
+        self.assertIn("keys.sort_unstable();", text)
+        self.assertIn("sha2::Sha256", text)
+        # A digest is compared, never fabricated or defaulted to something that matches.
+        self.assertIn("expected_snapshot_hash", text)
+        self.assertIn("expected_policy_hash", text)
 
 
 if __name__ == "__main__":

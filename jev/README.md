@@ -76,5 +76,5 @@ explicitly instead of silently building.
 - [`DEDUP_RECEIPTS.md`](DEDUP_RECEIPTS.md) — what the dedup stage may replace, the receipt the host proves, and the edits it reverts.
 - [`FABRIC_VIEWS.md`](FABRIC_VIEWS.md) — the approved prose view, its snapshot binding, the reversible controls, and the byte/token split.
 - [`SENTINEL_BOUNDARY.md`](SENTINEL_BOUNDARY.md) — the Sentinel hook wiring, effective coverage, the activation proof, the incident envelope, and the bypass surfaces.
-- [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) — the native approval preflight, its environment contract, eligibility and deferral, and the guarded host blobs.
+- [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md) — the native approval preflight, its environment contract, eligibility and deferral, the answer binding and freshness rules, and the guarded host blobs.
 - [`ROLLBACK.md`](ROLLBACK.md) — disable the integration and remove the isolated environment.

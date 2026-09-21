@@ -83,7 +83,9 @@ PROFILE_KEYS = {"profile_version", "id", "description", "features", "fabric"}
 NATIVE_ADAPTER_REQUIRED_KEYS = {
     "source",
     "source_sha256",
+    "question_hash",
     "installed",
+    "answer_binding_fields",
     "implements",
     "feature",
     "installed_anchors",
@@ -91,6 +93,17 @@ NATIVE_ADAPTER_REQUIRED_KEYS = {
     "call_site",
     "guarded_host_revision",
     "guarded_host_blobs",
+}
+
+# The component's own transport refuses an answer that does not name the request, the
+# envelope snapshot, the policy and the question set it sent
+# (`daemon_response_binding_mismatch`). A port that accepts less than that is weaker than
+# the component it ports, so the declared set must cover all of them.
+REQUIRED_ANSWER_BINDING_FIELDS = {
+    "request_id",
+    "policy_hash",
+    "snapshot_hash",
+    "question_hash",
 }
 
 # A profile may pin the memory-tools runtime it binds. The pin repeats the
@@ -763,6 +776,30 @@ def _validate_native_adapters(manifest):
             errors.append(
                 f"E_NATIVE_ADAPTER_HASH: adapter of component {component_id} must record a lowercase sha256 of its upstream source"
             )
+        # The approved question set is a pin the host cannot recompute: it is a digest
+        # over question text the host does not carry, so an answer may only be accepted
+        # when it names the set this policy was calibrated against.
+        if not SHA256_RE.match(str(spec["question_hash"])):
+            errors.append(
+                f"E_NATIVE_ADAPTER_HASH: adapter of component {component_id} must record a lowercase sha256 of its approved question set"
+            )
+        binding = spec["answer_binding_fields"]
+        if (
+            not isinstance(binding, list)
+            or not binding
+            or not all(isinstance(field, str) and field for field in binding)
+            or len(set(binding)) != len(binding)
+        ):
+            errors.append(
+                f"E_NATIVE_ADAPTER_SCHEMA: adapter of component {component_id} must list the distinct answer fields it binds on"
+            )
+        else:
+            unbound = sorted(REQUIRED_ANSWER_BINDING_FIELDS - set(binding))
+            if unbound:
+                errors.append(
+                    f"E_NATIVE_ADAPTER_BINDING: adapter of component {component_id} does not bind the answer fields "
+                    f"the component's own transport checks: {', '.join(unbound)}"
+                )
         if not REVISION_RE.match(str(spec["guarded_host_revision"])):
             errors.append(
                 f"E_NATIVE_ADAPTER_SCHEMA: adapter of component {component_id} must pin a 40-character guarded host revision"
@@ -865,6 +902,11 @@ def _guarded_host_blobs(manifest, repo_root, spec):
     return errors
 
 
+def _answer_binding_lookup(field):
+    """The lookup a ported adapter must perform for a bound answer field."""
+    return f'response.get("{field}")'
+
+
 def check_native_adapter(manifest, repo_root, expected):
     """Check the declared native source adapter against this checkout.
 
@@ -904,6 +946,14 @@ def check_native_adapter(manifest, repo_root, expected):
                             f"E_NATIVE_ADAPTER_ANCHOR: {relative} does not contain the declared anchor {anchor!r}"
                         )
             if installed.is_file():
+                text = installed.read_text(encoding="utf-8", errors="replace")
+                for field in spec["answer_binding_fields"]:
+                    if _answer_binding_lookup(field) not in text:
+                        errors.append(
+                            f"E_NATIVE_ADAPTER_BINDING: {spec['installed']} does not bind the answer field "
+                            f"{field!r} of {component_id}"
+                        )
+            if installed.is_file():
                 errors += _guarded_host_blobs(manifest, repo_root, spec)
         else:
             for relative, anchors in checks:
@@ -917,6 +967,13 @@ def check_native_adapter(manifest, repo_root, expected):
                             f"E_NATIVE_ADAPTER_STATE: {relative} still contains {anchor!r}, so the native "
                             f"adapter declared by {component_id} is still applied"
                         )
+                if path == installed:
+                    for field in spec["answer_binding_fields"]:
+                        if _answer_binding_lookup(field) in text:
+                            errors.append(
+                                f"E_NATIVE_ADAPTER_STATE: {relative} still binds the answer field {field!r}, "
+                                f"so the native adapter declared by {component_id} is still applied"
+                            )
     return errors
 
 

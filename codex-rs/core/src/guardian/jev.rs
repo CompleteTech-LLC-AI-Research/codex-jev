@@ -5,6 +5,7 @@
 //! required no source reconciliation beyond module placement.
 //! No contributor, sandbox, permission, hook-precedence or approval-cache changes.
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::Stdio;
 
@@ -15,6 +16,8 @@ use codex_protocol::protocol::GuardianAssessmentOutcome;
 use codex_protocol::protocol::GuardianRiskLevel;
 use codex_protocol::protocol::GuardianUserAuthorization;
 use serde_json::Value;
+use sha2::Digest;
+use sha2::Sha256;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::time::Instant;
@@ -32,6 +35,13 @@ const PREFLIGHT_BUDGET: std::time::Duration = std::time::Duration::from_millis(2
 
 /// The declared switch that gates this phase (manifest feature `approval.preflight`).
 const PREFLIGHT_SWITCH: &str = "approval.preflight";
+
+/// The question set the approved policy was calibrated against, as the pinned component
+/// computes it (`jev_approval.questions.QUESTION_HASH`, revision `0b931ee2`). Recorded in
+/// the manifest's adapter record and cross-checked by the required CI lane, because the
+/// host cannot recompute a hash over question text it does not carry.
+const APPROVED_QUESTION_HASH: &str =
+    "cf231ce0f334b53ddbeea0c25bc1e83e68c168b9ee641386d8720349f4f8c6ed";
 
 /// `1` is the only value that turns a declared switch on (CONTRACTS.md C10).
 fn switch_value_on(value: Option<&str>) -> bool {
@@ -141,9 +151,108 @@ fn action_is_guardian_owned(request: &GuardianApprovalRequest) -> bool {
     }
 }
 
-fn assessment(response: &Value, request_id: &str) -> Option<GuardianAssessment> {
+/// Append `value` in the component's canonical form: object keys sorted, no
+/// insignificant whitespace, strings left as UTF-8. `jev_approval.schema.canonical`
+/// is the definition, and the engine hashes exactly these bytes; any divergence
+/// makes the binding check below fail closed rather than accept an answer.
+fn canonical_json(value: &Value, out: &mut String) {
+    match value {
+        Value::Null => out.push_str("null"),
+        Value::Bool(true) => out.push_str("true"),
+        Value::Bool(false) => out.push_str("false"),
+        Value::Number(number) => out.push_str(&number.to_string()),
+        Value::String(text) => push_json_string(text, out),
+        Value::Array(items) => {
+            out.push('[');
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                canonical_json(item, out);
+            }
+            out.push(']');
+        }
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort_unstable();
+            out.push('{');
+            for (index, key) in keys.into_iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                push_json_string(key, out);
+                out.push(':');
+                if let Some(item) = map.get(key) {
+                    canonical_json(item, out);
+                }
+            }
+            out.push('}');
+        }
+    }
+}
+
+/// Escape a string the way `json.dumps(..., ensure_ascii=False)` does: only `"`, `\`,
+/// the five short control escapes and the remaining C0 controls, with non-ASCII kept
+/// as UTF-8.
+fn push_json_string(text: &str, out: &mut String) {
+    out.push('"');
+    for character in text.chars() {
+        match character {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            control if (control as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", control as u32);
+            }
+            other => out.push(other),
+        }
+    }
+    out.push('"');
+}
+
+fn digest_of(value: &Value) -> String {
+    let mut canonical = String::new();
+    canonical_json(value, &mut canonical);
+    let digest = Sha256::digest(canonical.as_bytes());
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+/// `Envelope.policy_hash`: the digest of the policy object the host sent, which pins the
+/// reviewed instructions independently of the transport.
+fn policy_hash(policy: &Value) -> String {
+    digest_of(policy)
+}
+
+/// `Envelope.snapshot_hash`: the digest of the whole envelope the host sent, request id
+/// included, so no answer can be reused for another request.
+fn envelope_snapshot_hash(envelope: &Value) -> String {
+    digest_of(envelope)
+}
+
+/// The component's own transport refuses an answer whose `request_id`, `snapshot_hash`,
+/// `policy_hash` or `question_hash` does not match what it sent
+/// (`daemon_response_binding_mismatch`). The port must not accept a weaker binding, so
+/// an answer that does not name this exact action and policy, under this exact approved
+/// question set, is treated as absent and Guardian runs unchanged.
+fn assessment(
+    response: &Value,
+    request_id: &str,
+    expected_policy_hash: &str,
+    expected_snapshot_hash: &str,
+) -> Option<GuardianAssessment> {
     if response.get("schema_version")?.as_u64()? != 1
         || response.get("request_id")?.as_str()? != request_id
+        || response.get("policy_hash")?.as_str()? != expected_policy_hash
+        || response.get("snapshot_hash")?.as_str()? != expected_snapshot_hash
+        || response.get("question_hash")?.as_str()? != APPROVED_QUESTION_HASH
     {
         return None;
     }
@@ -260,6 +369,7 @@ pub(super) async fn review(
             .await
             .ok()?;
         let policy = reviewer.spawn_config.base_instructions.clone()?;
+        let policy_context = serde_json::json!({"guardian_instructions": policy});
         let items = super::prompt::build_guardian_prompt_items_with_parent_turn(
             session,
             history.as_ref(),
@@ -282,7 +392,7 @@ pub(super) async fn review(
             "source": "codex-native",
             "action": action,
             "context": {
-                "policy": {"guardian_instructions": policy},
+                "policy": policy_context,
                 "messages": messages,
                 "authorization_revision": format!("{local_version:?}|{root_version:?}"),
             },
@@ -300,6 +410,10 @@ pub(super) async fn review(
         if bytes.len() > MAX_WIRE_BYTES as usize {
             return None;
         }
+        // Bind the answer to the exact envelope and policy this attempt sent. The engine
+        // echoes both digests, and `assessment` refuses any answer that disagrees.
+        let expected_policy_hash = policy_hash(&payload["context"]["policy"]);
+        let expected_snapshot_hash = envelope_snapshot_hash(&payload);
         drop(history);
         let mut child = tokio::process::Command::new(python)
             .arg("-I")
@@ -328,7 +442,12 @@ pub(super) async fn review(
             return None;
         }
         let response: Value = serde_json::from_slice(&output).ok()?;
-        let result = assessment(&response, review_id)?;
+        let result = assessment(
+            &response,
+            review_id,
+            &expected_policy_hash,
+            &expected_snapshot_hash,
+        )?;
         // Additional freshness check for every context mode; the original host check remains too.
         let now_history = session.conversation_history_snapshot().await;
         let now_root = session
@@ -379,44 +498,167 @@ mod tests {
     use codex_utils_path_uri::PathUri;
     use serde_json::json;
 
+    /// The envelope these fixtures bind against, kept as text so the parity vectors and
+    /// the binding fixtures cannot drift apart.
+    const FIXTURE_ENVELOPE: &str = r#"{"schema_version":1,"request_id":"review-1","source":"codex-native","action":{"tool":"exec_command"},"context":{"policy":{"guardian_instructions":"guardian policy"},"messages":[],"authorization_revision":"local|root"},"guards":{"context_complete":true,"mandatory_review":false,"fresh_review":false,"retry":false,"escalated":false,"cancelled":false,"authorization_current":true}}"#;
+
     fn response() -> serde_json::Value {
-        json!({"schema_version": 1, "request_id": "review-1", "decision": "allow",
+        answer_for(&fixture_envelope())
+    }
+
+    /// The envelope the host sends for these fixtures. The digests below are what the
+    /// engine echoes for it, and every binding test moves one field at a time.
+    fn fixture_envelope() -> serde_json::Value {
+        serde_json::from_str(FIXTURE_ENVELOPE).expect("fixture envelope is valid JSON")
+    }
+
+    fn binding(envelope: &serde_json::Value) -> (String, String) {
+        (
+            policy_hash(&envelope["context"]["policy"]),
+            envelope_snapshot_hash(envelope),
+        )
+    }
+
+    fn answer_for(envelope: &serde_json::Value) -> serde_json::Value {
+        let (policy, snapshot) = binding(envelope);
+        json!({"schema_version": 1, "request_id": envelope["request_id"],
+        "policy_hash": policy, "snapshot_hash": snapshot,
+        "question_hash": APPROVED_QUESTION_HASH, "decision": "allow",
         "vector": {"model": "jev-1.13.0", "choices": {
             "risk": {"choice": "low"}, "authorization": {"choice": "within_task"}
         }}})
     }
+
+    /// Assess `response` against the fixture envelope's binding, the way `review` does.
+    fn assess(response: &serde_json::Value) -> Option<GuardianAssessment> {
+        let (policy, snapshot) = binding(&fixture_envelope());
+        assessment(response, "review-1", &policy, &snapshot)
+    }
     #[test]
     fn jev_accepts_bound_low_risk_answer() {
         assert_eq!(
-            assessment(&response(), "review-1").unwrap().outcome,
+            assess(&response()).unwrap().outcome,
             GuardianAssessmentOutcome::Allow
         );
     }
     #[test]
     fn jev_rejects_wrong_request() {
-        assert!(assessment(&response(), "another").is_none());
+        let (policy, snapshot) = binding(&fixture_envelope());
+        assert!(assessment(&response(), "another", &policy, &snapshot).is_none());
     }
     #[test]
     fn jev_rejects_elevated_allow() {
         let mut value = response();
         value["vector"]["choices"]["risk"]["choice"] = json!("high");
-        assert!(assessment(&value, "review-1").is_none());
+        assert!(assess(&value).is_none());
     }
     #[test]
     fn jev_abstention_keeps_guardian() {
         let mut value = response();
         value["decision"] = json!("defer");
-        assert!(assessment(&value, "review-1").is_none());
+        assert!(assess(&value).is_none());
     }
     #[test]
     fn jev_missing_vector_keeps_guardian() {
+        let mut value = response();
+        value.as_object_mut().expect("object").remove("vector");
+        assert!(assess(&value).is_none());
+    }
+
+    // ---- the component's answer binding (issue #22) ----
+
+    /// The canonical form must be byte-identical to `jev_approval.schema.canonical`,
+    /// because the engine hashes exactly those bytes. Each digest is the value the
+    /// pinned component computes for the same JSON text.
+    #[test]
+    fn canonical_json_matches_the_pinned_component() {
+        let vectors = [
+            (
+                FIXTURE_ENVELOPE,
+                "bb7062d3d98daff5017829bf90cb2a6f1f8ed1eb7bef289e6843b235685a42ee",
+            ),
+            (
+                r#"{"z":[3,1,{"b":"\u00b7 \u00e9 \u4e2d","a":-2}],"a":{"m":"quote\" backslash\\ newline\n tab\t ctrl\u0001","n":12345678901234567890}}"#,
+                "c28af59e1b633f099c9b225f79b91bd20e0d846dfc7ad32c98b1527a1fa0c3a3",
+            ),
+            (
+                r#"{"guardian_instructions":"Line one\nLine two \"quoted\" \u00b7" , "x":1}"#,
+                "0c2dd1910b8f33dfa907e84433f011c4a05bedc8d656c6f98f8de7916eb651d0",
+            ),
+        ];
+        for (text, expected) in vectors {
+            let value: Value = serde_json::from_str(text).expect("test vector is valid JSON");
+            assert_eq!(
+                digest_of(&value),
+                expected,
+                "canonical form drifted for {text}"
+            );
+        }
+        assert_eq!(digest_of(&json!({"a": 1})), digest_of(&json!({ "a" : 1 })));
+    }
+
+    /// A stale answer, whose snapshot digest names a different envelope, must not
+    /// reach the host, which is what stops a replayed or out-of-order result from
+    /// granting permission under a reused review id.
+    #[test]
+    fn stale_answer_keeps_guardian() {
+        let mut other = fixture_envelope();
+        other["context"]["authorization_revision"] = json!("local|root-earlier");
+        let stale = answer_for(&other);
+        assert_eq!(stale["request_id"], json!("review-1"));
+        assert!(assess(&stale).is_none());
+    }
+
+    /// An answer computed against different policy text must not be accepted even if it
+    /// holds the right risk and authorization choices.
+    #[test]
+    fn answer_for_another_policy_keeps_guardian() {
+        let mut other = fixture_envelope();
+        other["context"]["policy"]["guardian_instructions"] = json!("relaxed policy");
+        assert!(assess(&answer_for(&other)).is_none());
+    }
+
+    /// The approved question set is a declared pin; a response from a different one is
+    /// not a decision this policy was calibrated for.
+    #[test]
+    fn answer_from_another_question_set_keeps_guardian() {
+        let mut value = response();
+        value["question_hash"] =
+            json!("0000000000000000000000000000000000000000000000000000000000000000");
+        assert!(assess(&value).is_none());
+    }
+
+    /// The abstention the component's CLI prints when anything fails carries no binding,
+    /// so it can never be read as an allow.
+    #[test]
+    fn adapter_failure_answer_keeps_guardian() {
         assert!(
-            assessment(
-                &json!({"schema_version":1,"request_id":"review-1","decision":"allow"}),
-                "review-1"
-            )
+            assess(&json!({"schema_version": 1, "request_id": "review-1",
+            "decision": "defer", "reason": "adapter_failure"}))
             .is_none()
         );
+    }
+
+    /// Malformed and unbound material is refused rather than partially trusted.
+    #[test]
+    fn unbound_or_malformed_answers_keep_guardian() {
+        for value in [
+            json!({"request_id": "review-1"}),
+            json!({"schema_version": 2, "request_id": "review-1", "policy_hash": "x",
+                   "snapshot_hash": "y", "question_hash": APPROVED_QUESTION_HASH,
+                   "decision": "allow"}),
+            json!({"schema_version": 1, "request_id": "review-1", "policy_hash": "x",
+                   "snapshot_hash": "y", "question_hash": APPROVED_QUESTION_HASH,
+                   "decision": "allow"}),
+            json!({"schema_version": 1, "request_id": "review-1", "decision": "allow",
+            "vector": {"model": "jev-1.13.0", "choices": {
+                "risk": {"choice": "low"}, "authorization": {"choice": "within_task"}
+            }}}),
+            json!([]),
+            json!("allow"),
+        ] {
+            assert!(assess(&value).is_none(), "{value} must not be accepted");
+        }
     }
 
     // ---- the declared switch contract (CONTRACTS.md C10) ----
