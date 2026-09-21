@@ -46,17 +46,26 @@
       "order": 10,
       "component": "codex-plaintext-collab",
       "file": "jev/patches/0001-disable-collab-message-encryption.patch",
-      "sha256": "94405a207cb0aedcb04868f45fd4cb2fa1b1b49e195330c9e1a7c76ba01e114c",
+      "sha256": "13bc90c385bce43110c2aaeda9333fe7b35f448c5e7ab78736091d68b8de21e7",
       "applies_to_host_base": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
       "targets": [
         "codex-rs/core/src/tools/handlers/multi_agents_spec.rs",
         "codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs",
+        "codex-rs/core/src/tools/spec_plan_tests.rs",
         "codex-rs/core/src/tools/router.rs",
         "codex-rs/core/src/tools/router_tests.rs",
-        "codex-rs/core/tests/suite/subagent_notifications.rs"
+        "codex-rs/core/tests/suite/multi_agent_tool_descriptions.rs",
+        "codex-rs/core/tests/suite/subagent_notifications.rs",
+        "codex-rs/core/tests/suite/snapshots/all__suite__scenarios__astra_async_question_and_answer.snap",
+        "codex-rs/core/tests/suite/snapshots/all__suite__scenarios__astra_code_mode_call_timing.snap",
+        "codex-rs/core/tests/suite/snapshots/all__suite__scenarios__astra_disabled_executor_skills.snap",
+        "codex-rs/core/tests/suite/snapshots/all__suite__scenarios__astra_kickoff_remote_compaction_windows.snap",
+        "codex-rs/core/tests/suite/snapshots/all__suite__scenarios__astra_plugin_refresh.snap",
+        "codex-rs/core/tests/suite/snapshots/all__suite__scenarios__astra_settings_release_check_tool_shapes.snap",
+        "codex-rs/core/tests/suite/snapshots/all__suite__scenarios__multi_agent_catalog_parameters.snap"
       ],
-      "behavior": "Collaboration tool calls (spawn_agent, send_message, followup_task) stop marking the message parameter as encrypted, so new child-agent messages are stored and forwarded as plaintext. An absent or empty encrypted-function-args report is reclassified as a direct plaintext message. The patch carries its own behavioural coverage: the three tool-schema unit tests that assert the encrypted parameter, a router unit test pinning the plaintext/encrypted classification, and the parent/child transport test that asserts a readable payload for an omitted or empty report and an encrypted payload when the message argument is reported encrypted.",
-      "disable": "Apply no patches to the pinned base (jev/scripts/apply-patches.py with an empty patch list); the pinned build then keeps the upstream encrypted message schema. Existing ciphertext records are never decrypted."
+      "behavior": "Collaboration tool calls (spawn_agent, send_message, followup_task) stop marking the message parameter as encrypted, so new child-agent messages are stored and forwarded as plaintext. An absent or empty encrypted-function-args report is reclassified as a direct plaintext message. The patch carries its own behavioural coverage and also aligns the pinned base's own tests with the new behaviour: the spec-plan and tool-schema unit tests that asserted the encrypted parameter, the catalog tool-description cases that injected the encrypted marker and rejected an object schema without a message property, a router unit test pinning the plaintext/encrypted classification, the parent/child transport test that asserts a readable payload for an omitted or empty report and an encrypted payload when the message argument is reported encrypted, and the seven request-history snapshots whose collaboration/developer tool fingerprints change because the message schema is no longer marked encrypted. Removing the encrypted marker changes only tool fingerprints in those snapshots, never their surrounding content.",
+      "disable": "Apply no patches to the pinned base (jev/scripts/apply-patches.py with an empty patch list); the pinned build then keeps the upstream encrypted message schema. Neither the patch nor its disable path decrypts existing ciphertext records."
     }
   ],
   "components": [
@@ -75,7 +84,10 @@
         "codex-rs/core/src/tools/router_tests.rs",
         "codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs",
         "codex-rs/core/src/tools/handlers/multi_agents_spec.rs",
-        "codex-rs/core/tests/suite/subagent_notifications.rs"
+        "codex-rs/core/src/tools/spec_plan_tests.rs",
+        "codex-rs/core/tests/suite/subagent_notifications.rs",
+        "codex-rs/core/tests/suite/multi_agent_tool_descriptions.rs",
+        "codex-rs/core/tests/suite/snapshots/"
       ],
       "never_owns": [
         "codex-rs/core/src/guardian/",
