@@ -128,6 +128,12 @@ reachable when `enforce` is driven directly, which is how the suite tests it.
 - **`real-host`** — the transport run recorded for [#15](BUS_BOUNDARY.md) shows
   the dedup stage invoked at the real boundary; the enforcement path is
   `real-host` for the boundary mechanics and `offline-fixture` for the receipts.
+- **`real-host-binary`** — the [#70](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/70)
+  run ([`evidence/projection-real-host.md`](evidence/projection-real-host.md))
+  resumes a seeded session, so the launched host's own request carries the marker
+  its enforcement accepted, and the chain over the same adapter and store emits
+  the pinned kit's own `projection_receipt` (`policy: exact-read-repeat-v1`) at
+  stage 100. The proof still comes from the seed, never from a live model.
 
 Live-provider evidence is never produced here: remote inference stays disabled
 and unbudgeted.

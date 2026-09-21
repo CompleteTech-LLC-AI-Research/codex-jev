@@ -18,6 +18,7 @@ import unittest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SMOKE_ROOT = REPO_ROOT / "jev" / "smoke"
 SELF_TEST = SMOKE_ROOT / "self_test.py"
+PROJECTION_SELF_TEST = SMOKE_ROOT / "self_test_projection.py"
 
 
 def load_module(name: str, path: Path):
@@ -35,11 +36,37 @@ class SmokeFixtureTests(unittest.TestCase):
             "self_test.py",
             "run-plaintext-smoke.sh",
             "collect_evidence.py",
+            "check_projection_reset.py",
+            "gen_projection_receipts.py",
+            "mock_projection_server.py",
+            "run-projection-reset-smoke.sh",
+            "seed_projection_rollout.py",
+            "self_test_projection.py",
         ):
             with self.subTest(name=name):
                 self.assertTrue(
                     (SMOKE_ROOT / name).is_file(), f"missing jev/smoke/{name}"
                 )
+
+    def test_projection_checker_asserts_the_boundary_properties(self):
+        checker = load_module(
+            "jev_smoke_check_projection", SMOKE_ROOT / "check_projection_reset.py"
+        )
+        import inspect
+
+        source = inspect.getsource(checker.main)
+        # A checker that stopped asserting the reduction, the exact reset, or the
+        # absence of a persisted projection would still pass a real run.
+        for required in (
+            "reduction-strictly-smaller",
+            "exact-reset",
+            "no-persisted-projection-receipt",
+            "receipt-emitted-only-when-switched-on",
+            "rollout-unprojected",
+        ):
+            with self.subTest(assertion=required):
+                self.assertIn(required, source)
+        self.assertEqual(checker.TIER, "real-host-binary", "tier label changed")
 
     def test_checker_requires_a_child_turn(self):
         checker = load_module(
@@ -68,6 +95,20 @@ class SmokeFixtureTests(unittest.TestCase):
             0,
             result.returncode,
             f"jev/smoke/self_test.py failed:\n{result.stdout}\n{result.stderr}",
+        )
+        self.assertIn("self-test: passed", result.stdout)
+
+    def test_projection_self_test_passes(self):
+        result = subprocess.run(
+            [sys.executable, str(PROJECTION_SELF_TEST)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            0,
+            result.returncode,
+            f"jev/smoke/self_test_projection.py failed:\n{result.stdout}\n{result.stderr}",
         )
         self.assertIn("self-test: passed", result.stdout)
 
