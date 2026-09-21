@@ -29,7 +29,8 @@ is incomplete, even when a concurrency slot is free.
 | #13 | Canonical capture and event correlation | #40 | merged; issue closed |
 | #14 | Budgeted retrieval and hydration | #42 | merged; issue closed |
 | #41 | Verify the fabric checkout revision against the pinned component | #44 | merged; issue closed |
-| #15–#17 | Native bus adapter, receipts, views | — | open; phase 2 complete |
+| #15 | Native request adapter and bus boundary | #47 | open; in review |
+| #16–#17 | Duplicate-read receipts, approved views | — | open; blocked by #15 |
 | #18–#20 | Sentinel hooks, veto precedence, screening | — | open; blocked by phase 3 |
 | #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
@@ -80,6 +81,7 @@ ever added as a component.
 | A duplicate phase-2 capture/retrieval implementation is not landed. | A second session built an independent capture/retrieval pair (`capture_correlation.py`/`retrieval_budget.py`) for #13–#14 while `canonical_capture.py`/`retrieval.py` (#40, #42) were merged. The merged work is the canonical artifact; the duplicate stays in its own worktree and is not pushed, so one canonical change lands per issue. |
 | A declared pin is not an enforced pin. | Verifying #12 showed the binding driver read the fabric revision from the manifest and never from the `--fabric` checkout it executed, so a record could name the pin while another revision installed. #41 fixes that and records the observed checkout revision; C8 states the rule. |
 | A component checkout that is not its own work-tree root is recorded as unpinned, not refused. | Required CI drives an in-repo test double whose `rev-parse HEAD` would answer for the enclosing repository; only a checkout that reports a revision other than the pin is refused. |
+| The host vendors `jev-bus.v1` and owns the `codex` call site. | The bus contract is owned by `jev-prune-kit` and vendored byte-identically into every participant; the host is the only component that knows where Codex builds its request, so the adapter normalizes supported shapes there and invokes the single bus owner. |
 
 ## Evidence
 
@@ -90,6 +92,7 @@ ever added as a component.
 | [`FABRIC_BINDING.md`](FABRIC_BINDING.md) | How the pinned fabric is bound to the isolated home, what `verify` proves, the checkout-revision rule, and the evidence tiers. |
 | [`CAPTURE.md`](CAPTURE.md) | Canonical capture and event correlation: store layout, correlation, gaps, and evidence tiers (#13). |
 | [`RETRIEVAL.md`](RETRIEVAL.md) | Budgeted retrieval and hydration: budgets, provenance-not-authority, refusals, and remote-enrichment refusal (#14). |
+| [`BUS_BOUNDARY.md`](BUS_BOUNDARY.md) | The single request-construction boundary and its file/line anchors, the supported vs opaque shapes, the invocation invariants, and the fixture plus transport runs. |
 
 The plaintext smoke is the real parent/child turn that #10's acceptance criteria
 ask for; the focused transport tests alone could not show a child agent being

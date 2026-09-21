@@ -19,7 +19,9 @@ authorization.
 
 ## C2 — One native adapter owns the jev-bus transformation boundary
 
-The request-construction site in the host calls exactly one bus owner, in order:
+The request-construction site in the host (`codex-rs/core/src/client.rs`, the
+`ResponsesApiRequest.input` array, including the earlier `ResponseCreateWsRequest`
+paths) calls exactly one bus owner, in order:
 
 | Stage | Order | Owner | Failure behavior |
 | --- | --- | --- | --- |
@@ -28,6 +30,11 @@ The request-construction site in the host calls exactly one bus owner, in order:
 
 Unsupported message shapes pass through untouched. The canonical transcript is
 never mutated; only the outgoing request payload is replaced.
+
+The host's carrier is `jev/scripts/bus_boundary.py`, which normalizes the
+supported `ResponseItem` shapes, invokes the vendored `jev-bus.v1` contract once,
+and asserts the stage order and owners against `events.stages`. See
+[`BUS_BOUNDARY.md`](BUS_BOUNDARY.md).
 
 ## C3 — Duplicate-read receipts
 
