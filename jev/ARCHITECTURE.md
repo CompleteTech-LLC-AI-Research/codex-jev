@@ -47,6 +47,40 @@ Only two kinds of integration change this repository's source:
 Everything else stays in the owning component repository and is consumed through
 an interface with a declared version.
 
+## Plaintext collaboration
+
+Child-agent messages are plaintext in this build. Two patches implement it, and
+they stay in separate layers so the component patch keeps its upstream identity:
+
+| Patch | Owner | Content |
+| --- | --- | --- |
+| `0001-plaintext-collab` | `codex-plaintext-collab` | Removes the `encrypted` marker from the collaboration `message` parameter of `spawn_agent`, `send_message`, and `followup_task`, and relaxes the router so a collaboration call with absent *or* empty `encrypted_function_args` is classified as `DirectPlaintextMessage`. |
+| `0002-plaintext-host-test-alignment` | this repository | Updates the host tests that asserted the removed markers and the old classification, so the pinned build's own suite still passes. |
+
+Two decision points stay host-owned, and they are the only places the transport
+is chosen:
+
+| Decision | Site | This build |
+| --- | --- | --- |
+| Ask the backend to encrypt | collaboration tool schema `encrypted` marker | never set for these three parameters |
+| Treat a returned call as plaintext | `ToolCall::direct_source()` | absent or empty `encrypted_function_args` |
+
+Preserved behavior:
+
+- An explicit catalog override that declares
+  `parameters.properties.message.encrypted = true` is still honored; the harness
+  re-applies the marker only for parameters the built-in spec marks encrypted.
+- A returned call that *does* carry encrypted arguments keeps the encrypted
+  transport, so the encrypted path stays tested.
+- Existing ciphertext records stay opaque. Nothing is decrypted: the key is
+  server-side, so already-stored `gAAAAA...` messages are forwarded verbatim and
+  remain unreadable.
+
+Disable: build the pinned base without patches
+(`jev/scripts/build-pinned-codex.sh --no-patches`) and run the baseline profile.
+Removing the patch layer restores the upstream markers and expectations instead
+of approximating them.
+
 ## Evidence tiers
 
 Every validation claim is labelled with the tier that produced it:

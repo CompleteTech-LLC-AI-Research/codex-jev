@@ -23,7 +23,7 @@ is incomplete, even when a concurrency slot is free.
 | Issue | Scope | Owner | Branch | PR | State |
 | --- | --- | --- | --- | --- | --- |
 | #9 | Compatibility manifest and integration contracts | lead (integration) | `jev/1.1-manifest` | this PR | in review |
-| #10 | Plaintext collaboration in the pinned build | lead (native/Rust) | `jev/1.2-plaintext` | pending | blocked by #9 |
+| #10 | Plaintext collaboration in the pinned build | lead (native/Rust) | `jev/1.2-plaintext` | this PR | in review |
 | #11 | Isolated build and integration profile | lead (integration) | `jev/1.3-profile` | pending | blocked by #10 |
 | #12–#14 | Fabric binding, capture, retrieval | unassigned | — | — | blocked by phase 1 |
 | #15–#17 | Native bus adapter, receipts, views | unassigned | — | — | blocked by phase 2 |
@@ -55,6 +55,7 @@ ever added as a component.
 | The integration layer lives in `jev/` in this fork. | `AGENTS.md` reserves `docs/` for upstream product documentation; the integration needs a fork-specific home. |
 | The manifest is JSON, and every script is standard-library Python. | The manifest and validator must run on any supported platform without pip or npm installation, and JSON parsing is part of every Python runtime. |
 | Patches are build-time and pinned by digest and base commit. | The plaintext collaboration component is a source patch; recording digest, order, and base makes the integrated build reproducible and the disable path exact. |
+| A behavior patch and its host test alignment are recorded as two patch entries. | Patch `0001` stays byte-identical to the component repository, so its provenance and digest are checkable, while the host-owned test expectations in patch `0002` are reviewed here. |
 | Validation fails closed with stable error codes. | Unsupported combinations must fail explicitly instead of silently building an unvalidated configuration. |
 | Remote inference is gated by credentials consent *and* a positive budget, not by a feature switch alone. | Optional remote inference stays disabled unless separately authorized and budgeted. |
 | Shared interfaces have exactly one declared owner. | One writable owner per shared interface keeps the transformation boundary unambiguous. |

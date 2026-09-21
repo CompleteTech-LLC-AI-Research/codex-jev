@@ -54,6 +54,24 @@
       ],
       "behavior": "Collaboration tool calls (spawn_agent, send_message, followup_task) stop marking the message parameter as encrypted, so new child-agent messages are stored and forwarded as plaintext.",
       "disable": "Build the pinned base without patches (jev/scripts/build-pinned-codex.sh --no-patches). Existing ciphertext records are never decrypted."
+    },
+    {
+      "id": "0002-plaintext-host-test-alignment",
+      "order": 20,
+      "component": "codex-jev",
+      "file": "jev/patches/0002-align-host-tests-with-plaintext-collab.patch",
+      "sha256": "3d7f42c540178a5f75f369711d783c3124d7f3c2634cb8d5ad021bc3a0ba1484",
+      "applies_to_host_base": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+      "targets": [
+        "codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs",
+        "codex-rs/core/src/tools/router_tests.rs",
+        "codex-rs/core/src/tools/spec_plan_tests.rs",
+        "codex-rs/core/tests/suite/multi_agent_tool_descriptions.rs",
+        "codex-rs/core/tests/suite/subagent_notifications.rs",
+        "codex-rs/core/tests/suite/snapshots/all__suite__scenarios__multi_agent_catalog_parameters.snap"
+      ],
+      "behavior": "Aligns the host test suite with patch 0001: the collaboration message schema is no longer marked encrypted, an encrypted-argument-free collaboration call is classified as a direct plaintext message, and catalog parameter overrides that omit the message property are accepted instead of rejected.",
+      "disable": "Build the pinned base without patches (jev/scripts/build-pinned-codex.sh --no-patches); the upstream expectations are restored with patch 0001."
     }
   ],
   "components": [
@@ -69,7 +87,13 @@
       "owns": [
         "jev/",
         "codex-rs/core/src/tools/router.rs",
-        "codex-rs/core/src/tools/handlers/multi_agents_spec.rs"
+        "codex-rs/core/src/tools/handlers/multi_agents_spec.rs",
+        "codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs",
+        "codex-rs/core/src/tools/router_tests.rs",
+        "codex-rs/core/src/tools/spec_plan_tests.rs",
+        "codex-rs/core/tests/suite/multi_agent_tool_descriptions.rs",
+        "codex-rs/core/tests/suite/subagent_notifications.rs",
+        "codex-rs/core/tests/suite/snapshots/all__suite__scenarios__multi_agent_catalog_parameters.snap"
       ],
       "never_owns": [
         "codex-rs/core/src/guardian/",

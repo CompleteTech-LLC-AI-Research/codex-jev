@@ -59,6 +59,46 @@ fn tool_log_payload_redacts_plaintext_multi_agent_messages() {
     );
 }
 
+/// Collaboration messages are plaintext in this build, so a collaboration tool
+/// call with no encrypted arguments must be classified as a direct plaintext
+/// message. Non-collaboration tools and calls that do carry encrypted
+/// arguments keep the direct classification.
+#[test]
+fn collaboration_calls_without_encrypted_args_are_plaintext() {
+    let collaboration_name = ToolName::namespaced("collaboration", "send_message");
+    for encrypted_function_args in [None, Some(Vec::new())] {
+        let call = ToolCall {
+            tool_name: collaboration_name.clone(),
+            call_id: "call-plaintext".to_string(),
+            payload: ToolPayload::Function {
+                arguments: json!({"target": "/root/worker", "message": "hello"}).to_string(),
+            },
+            encrypted_function_args,
+        };
+        assert_eq!(call.direct_source(), ToolCallSource::DirectPlaintextMessage);
+    }
+
+    let encrypted_call = ToolCall {
+        tool_name: collaboration_name,
+        call_id: "call-encrypted".to_string(),
+        payload: ToolPayload::Function {
+            arguments: json!({"target": "/root/worker", "message": "gAAAAA"}).to_string(),
+        },
+        encrypted_function_args: Some(vec!["message".to_string()]),
+    };
+    assert_eq!(encrypted_call.direct_source(), ToolCallSource::Direct);
+
+    let other_tool_call = ToolCall {
+        tool_name: ToolName::plain("shell"),
+        call_id: "call-shell".to_string(),
+        payload: ToolPayload::Function {
+            arguments: json!({"command": "true"}).to_string(),
+        },
+        encrypted_function_args: None,
+    };
+    assert_eq!(other_tool_call.direct_source(), ToolCallSource::Direct);
+}
+
 impl codex_extension_api::ToolContributor for ExtensionEchoContributor {
     fn tools(
         &self,

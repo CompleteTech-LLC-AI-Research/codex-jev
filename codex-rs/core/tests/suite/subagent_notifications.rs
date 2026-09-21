@@ -2242,8 +2242,10 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
         "spawn_agent",
         &spawn_args,
     );
-    if plaintext {
-        spawn_event["item"]["encrypted_function_args"] = json!([]);
+    if !plaintext {
+        // Existing encrypted records stay opaque: the model returns a non-empty
+        // token list and the collaboration call keeps the encrypted transport.
+        spawn_event["item"]["encrypted_function_args"] = json!([message]);
     }
     mount_sse_once_match(
         &server,
@@ -2375,7 +2377,7 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
         assert!(
             parent_request.input().iter().any(|item| {
                 item["call_id"].as_str() == Some(SPAWN_CALL_ID)
-                    && item["encrypted_function_args"] == json!([])
+                    && item.get("encrypted_function_args").is_none()
             }),
             "plaintext function-call metadata should survive replay"
         );

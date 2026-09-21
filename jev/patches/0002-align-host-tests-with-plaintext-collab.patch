@@ -1,0 +1,181 @@
+diff --git a/codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs b/codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs
+index e2f943c7ab..3115cbdb64 100644
+--- a/codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs
++++ b/codex-rs/core/src/tools/handlers/multi_agents_spec_tests.rs
+@@ -102,7 +102,7 @@ fn spawn_agent_tool_v2_requires_task_name_and_lists_visible_models() {
+         properties
+             .get("message")
+             .and_then(|schema| schema.encrypted),
+-        Some(true)
++        None
+     );
+     assert!(properties.contains_key("fork_turns"));
+     assert!(!properties.contains_key("items"));
+@@ -375,7 +375,7 @@ fn send_message_tool_requires_message_and_has_no_output_schema() {
+         properties
+             .get("message")
+             .and_then(|schema| schema.encrypted),
+-        Some(true)
++        None
+     );
+     assert!(!properties.contains_key("interrupt"));
+     assert!(!properties.contains_key("items"));
+@@ -423,7 +423,7 @@ fn followup_task_tool_requires_message_and_has_no_output_schema() {
+         properties
+             .get("message")
+             .and_then(|schema| schema.encrypted),
+-        Some(true)
++        None
+     );
+     assert!(!properties.contains_key("items"));
+     assert_eq!(
+diff --git a/codex-rs/core/src/tools/router_tests.rs b/codex-rs/core/src/tools/router_tests.rs
+index 05a1e2e65a..f9addbe4cb 100644
+--- a/codex-rs/core/src/tools/router_tests.rs
++++ b/codex-rs/core/src/tools/router_tests.rs
+@@ -59,6 +59,46 @@ fn tool_log_payload_redacts_plaintext_multi_agent_messages() {
+     );
+ }
+ 
++/// Collaboration messages are plaintext in this build, so a collaboration tool
++/// call with no encrypted arguments must be classified as a direct plaintext
++/// message. Non-collaboration tools and calls that do carry encrypted
++/// arguments keep the direct classification.
++#[test]
++fn collaboration_calls_without_encrypted_args_are_plaintext() {
++    let collaboration_name = ToolName::namespaced("collaboration", "send_message");
++    for encrypted_function_args in [None, Some(Vec::new())] {
++        let call = ToolCall {
++            tool_name: collaboration_name.clone(),
++            call_id: "call-plaintext".to_string(),
++            payload: ToolPayload::Function {
++                arguments: json!({"target": "/root/worker", "message": "hello"}).to_string(),
++            },
++            encrypted_function_args,
++        };
++        assert_eq!(call.direct_source(), ToolCallSource::DirectPlaintextMessage);
++    }
++
++    let encrypted_call = ToolCall {
++        tool_name: collaboration_name,
++        call_id: "call-encrypted".to_string(),
++        payload: ToolPayload::Function {
++            arguments: json!({"target": "/root/worker", "message": "gAAAAA"}).to_string(),
++        },
++        encrypted_function_args: Some(vec!["message".to_string()]),
++    };
++    assert_eq!(encrypted_call.direct_source(), ToolCallSource::Direct);
++
++    let other_tool_call = ToolCall {
++        tool_name: ToolName::plain("shell"),
++        call_id: "call-shell".to_string(),
++        payload: ToolPayload::Function {
++            arguments: json!({"command": "true"}).to_string(),
++        },
++        encrypted_function_args: None,
++    };
++    assert_eq!(other_tool_call.direct_source(), ToolCallSource::Direct);
++}
++
+ impl codex_extension_api::ToolContributor for ExtensionEchoContributor {
+     fn tools(
+         &self,
+diff --git a/codex-rs/core/src/tools/spec_plan_tests.rs b/codex-rs/core/src/tools/spec_plan_tests.rs
+index b50228703f..3f4628d110 100644
+--- a/codex-rs/core/src/tools/spec_plan_tests.rs
++++ b/codex-rs/core/src/tools/spec_plan_tests.rs
+@@ -2879,7 +2879,7 @@ async fn multi_agent_feature_selects_one_agent_tool_family() {
+ }
+ 
+ #[tokio::test]
+-async fn multi_agent_v2_message_schemas_are_encrypted() {
++async fn multi_agent_v2_message_schemas_are_plaintext() {
+     let plan = probe(|turn| {
+         set_feature(turn, Feature::MultiAgentV2, /*enabled*/ true);
+     })
+@@ -2901,11 +2901,13 @@ async fn multi_agent_v2_message_schemas_are_encrypted() {
+             .properties
+             .as_ref()
+             .expect("tool should use object params");
++        // Plaintext collaboration: the pinned build stops marking the message
++        // parameter as encrypted, so the backend returns it as readable text.
+         assert_eq!(
+             properties
+                 .get("message")
+                 .and_then(|schema| schema.encrypted),
+-            Some(true)
++            None
+         );
+     }
+ }
+diff --git a/codex-rs/core/tests/suite/multi_agent_tool_descriptions.rs b/codex-rs/core/tests/suite/multi_agent_tool_descriptions.rs
+index c30ea46c1b..36a402d15d 100644
+--- a/codex-rs/core/tests/suite/multi_agent_tool_descriptions.rs
++++ b/codex-rs/core/tests/suite/multi_agent_tool_descriptions.rs
+@@ -101,7 +101,7 @@ fn all_tool_messages(message: Value) -> Value {
+     "spawn_agent": {"parameters": r#"{"type":"object"}"#},
+     "send_message": {"parameters": r#"{"type":"object"}"#},
+     "followup_task": {"parameters": r#"{"type":"object"}"#}
+-}}), Exposure::Namespaced, None; "missing_encrypted_parameters_fall_back")]
++}}), Exposure::Namespaced, Some(r#"{"type":"object"}"#); "object_parameters_without_message_are_accepted")]
+ #[test_case(json!({"multi_agent": {"send_message": {"parameters": CATALOG_PARAMETERS}}}), Exposure::Namespaced, Some(EXPECTED_CATALOG_PARAMETERS); "sparse_parameters")]
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+ async fn multi_agent_catalog_messages_change_only_selected_tool_fields(
+@@ -248,9 +248,6 @@ async fn multi_agent_catalog_messages_change_only_selected_tool_fields(
+                 && tool_messages["multi_agent"][name]["parameters"].is_string()
+             {
+                 expected_tool["parameters"] = serde_json::from_str(parameters)?;
+-                if matches!(name, "spawn_agent" | "send_message" | "followup_task") {
+-                    expected_tool["parameters"]["properties"]["message"]["encrypted"] = json!(true);
+-                }
+                 if matches!(exposure, Exposure::CodeMode) {
+                     let description = expected_tool["description"].as_str().expect("description");
+                     let (prefix, signature) =
+diff --git a/codex-rs/core/tests/suite/snapshots/all__suite__scenarios__multi_agent_catalog_parameters.snap b/codex-rs/core/tests/suite/snapshots/all__suite__scenarios__multi_agent_catalog_parameters.snap
+index 985f93bbfe..e9f46f595f 100644
+--- a/codex-rs/core/tests/suite/snapshots/all__suite__scenarios__multi_agent_catalog_parameters.snap
++++ b/codex-rs/core/tests/suite/snapshots/all__suite__scenarios__multi_agent_catalog_parameters.snap
+@@ -16,7 +16,7 @@ Settings:
+   text: {"verbosity":"low"}
+   tool_choice: "auto"
+ -- request 1 (turn) --
+-00:additional_tools/developer (3; hash=9d21738c014fb8eb):
++00:additional_tools/developer (3; hash=f05ef950c8758bbf):
+         - namespace/functions; hash=e7db0a45c4ec3157
+           - custom/exec
+           - function/wait
+@@ -24,7 +24,7 @@ Settings:
+           - function/request_user_input_async
+         - namespace/clock: Tools for reading and waiting on time.; hash=f402e8c5e9b5e317
+           - function/sleep
+-        - namespace/collaboration: Tools for spawning and managing sub-agents.; hash=2943c667577fdb8b
++        - namespace/collaboration: Tools for spawning and managing sub-agents.; hash=09d60c560fdb50c5
+           - function/followup_task
+           - function/interrupt_agent
+           - function/list_agents
+diff --git a/codex-rs/core/tests/suite/subagent_notifications.rs b/codex-rs/core/tests/suite/subagent_notifications.rs
+index 2139d75882..cabe4554c9 100644
+--- a/codex-rs/core/tests/suite/subagent_notifications.rs
++++ b/codex-rs/core/tests/suite/subagent_notifications.rs
+@@ -2242,8 +2242,10 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
+         "spawn_agent",
+         &spawn_args,
+     );
+-    if plaintext {
+-        spawn_event["item"]["encrypted_function_args"] = json!([]);
++    if !plaintext {
++        // Existing encrypted records stay opaque: the model returns a non-empty
++        // token list and the collaboration call keeps the encrypted transport.
++        spawn_event["item"]["encrypted_function_args"] = json!([message]);
+     }
+     mount_sse_once_match(
+         &server,
+@@ -2375,7 +2377,7 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
+         assert!(
+             parent_request.input().iter().any(|item| {
+                 item["call_id"].as_str() == Some(SPAWN_CALL_ID)
+-                    && item["encrypted_function_args"] == json!([])
++                    && item.get("encrypted_function_args").is_none()
+             }),
+             "plaintext function-call metadata should survive replay"
+         );
