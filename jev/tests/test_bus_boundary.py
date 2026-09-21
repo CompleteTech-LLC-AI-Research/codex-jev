@@ -17,6 +17,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import bus_boundary
+import dedup_receipts
 import jev_bus
 
 DEDUP = "jev-prune.dedup"
@@ -136,7 +137,7 @@ class BoundaryMutationTests(unittest.TestCase):
         def transform(name, messages):
             updated = copy.deepcopy(messages)
             if name == DEDUP:
-                updated[2]["content"] = "[Jev prune: repeated read-result body omitted]"
+                updated[4]["content"] = "deduped prose"
             return updated
 
         outgoing, _ = bus_boundary.project(
@@ -146,6 +147,10 @@ class BoundaryMutationTests(unittest.TestCase):
         self.assertNotEqual(
             outgoing["input"], before["input"]
         )  # outgoing payload replaced
+        self.assertEqual(
+            outgoing["input"][4]["content"],
+            [{"type": "output_text", "text": "deduped prose"}],
+        )
 
     def test_only_supported_shapes_change(self):
         def transform(name, messages):
@@ -199,16 +204,17 @@ class BoundaryFallbackTests(unittest.TestCase):
         def transform(name, messages):
             updated = copy.deepcopy(messages)
             if name == DEDUP:
-                updated[2]["content"] = "[Jev prune: repeated read-result body omitted]"
+                updated[4]["content"] = "deduped prose"
             return updated
 
         request = sample_request()
         outgoing, report = bus_boundary.project(
             request, registry=make_registry(), invoke=Recorder(transform, fail=VIEW)
         )
+        # The failed view stage exits with its input (stage 100's output) intact.
         self.assertEqual(
-            outgoing["input"][2]["output"],
-            "[Jev prune: repeated read-result body omitted]",
+            outgoing["input"][4]["content"],
+            [{"type": "output_text", "text": "deduped prose"}],
         )
         self.assertEqual(report["invoked"], [DEDUP, VIEW])
         self.assertEqual(report["applied"], [DEDUP])
@@ -290,6 +296,78 @@ class BoundaryReceiptTests(unittest.TestCase):
             sample_request(), registry=make_registry(), invoke=recorder, session="s1"
         )
         self.assertEqual(first, second)
+
+
+class ReceiptEnforcementTests(unittest.TestCase):
+    """The dedup stage may only replace a body that a receipt proves (contract C3)."""
+
+    def _long_request(self):
+        body = "FILE A BODY"
+        items = [
+            {
+                "type": "function_call",
+                "name": "read_file",
+                "arguments": '{"path":"a"}',
+                "call_id": "call_1",
+            },
+            {"type": "function_call_output", "call_id": "call_1", "output": body},
+            {
+                "type": "function_call",
+                "name": "read_file",
+                "arguments": '{"path":"a"}',
+                "call_id": "call_2",
+            },
+            {"type": "function_call_output", "call_id": "call_2", "output": body},
+        ]
+        for n in range(16):
+            items.append(
+                {
+                    "type": "reasoning",
+                    "id": f"r_{n}",
+                    "summary": [],
+                    "encrypted_content": None,
+                }
+            )
+        return {"model": "gpt-5-codex", "instructions": "system", "input": items}
+
+    def test_unproven_dedup_edit_is_reverted(self):
+        def transform(name, messages):
+            updated = copy.deepcopy(messages)
+            if name == DEDUP:
+                updated[2]["content"] = dedup_receipts.MARKER.format(witness="call_2")
+            return updated
+
+        request = (
+            sample_request()
+        )  # no duplicate read, so no witness proves a replacement
+        outgoing, report = bus_boundary.project(
+            request, registry=make_registry(), invoke=Recorder(transform)
+        )
+        self.assertEqual(outgoing["input"][2]["output"], "FILE A BODY")
+        self.assertTrue(
+            any(note.get("action") == "reverted" for note in report["notes"])
+        )
+
+    def test_proven_dedup_edit_is_accepted(self):
+        def transform(name, messages):
+            updated = copy.deepcopy(messages)
+            if name == DEDUP:
+                updated[1]["content"] = dedup_receipts.MARKER.format(witness="call_2")
+            return updated
+
+        request = self._long_request()
+        outgoing, report = bus_boundary.project(
+            request, registry=make_registry(), invoke=Recorder(transform)
+        )
+        self.assertEqual(
+            outgoing["input"][1]["output"],
+            dedup_receipts.MARKER.format(witness="call_2"),
+        )
+        self.assertEqual(report["dedup"]["accepted"], [1])
+        self.assertEqual(report["dedup"]["receipts"][0]["witness"]["id"], "call_2")
+        self.assertEqual(
+            request["input"][1]["output"], "FILE A BODY"
+        )  # caller untouched
 
 
 class BoundaryBoundTests(unittest.TestCase):
