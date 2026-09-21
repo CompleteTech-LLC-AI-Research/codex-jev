@@ -24,7 +24,9 @@ SPEC.loader.exec_module(jev_manifest)
 
 
 def load_manifest():
-    return json.loads((JEV_ROOT / "compatibility-manifest.json").read_text(encoding="utf-8"))
+    return json.loads(
+        (JEV_ROOT / "compatibility-manifest.json").read_text(encoding="utf-8")
+    )
 
 
 class CheckedInArtifactsTests(unittest.TestCase):
@@ -46,7 +48,9 @@ class CheckedInArtifactsTests(unittest.TestCase):
         for patch in load_manifest()["patches"]:
             path = REPO_ROOT / patch["file"]
             self.assertTrue(path.is_file(), f"missing patch file {patch['file']}")
-            self.assertEqual(patch["sha256"], jev_manifest.sha256_file(path), patch["id"])
+            self.assertEqual(
+                patch["sha256"], jev_manifest.sha256_file(path), patch["id"]
+            )
 
 
 class UnsupportedCombinationTests(unittest.TestCase):

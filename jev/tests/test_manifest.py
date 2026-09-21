@@ -44,7 +44,10 @@ class ManifestBaselineTests(unittest.TestCase):
         for name in ("baseline", "integrated-offline", "enforcement-eval"):
             with self.subTest(profile=name):
                 self.assertEqual(
-                    jev_manifest.validate_manifest(manifest, profile=load_profile(name)), []
+                    jev_manifest.validate_manifest(
+                        manifest, profile=load_profile(name)
+                    ),
+                    [],
                 )
 
     def test_shipped_patch_matches_its_recorded_digest(self):
@@ -59,17 +62,23 @@ class ManifestStructureTests(unittest.TestCase):
     def test_missing_top_level_key_is_rejected(self):
         manifest = load_manifest()
         del manifest["interfaces"]
-        self.assertIn("E_MANIFEST_SCHEMA", codes(jev_manifest.validate_manifest(manifest)))
+        self.assertIn(
+            "E_MANIFEST_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
+        )
 
     def test_unknown_top_level_key_is_rejected(self):
         manifest = load_manifest()
         manifest["omniroute"] = {"enabled": True}
-        self.assertIn("E_MANIFEST_SCHEMA", codes(jev_manifest.validate_manifest(manifest)))
+        self.assertIn(
+            "E_MANIFEST_SCHEMA", codes(jev_manifest.validate_manifest(manifest))
+        )
 
     def test_wrong_manifest_version_is_rejected(self):
         manifest = load_manifest()
         manifest["manifest_version"] = 2
-        self.assertIn("E_MANIFEST_VERSION", codes(jev_manifest.validate_manifest(manifest)))
+        self.assertIn(
+            "E_MANIFEST_VERSION", codes(jev_manifest.validate_manifest(manifest))
+        )
 
     def test_excluded_repository_cannot_be_integrated(self):
         manifest = load_manifest()
@@ -86,29 +95,41 @@ class ManifestStructureTests(unittest.TestCase):
                 "owns": ["omniroute/"],
             }
         )
-        self.assertIn("E_EXCLUDED_COMPONENT", codes(jev_manifest.validate_manifest(manifest)))
+        self.assertIn(
+            "E_EXCLUDED_COMPONENT", codes(jev_manifest.validate_manifest(manifest))
+        )
 
     def test_duplicate_component_revision_target_is_rejected(self):
         manifest = load_manifest()
         clone = copy.deepcopy(component(manifest, "jev-sentinel"))
         clone["id"] = "jev-sentinel-copy"
         manifest["components"].append(clone)
-        self.assertIn("E_DUPLICATE_COMPONENT", codes(jev_manifest.validate_manifest(manifest)))
+        self.assertIn(
+            "E_DUPLICATE_COMPONENT", codes(jev_manifest.validate_manifest(manifest))
+        )
 
     def test_mutable_revision_is_rejected(self):
         manifest = load_manifest()
         component(manifest, "jev-prune-kit")["revision"] = "main"
-        self.assertIn("E_COMPONENT_REVISION", codes(jev_manifest.validate_manifest(manifest)))
+        self.assertIn(
+            "E_COMPONENT_REVISION", codes(jev_manifest.validate_manifest(manifest))
+        )
 
     def test_interface_version_mismatch_is_rejected(self):
         manifest = load_manifest()
         manifest["interfaces"]["jev_bus"] = 2
-        self.assertIn("E_INTERFACE_VERSION", codes(jev_manifest.validate_manifest(manifest)))
+        self.assertIn(
+            "E_INTERFACE_VERSION", codes(jev_manifest.validate_manifest(manifest))
+        )
 
     def test_two_writable_owners_for_one_path_in_one_repository_are_rejected(self):
         manifest = load_manifest()
-        component(manifest, "codex-jev")["owns"].append("codex-rs/core/src/tools/router.rs")
-        self.assertIn("E_OWNERSHIP_OVERLAP", codes(jev_manifest.validate_manifest(manifest)))
+        component(manifest, "codex-jev")["owns"].append(
+            "codex-rs/core/src/tools/router.rs"
+        )
+        self.assertIn(
+            "E_OWNERSHIP_OVERLAP", codes(jev_manifest.validate_manifest(manifest))
+        )
 
     def test_shared_interface_needs_one_declared_owner(self):
         manifest = load_manifest()
@@ -126,7 +147,9 @@ class ManifestStructureTests(unittest.TestCase):
     def test_host_must_own_the_jev_tree(self):
         manifest = load_manifest()
         manifest["components"][0]["owns"] = ["codex-rs/core/src/tools/router.rs"]
-        self.assertIn("E_OWNERSHIP_HOST", codes(jev_manifest.validate_manifest(manifest)))
+        self.assertIn(
+            "E_OWNERSHIP_HOST", codes(jev_manifest.validate_manifest(manifest))
+        )
 
 
 class ManifestPatchTests(unittest.TestCase):
@@ -143,7 +166,9 @@ class ManifestPatchTests(unittest.TestCase):
     def test_patch_target_outside_host_ownership_is_rejected(self):
         manifest = load_manifest()
         manifest["patches"][0]["targets"] = ["codex-rs/core/src/guardian/mod.rs"]
-        self.assertIn("E_PATCH_OWNERSHIP", codes(jev_manifest.validate_manifest(manifest)))
+        self.assertIn(
+            "E_PATCH_OWNERSHIP", codes(jev_manifest.validate_manifest(manifest))
+        )
 
     def test_duplicate_patch_order_is_rejected(self):
         manifest = load_manifest()
@@ -158,13 +183,18 @@ class ManifestFeatureTests(unittest.TestCase):
         manifest = load_manifest()
         manifest["features"]["sentinel.enforcement"]["requires"] = ["sentinel.missing"]
         self.assertIn(
-            "E_FEATURE_UNKNOWN_REQUIREMENT", codes(jev_manifest.validate_manifest(manifest))
+            "E_FEATURE_UNKNOWN_REQUIREMENT",
+            codes(jev_manifest.validate_manifest(manifest)),
         )
 
     def test_unknown_component_or_patch_reference_is_rejected(self):
         manifest = load_manifest()
-        manifest["features"]["approval.preflight"]["components"] = ["jev-approval-missing"]
-        manifest["features"]["collab.plaintext_messages"]["requires_patches"] = ["0009-missing"]
+        manifest["features"]["approval.preflight"]["components"] = [
+            "jev-approval-missing"
+        ]
+        manifest["features"]["collab.plaintext_messages"]["requires_patches"] = [
+            "0009-missing"
+        ]
         found = codes(jev_manifest.validate_manifest(manifest))
         self.assertIn("E_FEATURE_UNKNOWN_COMPONENT", found)
         self.assertIn("E_FEATURE_UNKNOWN_PATCH", found)
@@ -173,27 +203,34 @@ class ManifestFeatureTests(unittest.TestCase):
         manifest = load_manifest()
         del manifest["features"]["collab.plaintext_messages"]["requires_patches"]
         self.assertIn(
-            "E_FEATURE_BUILD_TIME_PATCH", codes(jev_manifest.validate_manifest(manifest))
+            "E_FEATURE_BUILD_TIME_PATCH",
+            codes(jev_manifest.validate_manifest(manifest)),
         )
 
     def test_default_enablement_conflict_is_rejected(self):
         manifest = load_manifest()
         manifest["features"]["projection.fabric_views"]["default"] = True
         self.assertIn(
-            "E_FEATURE_DEFAULT_CONFLICT", codes(jev_manifest.validate_manifest(manifest))
+            "E_FEATURE_DEFAULT_CONFLICT",
+            codes(jev_manifest.validate_manifest(manifest)),
         )
 
     def test_remote_inference_enabled_by_default_without_consent_is_rejected(self):
         manifest = load_manifest()
         manifest["features"]["remote_inference.enabled"]["default"] = True
         self.assertIn(
-            "E_REMOTE_INFERENCE_UNAUTHORIZED", codes(jev_manifest.validate_manifest(manifest))
+            "E_REMOTE_INFERENCE_UNAUTHORIZED",
+            codes(jev_manifest.validate_manifest(manifest)),
         )
 
     def test_remote_inference_enabled_without_budget_is_rejected(self):
         manifest = load_manifest()
         manifest["credentials"]["remote_inference"]["consent"] = True
-        profile = {"profile_version": 1, "id": "remote", "features": {"remote_inference.enabled": True}}
+        profile = {
+            "profile_version": 1,
+            "id": "remote",
+            "features": {"remote_inference.enabled": True},
+        }
         self.assertIn(
             "E_REMOTE_INFERENCE_UNAUTHORIZED",
             codes(jev_manifest.validate_manifest(manifest, profile=profile)),
@@ -203,15 +240,19 @@ class ManifestFeatureTests(unittest.TestCase):
         manifest = load_manifest()
         manifest["credentials"]["remote_inference"]["consent"] = True
         manifest["credentials"]["remote_inference"]["budget_usd_max"] = 5
-        profile = {"profile_version": 1, "id": "remote", "features": {"remote_inference.enabled": True}}
-        self.assertEqual(
-            jev_manifest.validate_manifest(manifest, profile=profile), []
-        )
+        profile = {
+            "profile_version": 1,
+            "id": "remote",
+            "features": {"remote_inference.enabled": True},
+        }
+        self.assertEqual(jev_manifest.validate_manifest(manifest, profile=profile), [])
 
     def test_negative_budget_is_rejected(self):
         manifest = load_manifest()
         manifest["credentials"]["remote_inference"]["budget_usd_max"] = -1
-        self.assertIn("E_CREDENTIAL_BUDGET", codes(jev_manifest.validate_manifest(manifest)))
+        self.assertIn(
+            "E_CREDENTIAL_BUDGET", codes(jev_manifest.validate_manifest(manifest))
+        )
 
 
 class ProfileTests(unittest.TestCase):
@@ -220,7 +261,10 @@ class ProfileTests(unittest.TestCase):
         profile = {
             "profile_version": 1,
             "id": "views-without-dedup",
-            "features": {"projection.fabric_views": True, "projection.dedup_receipts": False},
+            "features": {
+                "projection.fabric_views": True,
+                "projection.dedup_receipts": False,
+            },
         }
         self.assertIn(
             "E_PROFILE_DEPENDENCY",
@@ -302,15 +346,21 @@ class CheckoutTests(unittest.TestCase):
                     "disable": "test",
                 }
             ]
-            self.assertEqual(jev_manifest.check_patch_state(manifest, root, "absent"), [])
+            self.assertEqual(
+                jev_manifest.check_patch_state(manifest, root, "absent"), []
+            )
             self.assertIn(
-                "E_PATCH_STATE", codes(jev_manifest.check_patch_state(manifest, root, "applied"))
+                "E_PATCH_STATE",
+                codes(jev_manifest.check_patch_state(manifest, root, "applied")),
             )
 
             target.write_text("patched\n", encoding="utf-8")
-            self.assertEqual(jev_manifest.check_patch_state(manifest, root, "applied"), [])
+            self.assertEqual(
+                jev_manifest.check_patch_state(manifest, root, "applied"), []
+            )
             self.assertIn(
-                "E_PATCH_STATE", codes(jev_manifest.check_patch_state(manifest, root, "absent"))
+                "E_PATCH_STATE",
+                codes(jev_manifest.check_patch_state(manifest, root, "absent")),
             )
 
     def test_checkout_mismatch_is_reported(self):
@@ -322,7 +372,8 @@ class CheckoutTests(unittest.TestCase):
             self._git(root, "commit", "-qm", "base")
             manifest = load_manifest()
             self.assertIn(
-                "E_CHECKOUT_MISMATCH", codes(jev_manifest.check_checkout(manifest, root))
+                "E_CHECKOUT_MISMATCH",
+                codes(jev_manifest.check_checkout(manifest, root)),
             )
             head = self._git(root, "rev-parse", "HEAD").stdout.strip()
             manifest["host"]["base_commit"] = head
