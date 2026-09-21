@@ -32,7 +32,7 @@ is incomplete, even when a concurrency slot is free.
 | #15 | Native request adapter and bus boundary | #47 | merged; issue closed |
 | #16 | Duplicate-read proof receipts | #50 | merged; issue closed |
 | #17 | Approved Fabric views and reversible controls | #53 | merged; issue closed |
-| #18 | Wire Sentinel hooks and effective coverage reporting | — | in review |
+| #18 | Wire Sentinel hooks and effective coverage reporting | #60 | in review |
 | #19–#20 | Sentinel veto precedence, retrieval screening, incident operations | — | open; blocked by #18 |
 | #21–#23 | Approval preflight, binding, shadow comparison | — | open; blocked by phase 4 |
 | #24–#26 | Regression, live-host validation, release package | — | open; blocked by phase 5 |
