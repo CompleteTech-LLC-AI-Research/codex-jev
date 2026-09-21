@@ -1,0 +1,373 @@
+{
+  "schema": "jev.compatibility.manifest.v1",
+  "manifest_revision": "2026-09-21",
+  "host": {
+    "name": "codex-jev",
+    "repository": "https://github.com/CompleteTech-LLC-AI-Research/codex-jev",
+    "revision": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+    "upstream": {
+      "repository": "https://github.com/openai/codex",
+      "revision": "9fdff739ea0eca7881f180858dfd71b7bd1fa483"
+    },
+    "binary": {
+      "cargo_package": "codex-cli",
+      "cargo_bin": "codex",
+      "cargo_profile": "release",
+      "manifest_path": "codex-rs/Cargo.toml"
+    },
+    "toolchain": {
+      "rust": "1.95.0",
+      "source_of_truth": "codex-rs/rust-toolchain.toml"
+    }
+  },
+  "components": [
+    {
+      "name": "codex-plaintext-collab",
+      "repository": "https://github.com/CompleteTech-LLC-AI-Research/codex-plaintext-collab",
+      "revision": "073b3a99e4fa0eebe5417fd096f2e37abd7a7527",
+      "version": "0.1.0",
+      "license": "MIT",
+      "integration": "source-patch",
+      "runtime": null,
+      "owned_by": "codex-plaintext-collab",
+      "patch": {
+        "id": "plaintext-collab",
+        "order": 10,
+        "semantic_script": "scripts/apply-patch.py",
+        "diff": "patches/0001-disable-collab-message-encryption.patch",
+        "touches": [
+          "codex-rs/core/src/tools/handlers/multi_agents_spec.rs",
+          "codex-rs/core/src/tools/router.rs"
+        ],
+        "verification": "scripts/apply-patch.py <checkout> --require-changes"
+      }
+    },
+    {
+      "name": "jev-context-fabric",
+      "repository": "https://github.com/CompleteTech-LLC-AI-Research/jev-context-fabric",
+      "revision": "5079099211c0d39a6ead347633a99d675a210c64",
+      "version": "0.1.0",
+      "license": "MIT",
+      "integration": "runtime-mcp",
+      "runtime": {
+        "language": "python",
+        "requires": ">=3.11",
+        "third_party": [],
+        "entrypoints": ["install.py", "run.py"]
+      },
+      "owned_by": "jev-context-fabric",
+      "claims_roles": {
+        "stage_priority": 200,
+        "claims": ["assistant-prose", "message-remove", "system-append"]
+      }
+    },
+    {
+      "name": "jev-prune-kit",
+      "repository": "https://github.com/CompleteTech-LLC-AI-Research/jev-prune-kit",
+      "revision": "2ecc8ff4e0976991c7abc09287d8f2f736d3164c",
+      "version": "0.1.0",
+      "license": "MIT",
+      "integration": "runtime-stage",
+      "runtime": {
+        "language": "python",
+        "requires": ">=3.10",
+        "third_party": [],
+        "entrypoints": ["runner.py", "install.py"]
+      },
+      "owned_by": "jev-prune-kit",
+      "claims_roles": {
+        "stage_priority": 100,
+        "claims": ["tool-result:read"]
+      }
+    },
+    {
+      "name": "jev-sentinel",
+      "repository": "https://github.com/CompleteTech-LLC-AI-Research/jev-sentinel",
+      "revision": "4ecd748d38fbe9ed5c770e7e69a1e03a3db4bf7a",
+      "version": "0.1.0",
+      "license": "MIT",
+      "integration": "runtime-hooks",
+      "runtime": {
+        "language": "python",
+        "requires": ">=3.10",
+        "third_party": [],
+        "entrypoints": ["launch.py", "install.py"]
+      },
+      "owned_by": "jev-sentinel",
+      "claims_roles": {
+        "hook_paths": ["prompt", "pre-tool", "post-tool"]
+      }
+    },
+    {
+      "name": "jev-codex-approval",
+      "repository": "https://github.com/CompleteTech-LLC-AI-Research/jev-codex-approval",
+      "revision": "0b931ee24a907c9dc47dc1828a94a6afcd7775b6",
+      "version": "0.1.0",
+      "license": "MIT",
+      "integration": "native-module",
+      "runtime": {
+        "language": "python",
+        "requires": ">=3.11",
+        "third_party": [],
+        "entrypoints": ["scripts/launcher.py"]
+      },
+      "owned_by": "jev-codex-approval",
+      "native_port": {
+        "source_module": "adapters/codex-native/jev.rs",
+        "declared_upstream_baseline": "c45ea25ffb72d5f7324489d824d0c677283aa0b4",
+        "port_target_revision": "8198a91a4f46b01647bc6c0d8d63afafbf4c9180",
+        "port_order": 30,
+        "port_state": "not-yet-ported"
+      }
+    }
+  ],
+  "patch_order": [
+    {
+      "order": 10,
+      "id": "plaintext-collab",
+      "component": "codex-plaintext-collab",
+      "applies_to": "host source checkout",
+      "failure_behavior": "fail-closed; abort the build if the transform does not verify"
+    },
+    {
+      "order": 20,
+      "id": "codex-native-adapter",
+      "component": "codex-jev",
+      "applies_to": "host source checkout",
+      "failure_behavior": "compile error; the build does not produce a binary"
+    },
+    {
+      "order": 30,
+      "id": "codex-approval-port",
+      "component": "jev-codex-approval",
+      "applies_to": "host source checkout",
+      "failure_behavior": "fail-closed; preflight stays disabled"
+    }
+  ],
+  "runtime_requirements": {
+    "rust": {
+      "version": "1.95.0",
+      "components": ["clippy", "rustfmt", "rust-src"]
+    },
+    "python": {
+      "minimum": "3.11",
+      "rationale": "jev-context-fabric and jev-codex-approval require 3.11+; jev-prune-kit and jev-sentinel accept 3.10+",
+      "third_party_packages": "none (all components vendored or stdlib-only)"
+    },
+    "node": {
+      "minimum": "20",
+      "required_for": ["jev-prune-kit adapters/bus.mjs", "jev-sentinel adapters/bridge.mjs"]
+    },
+    "c_toolchain": {
+      "required": true,
+      "rationale": "linking the Codex release binary"
+    }
+  },
+  "supported_platforms": [
+    {
+      "id": "linux-x86_64-gnu",
+      "status": "validated",
+      "notes": "integration host platform; offline fixtures and the pinned build are exercised here"
+    },
+    {
+      "id": "linux-aarch64-gnu",
+      "status": "documented-unvalidated",
+      "notes": "no pinned build or live-host run has been performed"
+    },
+    {
+      "id": "darwin-arm64",
+      "status": "documented-unvalidated",
+      "notes": "upstream supports it; the JEV stack has not been validated there"
+    },
+    {
+      "id": "windows-x86_64-msvc",
+      "status": "documented-unvalidated",
+      "notes": "POSIX-only checks (config ownership, symlink refusal) have no validated Windows equivalent"
+    }
+  ],
+  "excluded": [
+    {
+      "id": "omniroute",
+      "component": "omniroute-codex-docker",
+      "reason": "explicitly excluded from the integration scope",
+      "behavior": "explicit-failure"
+    }
+  ],
+  "feature_switches": [
+    {
+      "id": "jev.enabled",
+      "default": false,
+      "scope": "master switch for every JEV integration path"
+    },
+    {
+      "id": "jev.capture.enabled",
+      "default": false,
+      "scope": "canonical evidence capture before any context projection",
+      "requires": ["jev.enabled"]
+    },
+    {
+      "id": "jev.retrieval.enabled",
+      "default": false,
+      "scope": "budgeted retrieval and hydration from captured evidence",
+      "requires": ["jev.enabled"]
+    },
+    {
+      "id": "jev.projection.enabled",
+      "default": false,
+      "scope": "native jev-bus outgoing-request projection",
+      "requires": ["jev.enabled"]
+    },
+    {
+      "id": "jev.projection.dedup.enabled",
+      "default": false,
+      "scope": "duplicate-read stage (priority 100)",
+      "requires": ["jev.projection.enabled"]
+    },
+    {
+      "id": "jev.projection.view.enabled",
+      "default": false,
+      "scope": "approved Fabric prose-view stage (priority 200)",
+      "requires": ["jev.projection.enabled", "jev.projection.dedup.enabled"]
+    },
+    {
+      "id": "jev.sentinel.mode",
+      "default": "off",
+      "values": ["off", "shadow", "enforce"],
+      "scope": "Sentinel boundary observation and veto precedence"
+    },
+    {
+      "id": "jev.approval.mode",
+      "default": "off",
+      "values": ["off", "shadow", "enforce"],
+      "scope": "native JEV approval preflight inside eligible review attempts"
+    }
+  ],
+  "remote_controls": {
+    "default": "disabled",
+    "switches": [
+      {
+        "id": "jev.remote.inference.enabled",
+        "default": false,
+        "scope": "optional remote inference for approval judgments and prune assessment"
+      }
+    ],
+    "credentials": [
+      {
+        "id": "TYPESAFE_API_KEY",
+        "owner": "jev-codex-approval",
+        "delivery": "environment only",
+        "never_committed": true
+      }
+    ],
+    "consent": [
+      {
+        "id": "JEV_REMOTE_CONSENT",
+        "owner": "jev-remote-consent",
+        "delivery": "environment or a file path outside the checkout",
+        "required_when": "jev.remote.inference.enabled=true"
+      }
+    ]
+  },
+  "event_contract": {
+    "schema": "jev.event.v1",
+    "definition": "jev/contracts/events.v1.json",
+    "identity": {
+      "derivation": "sha256_hex(NUL.join([session_id, turn_id, tool_call_id, stage, sequence, content_sha256]))",
+      "dedup_key": "session_id|turn_id|tool_call_id|stage",
+      "notes": "deterministic identity makes retries idempotent and keeps capture traceable to its originating event"
+    },
+    "stages": [
+      "capture",
+      "project.dedup",
+      "project.view",
+      "sentinel.prompt",
+      "sentinel.pre_tool",
+      "sentinel.post_tool",
+      "approval.preflight",
+      "execution"
+    ]
+  },
+  "ownership": [
+    {
+      "path": "outgoing request transform boundary",
+      "owner": "codex-jev",
+      "rule": "exactly one native adapter owns the jev-bus transformation boundary"
+    },
+    {
+      "path": "duplicate-read pruning",
+      "owner": "jev-prune-kit",
+      "rule": "stage priority 100 runs before any prose-view stage"
+    },
+    {
+      "path": "approved prose views",
+      "owner": "jev-context-fabric",
+      "rule": "stage priority 200 consumes the post-dedup snapshot"
+    },
+    {
+      "path": "boundary observations and vetoes",
+      "owner": "jev-sentinel",
+      "rule": "a veto cannot be cleared by a later approval"
+    },
+    {
+      "path": "eligible review-attempt preflight",
+      "owner": "jev-codex-approval",
+      "rule": "preflight applies only to eligible synchronous review attempts"
+    },
+    {
+      "path": "permissions, sandbox, cancellation, review requirement, execution",
+      "owner": "codex-jev host",
+      "rule": "no component may grant, widen, or bypass host authority"
+    }
+  ],
+  "stage_priorities": [
+    {"stage": "dedup", "component": "jev-prune-kit", "priority": 100},
+    {"stage": "view", "component": "jev-context-fabric", "priority": 200}
+  ],
+  "unsupported_combinations": [
+    {
+      "id": "omniroute-provider",
+      "match": {"provider": "omniroute"},
+      "message": "OmniRoute is excluded from the integration scope"
+    },
+    {
+      "id": "view-without-dedup",
+      "match": {"flags": {"jev.projection.view.enabled": true, "jev.projection.dedup.enabled": false}},
+      "message": "the approved prose view (priority 200) requires the duplicate-read stage (priority 100) to be enabled first"
+    },
+    {
+      "id": "remote-without-consent",
+      "match": {"flags": {"jev.remote.inference.enabled": true}, "env_absent": "JEV_REMOTE_CONSENT"},
+      "message": "remote inference requires an explicit consent control outside the repository"
+    },
+    {
+      "id": "approval-enforce-without-evidence",
+      "match": {"flags": {"jev.approval.mode": "enforce"}, "state": {"jev.approval.shadow_evaluated": false}},
+      "message": "approval enforcement requires a completed shadow evaluation; enforcement stays disabled until then"
+    },
+    {
+      "id": "sentinel-enforce-without-coverage",
+      "match": {"flags": {"jev.sentinel.mode": "enforce"}, "state": {"jev.sentinel.coverage_confirmed": false}},
+      "message": "Sentinel enforcement requires a confirmed coverage report for the host event paths"
+    },
+    {
+      "id": "runtime-too-old",
+      "match": {"runtime": {"python": ">=3.11"}},
+      "message": "a component in this manifest requires Python 3.11 or newer"
+    },
+    {
+      "id": "unsupported-platform",
+      "match": {"platform": "not-in-supported_platforms"},
+      "message": "the requested platform is not in the supported platform matrix"
+    },
+    {
+      "id": "host-revision-mismatch",
+      "match": {"checkout": {"host_revision": "not-equal-to-host.revision"}},
+      "message": "the checkout does not match the pinned host revision"
+    },
+    {
+      "id": "component-revision-mismatch",
+      "match": {"checkout": {"component_revision": "not-equal-to-components[].revision"}},
+      "message": "an installed component does not match its pinned revision"
+    }
+  ]
+}

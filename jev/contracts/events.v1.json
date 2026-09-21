@@ -1,0 +1,53 @@
+{
+  "schema": "jev.event.v1",
+  "required_fields": [
+    "event_id",
+    "stage",
+    "source",
+    "session_id",
+    "turn_id",
+    "sequence"
+  ],
+  "optional_fields": [
+    "tool_call_id",
+    "cause_event_id",
+    "content_sha256",
+    "content_bytes",
+    "decision",
+    "redaction"
+  ],
+  "stages": [
+    "capture",
+    "project.dedup",
+    "project.view",
+    "sentinel.prompt",
+    "sentinel.pre_tool",
+    "sentinel.post_tool",
+    "approval.preflight",
+    "execution"
+  ],
+  "sources": [
+    "codex-jev",
+    "codex-plaintext-collab",
+    "jev-context-fabric",
+    "jev-prune-kit",
+    "jev-sentinel",
+    "jev-codex-approval"
+  ],
+  "decisions": [
+    "allow",
+    "deny",
+    "veto",
+    "quarantine",
+    "defer",
+    "shadow",
+    "passthrough"
+  ],
+  "redaction": [
+    "none",
+    "metadata-only",
+    "secret-withheld"
+  ],
+  "identity_derivation": "sha256_hex(NUL.join([session_id, turn_id, tool_call_id, stage, sequence, content_sha256]))",
+  "dedup_key": "session_id|turn_id|tool_call_id|stage"
+}
