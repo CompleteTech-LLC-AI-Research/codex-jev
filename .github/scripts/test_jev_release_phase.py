@@ -116,6 +116,24 @@ class ReleasePhaseClaimTests(unittest.TestCase):
                 self.assertIn(gate["evidence"], release_readiness.GATE_EVIDENCE)
                 self.assertTrue(gate["detail"], msg="a gate must say what it saw")
 
+    def test_the_vocabulary_holds_when_a_check_is_not_run(self):
+        # An evidence kind outside GATE_EVIDENCE is an undeclared claim. The
+        # `not-run` gates must not introduce one: a skipped round trip (#98) and
+        # a tree that carries no platform record both report `not-run` (#111).
+        skipped = release_readiness.evaluate_gates(REPO_ROOT, run_roundtrip=False)
+        self.assertIn("isolated.roundtrip", skipped["not_run"])
+        for gate in skipped["gates"]:
+            with self.subTest(gate=gate["id"], document="skipped round trip"):
+                self.assertIn(gate["status"], release_readiness.GATE_STATUSES)
+                self.assertIn(gate["evidence"], release_readiness.GATE_EVIDENCE)
+        manifest = release_readiness.load_manifest(REPO_ROOT)
+        with tempfile.TemporaryDirectory(prefix="jev-release-noevidence-") as root:
+            gate = release_readiness.evaluate_platform_gate(Path(root), manifest)[
+                "gate"
+            ]
+            self.assertEqual(gate["status"], "not-run")
+            self.assertIn(gate["evidence"], release_readiness.GATE_EVIDENCE)
+
     def test_an_asserted_gate_is_never_a_pass(self):
         synthetic = release_readiness.summarize_gates(
             [

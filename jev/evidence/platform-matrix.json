@@ -16,10 +16,10 @@
           "tier": "real-host-binary"
         }
       },
-      "pinned_inputs_digest": "cdfb8b5eecae6b6d3b156a05c6722427c677bacd855957cbc9fa6b85e8a6d1e2",
+      "pinned_inputs_digest": "7ed77a966f2ea238e877fd3af909fe258688ea9cf1e2e914e3289976fa4753db",
       "platform": "linux-x86_64",
-      "recorded_at_unix_ms": 1790033351895,
-      "revision": "6d627ac36e00aa8094f41b1f17862a72c377c5e1",
+      "recorded_at_unix_ms": 1790034413029,
+      "revision": "c348373db9393a604a5088d47830515f5fe86848",
       "rust_toolchain": "1.95.0",
       "tier": "real-host-binary"
     }
