@@ -18,8 +18,8 @@
       },
       "pinned_inputs_digest": "8bf426ff7f4c810bee5a31822af476a1dbe7a3f3a1985113be29f9f34e055fa2",
       "platform": "linux-x86_64",
-      "recorded_at_unix_ms": 1790036823293,
-      "revision": "3a33667ad03f6835f596358c19a0c57254ead6c2",
+      "recorded_at_unix_ms": 1790047961966,
+      "revision": "615b79249b0f20dd42b798f8f6ad0e017421fe19",
       "rust_toolchain": "1.95.0",
       "tier": "real-host-binary"
     }
