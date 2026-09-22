@@ -217,6 +217,10 @@ refuses a manifest that tries to integrate it.
 Support is declared in `host.platforms.supported`. Only a recorded
 `real-host-binary` run makes a platform verified, and a record is bound to the
 binary digest, the revision, and a digest of the pinned inputs it depended on.
+The pinned-input digest is measured twice: once over the working tree the run
+used, and once over the tree the record's own revision exposes. A record is
+credited only when the two agree, so a record cannot pair a revision with a
+working-tree digest that revision never carried (issue #136).
 
 | Platform                   | Status       | Evidence                                                                                                                            |
 | -------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
@@ -239,7 +243,13 @@ outcome refuses it and is named in the gate detail:
 - `unverifiable` - the recorded revision does not resolve in this clone, so the
   binding cannot be checked; an unresolvable revision is **not** a pass;
 - `fail` - the record claims a `live-provider` tier, records no harness result,
-  or omits a revision or a successful harness verdict.
+  omits a revision or a successful harness verdict, or names pinned inputs that
+  do not exist at the revision it names.
+
+`record-platform` also writes two diagnostic fields: `revision_inputs_digest`,
+the digest the named revision exposes, and `host_worktree_dirty`, whether the
+working tree was modified apart from the evidence file when the run was
+recorded. Neither is a substitute for the paired-digest check above.
 
 `release_ready` therefore stays `false` while any supported platform has no
 current, verifiable run - that is the intended outcome, not a bug.

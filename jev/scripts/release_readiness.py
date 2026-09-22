@@ -70,7 +70,7 @@ import sys
 import tarfile
 import tempfile
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -722,8 +722,14 @@ SMOKE_HARNESSES = (
 )
 
 
-def derive_pinned_inputs(repo_root: Path) -> dict:
-    """Digest the behavioral inputs a platform run depends on."""
+def _pinned_input_digest(entries: list[dict]) -> str:
+    return sha256_bytes(
+        json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+
+
+def pinned_input_paths(repo_root: Path) -> set[str]:
+    """The pinned-input paths a working tree currently exposes."""
     found: set[str] = set()
     for kind, value in PINNED_INPUT_RULES:
         if kind == "file":
@@ -733,14 +739,106 @@ def derive_pinned_inputs(repo_root: Path) -> dict:
             for path in repo_root.glob(value):
                 if path.is_file():
                     found.add(path.relative_to(repo_root).as_posix())
+    return found
+
+
+def derive_pinned_inputs(repo_root: Path) -> dict:
+    """Digest the behavioral inputs a platform run depends on.
+
+    The digest covers the **working tree**. A record that names a revision must
+    also carry the digest that revision exposes, which is what
+    :func:`derive_pinned_inputs_at_revision` measures; the two differ whenever
+    the tree is dirty or the revision predates a pinned input.
+    """
     entries = [
         {"path": relative, "sha256": jev_manifest.sha256_file(repo_root / relative)}
-        for relative in sorted(found)
+        for relative in sorted(pinned_input_paths(repo_root))
     ]
-    digest = sha256_bytes(
-        json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    )
-    return {"digest": digest, "files": entries}
+    return {"digest": _pinned_input_digest(entries), "files": entries}
+
+
+def derive_pinned_inputs_at_revision(repo_root: Path, revision) -> dict | None:
+    """Digest the pinned inputs the *committed* ``revision`` carries.
+
+    ``None`` means the revision does not resolve in this clone or one of its
+    blobs is unreadable, so the question cannot be answered here. Like
+    :func:`revision_reachable`, ``None`` is **not** a verification: a record is
+    credited only when this measurement agrees with the digest the record names.
+    """
+    if not revision:
+        return None
+    try:
+        listed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "-z",
+                str(revision),
+            ],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if listed.returncode != 0:
+        return None
+    paths = [p for p in listed.stdout.decode("utf-8", "replace").split("\0") if p]
+    found: set[str] = set()
+    for kind, value in PINNED_INPUT_RULES:
+        if kind == "file":
+            if value in paths:
+                found.add(value)
+        else:
+            for path in paths:
+                if PurePosixPath(path).match(value):
+                    found.add(path)
+    entries: list[dict] = []
+    for relative in sorted(found):
+        try:
+            blob = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo_root),
+                    "cat-file",
+                    "blob",
+                    f"{revision}:{relative}",
+                ],
+                capture_output=True,
+                check=False,
+            )
+        except OSError:
+            return None
+        if blob.returncode != 0:
+            return None
+        entries.append({"path": relative, "sha256": sha256_bytes(blob.stdout)})
+    return {"digest": _pinned_input_digest(entries), "files": entries}
+
+
+def worktree_dirty(repo_root: Path, ignore: set[str] | None = None) -> bool:
+    """Is the working tree modified apart from the ignored evidence paths?"""
+    ignored = ignore or set()
+    try:
+        status = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain", "-z"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return True
+    if status.returncode != 0:
+        return True
+    for entry in status.stdout.decode("utf-8", "replace").split("\0"):
+        if not entry:
+            continue
+        path = entry[3:]
+        if path and path not in ignored:
+            return True
+    return False
 
 
 def revision_reachable(repo_root: Path, revision) -> bool | None:
@@ -780,7 +878,10 @@ def revision_reachable(repo_root: Path, revision) -> bool | None:
 
 
 def classify_platform_record(
-    record: dict, current_inputs: str, reachable: bool | None
+    record: dict,
+    current_inputs: str,
+    reachable: bool | None,
+    revision_inputs: str | None = None,
 ) -> tuple[str, str]:
     """Decide one platform record's row status from its evidence alone.
 
@@ -789,6 +890,11 @@ def classify_platform_record(
     record's revision, and anything other than ``True`` refuses the record: a
     revision that is not an ancestor of HEAD is ``stale``, and one that is not
     resolvable in this clone is ``unverifiable`` - which is not a pass.
+
+    ``revision_inputs`` is the outcome of :func:`derive_pinned_inputs_at_revision`
+    for the record's revision. A record is credited only when the digest it names
+    is the digest that revision actually exposes, so a record cannot pair a
+    revision with a working-tree digest the revision never carried (issue #136).
     """
     harness = record.get("harness") or {}
     claims_live = any(
@@ -806,6 +912,17 @@ def classify_platform_record(
             "unverifiable",
             "the recorded revision is not resolvable in this clone; fetch the "
             "object or re-record the run before release",
+        )
+    if revision_inputs is None:
+        return (
+            "unverifiable",
+            "the recorded revision does not expose the pinned inputs it names; "
+            "fetch the object or re-record the run before release",
+        )
+    if record.get("pinned_inputs_digest") != revision_inputs:
+        return (
+            "fail",
+            "the record names pinned inputs that do not exist at its recorded revision",
         )
     ok = bool(record.get("revision")) and all(
         isinstance(entry, dict) and entry.get("ok") is True
@@ -853,10 +970,15 @@ def evaluate_platform_gate(repo_root: Path, manifest: dict) -> dict:
             "revision": record.get("revision"),
             "binary_sha256": record.get("binary_sha256"),
         }
+        reachable = revision_reachable(repo_root, record.get("revision"))
+        revision_inputs = None
+        if reachable:
+            measured = derive_pinned_inputs_at_revision(
+                repo_root, record.get("revision")
+            )
+            revision_inputs = measured["digest"] if measured else None
         status, reason = classify_platform_record(
-            record,
-            current_inputs,
-            revision_reachable(repo_root, record.get("revision")),
+            record, current_inputs, reachable, revision_inputs
         )
         rows.append({**row, "status": status, "reason": reason})
         if status == "verified":
@@ -968,15 +1090,26 @@ def record_platform(
             "tier": TIER_REAL_HOST,
         }
     binary_text = binary.as_posix()
+    revision = build_provenance.git_revision(repo_root)
+    revision_inputs = derive_pinned_inputs_at_revision(repo_root, revision)
     return {
         "platform": current_platform(),
         "tier": TIER_REAL_HOST,
-        "revision": build_provenance.git_revision(repo_root),
+        "revision": revision,
         "rust_toolchain": load_manifest(repo_root)["host"]["rust_toolchain"],
         "binary_kind": "release" if "/release/" in binary_text else "debug",
         "binary_sha256": jev_manifest.sha256_file(binary),
         "harness": harness,
         "pinned_inputs_digest": derive_pinned_inputs(repo_root)["digest"],
+        # The digest the named revision exposes. A record whose two digests
+        # disagree cannot be credited, because it names inputs that revision
+        # never carried (issue #136).
+        "revision_inputs_digest": revision_inputs["digest"]
+        if revision_inputs
+        else None,
+        # Whether the working tree was dirty apart from the evidence file when the
+        # run was recorded. Diagnostic only: the guard is the paired digests.
+        "host_worktree_dirty": worktree_dirty(repo_root, {PLATFORM_EVIDENCE}),
         "recorded_at_unix_ms": int(time.time() * 1000),
     }
 

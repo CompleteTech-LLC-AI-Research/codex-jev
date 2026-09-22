@@ -16,6 +16,7 @@ is used.
 
 import json
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -276,11 +277,101 @@ class GateTests(unittest.TestCase):
             )[0],
             "stale",
         )
+        revision = release_readiness.build_provenance.git_revision(REPO_ROOT)
+        inputs = release_readiness.derive_pinned_inputs_at_revision(REPO_ROOT, revision)
+        self.assertIsNotNone(inputs)
         status, reason = release_readiness.classify_platform_record(
-            self.record(revision="a" * 40), "digest", True
+            self.record(revision=revision, pinned_inputs_digest=inputs["digest"]),
+            inputs["digest"],
+            True,
+            inputs["digest"],
         )
         self.assertEqual(status, "verified")
         self.assertIn("reachable", reason)
+
+    def test_a_revision_that_does_not_carry_the_named_inputs_is_refused(self):
+        # Issue #136: a record could pair a reachable revision with a working-tree
+        # digest that revision never exposed. The digest was current and the
+        # revision was an ancestor, so both checks the gate used to run passed;
+        # only the digest *at* the revision catches the incoherent pair.
+        revision = release_readiness.build_provenance.git_revision(REPO_ROOT)
+        inputs = release_readiness.derive_pinned_inputs_at_revision(REPO_ROOT, revision)
+        self.assertIsNotNone(inputs)
+        mismatched = "0" * 64
+        self.assertNotEqual(mismatched, inputs["digest"])
+        status, reason = release_readiness.classify_platform_record(
+            self.record(revision=revision, pinned_inputs_digest=mismatched),
+            mismatched,
+            True,
+            inputs["digest"],
+        )
+        self.assertEqual(status, "fail")
+        self.assertIn("do not exist at its recorded revision", reason)
+
+    def test_the_gate_refuses_a_record_whose_revision_lacks_its_digest(self):
+        # The same defect end to end, built the way it actually happened: commit
+        # a pinned input, then change it in the working tree only, so the record's
+        # digest is the tree's while its revision is the committed one.
+        root = Path(tempfile.mkdtemp(prefix="jev-release-revision-binding-"))
+        try:
+            (root / "jev" / "scripts").mkdir(parents=True)
+            script = root / "jev" / "scripts" / "jev_example.py"
+            script.write_text("VALUE = 1\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "-c",
+                    "user.name=test",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "pin",
+                ],
+                check=True,
+            )
+            revision = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            revision_inputs = release_readiness.derive_pinned_inputs_at_revision(
+                root, revision
+            )["digest"]
+            script.write_text("VALUE = 2\n", encoding="utf-8")
+            current = release_readiness.derive_pinned_inputs(root)["digest"]
+            self.assertNotEqual(current, revision_inputs)
+            evidence_dir = root / "jev" / "evidence"
+            evidence_dir.mkdir(parents=True)
+            (evidence_dir / "platform-matrix.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "jev-platform-matrix.v1",
+                        "platforms": {
+                            "linux-x86_64": self.record(
+                                revision=revision, pinned_inputs_digest=current
+                            )
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            record = release_readiness.evaluate_platform_gate(root, self.manifest)
+            row = next(
+                row for row in record["platforms"] if row["platform"] == "linux-x86_64"
+            )
+            self.assertEqual(row["status"], "fail")
+            self.assertIn("do not exist at its recorded revision", row["reason"])
+            self.assertEqual(record["gate"]["status"], "fail")
+            self.assertIn("linux-x86_64", record["blockers"])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
 
     @staticmethod
     def record(revision="a" * 40, pinned_inputs_digest="digest", ok=True):
