@@ -61,6 +61,8 @@ is incomplete, even when a concurrency slot is free.
 | #98 | `--skip-roundtrip` removes the round-trip gate instead of emitting it as `not-run`, so `release_ready: true` is possible with the round trip never proven | #106, #112 | merged; issue closed - the skipped round trip is emitted as `not-run` and blocks readiness (#106), and the discriminating control that isolates it from the platform gate landed in #112 |
 | #111 | The platform gate emits evidence `not-run`, a value `GATE_EVIDENCE` does not declare | #113 | merged; issue closed - the evidence vocabulary now declares `not-run`, so a gate whose evidence does not exist yet is inside the vocabulary rather than outside it |
 | #105 | Machine-readable redacted diagnostics report (residual of the superseded #26 implementation, PR #100) | #116 | merged; issue closed - the report ships as `jev/scripts/jev_diagnostics.py` with its lane, so the last issue left open after the epic closed is landed rather than inherited |
+| #117 | `jev/ROLLBACK.md` ships an empty `After a bad build` section and files its content under the wrong heading | #118 | merged; issue closed - the recovery note is back under its own heading, so the rollback procedure reads in the order an operator would follow it |
+| #119 | Two broken relative links in `SENTINEL_BOUNDARY.md` (the `real-host-binary` evidence row 404s) | #120 | merged; issue closed - both targets now resolve from `jev/`, and a re-run of the sweep that filed the issue reports 0 broken links under `jev/**` |
 
 State above is the GitHub state of each issue and PR, not a local plan.
 
@@ -113,6 +115,8 @@ closed by #113.
 | #111 | #113 | `fe3bf9b200` | `3a33667ad0` |
 | #98 | #114 | `2559d52fbc` | `3906bf0766` |
 | #105 | #116 | `c6f9c3e9f9` | `f93f824616` |
+| #117 | #118 | `5d63c94658` | `d32ad758c3` |
+| #119 | #120 | `23cb7953a0` | `6702953b7d` |
 
 ## Pinned revisions
 
@@ -243,11 +247,12 @@ Recorded by the integration lane after the epic was closed.
 | --- | --- |
 | Epic [#2](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/2) | Closed as `completed` on 2026-09-21T23:27:09Z, with all ten acceptance checkboxes ticked against evidence rather than intent. |
 | Phases #3-#8 and sub-issues #9-#26 | All closed; every phase issue carries a verification footer naming its merged PRs, the pinned-input check, the required lane, and its tier separation. |
-| Remote default branch | `main` at `f93f824616` (merge of #116), confirmed by `git fetch github main` rather than by reading a PR page. It moved once more after the epic closed: `3906bf0766` (merge of #114) was the tip when this section was first written, and #116 landed on top of it while the section was under review. |
-| Required lane at that revision | `repo-checks / build-test` **success**; `.github/scripts/test_jev_*.py` **433 OK**; `jev/tests` **183 OK**. The count was 424 at `3906bf0766`; #116 added the nine diagnostics-lane tests, and `jev/SENTINEL_BOUNDARY.md` states the same 433. |
+| Remote default branch | `main` at `6702953b7d` (merge of #120), confirmed by `git fetch github main` rather than by reading a PR page. The tip moved four times after the epic closed - #114 `3906bf0766`, #116 `f93f824616`, #118 `d32ad758c3`, #120 `6702953b7d` - so the revision is recorded as that sequence rather than as one SHA to chase. All four were documentation-only merges: the pinned-input digest is `8bf426ff7f4c81` (52 files) at both the first and the last of them, and the ten-gate result is byte-identical, so no claim in this section depends on which of the four a reader fetches. |
+| Required lane at that revision | At `6702953b7d`: `repo-checks / build-test` **success** on the merge commit itself; `.github/scripts/test_jev_*.py` **433 OK**; `jev/tests` **183 OK**. The count was 424 at `3906bf0766` and 423 before #113; #116 added the nine diagnostics-lane tests, and `jev/SENTINEL_BOUNDARY.md` states the same 433. The counts are unchanged at `6702953b7d` because the four post-close merges touched documentation only. |
 | Superseded work | #104 reopened and merged as additive (the executable composition) rather than as a replacement for the #101 roll-up; #107 and #109 closed as duplicates of #106; #110 closed once #112 and #113 covered its two gaps. No duplicate was force-merged over reviewed work. |
 | Remaining open issue | None. [#105](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/105) - the machine-readable redacted diagnostics report, the residual of the superseded #26 implementation (PR #100) - was the last one, and it was landed by #116 (`f93f824616`) and closed `completed` at 2026-09-22T00:47:14Z, so the epic's remaining-open count is zero. |
-| Release verdict | `release_ready: false` with `blocking=macos-aarch64,platform.matrix,windows-x86_64` - unchanged by the final merges and intended: readiness follows evidence, not closed issues. Re-run at `f93f824616`: `phase_validated=true trace=true tiers=true rollback=true readiness=true release_ready=false`. |
+| Documentation integrity | Broken relative links under `jev/**`: **0**. Two had 404'd on the row that names the `real-host-binary` evidence - `jev/SENTINEL_BOUNDARY.md` aimed at `../smoke/run-sentinel-hook-smoke.sh` and at a bare `sentinel-hook-real-host.md`, both resolving outside the file's own directory. Filed as #119 by the sweep that found them, fixed by #120 (`6702953b7d`), and the fix is itself verified by re-running that sweep: 5 broken links over 212 tracked markdown files before, 3 after, and the 2 that went away are exactly these. The 3 survivors are inherited upstream hits under `codex-rs/` and are deliberately out of scope for this integration. |
+| Release verdict | `release_ready: false` with `blocking=macos-aarch64,platform.matrix,windows-x86_64` - unchanged by the final merges and intended: readiness follows evidence, not closed issues. Re-run at `6702953b7d`: `release_ready=false gates=10 failed=0 not_run=1 revision=6702953b7d blocking=macos-aarch64,platform.matrix,windows-x86_64`, and `phase6_release.py run` gives `phase_validated=true trace=true tiers=true rollback=true readiness=true release_ready=false`. |
 | Review mechanism | GitHub refuses a formal approval from a peer lane (`422 Review Can not approve your own pull request`) because every lane pushes as one identity. Independent verification is recorded as a review comment backed by reproduction, a mutation control, and the required lane; `main` also carries no branch protection, so no UI approval is enforceable. |
 
 **Synchronization note.** `github` is the authoritative remote; `origin` in the
@@ -257,6 +262,6 @@ main worktree is `/home/agent/jev/build-lead/codex-jev`) is a stale local path
 is named `origin` in the standalone clones (`/home/agent/jev/checkouts/codex-jev`,
 `/home/agent/jev/repos/codex-jev`), so "origin" is named per clone rather than in
 general. `main` moved under several lanes during the closeout (#103, #104, #106,
-#108, #112, #113, #114, #116), so every branch was rebased or re-verified after a
+#108, #112, #113, #114, #116, #118, #120), so every branch was rebased or re-verified after a
 fresh `git fetch github main`, and each merge commit above was confirmed on the
 remote branch rather than assumed from a successful push.
