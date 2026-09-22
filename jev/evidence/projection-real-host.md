@@ -103,7 +103,9 @@ and the exact reset unchanged. The `9753 / 9178` in the results table is this
 run's own root (`/home/agent/jev/work/lead/verify/proj-final`); the
 `9705 / 9130` in [`release-phase-claim.md`](release-phase-claim.md) and the
 `9765 / 9190` in [`../VALIDATION.md`](../VALIDATION.md) are the same measurement
-at shorter roots, not a drifting measurement.
+at other roots, not a drifting measurement: `9705` corresponds to a
+27-character root (shorter than this run's 43) and `9765` to a 47-character one
+(longer), each satisfying `3*len(root) + 9624`.
 
 ## What this does not show
 
