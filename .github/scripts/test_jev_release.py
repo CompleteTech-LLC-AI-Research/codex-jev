@@ -16,6 +16,7 @@ is used.
 
 import json
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -281,6 +282,64 @@ class GateTests(unittest.TestCase):
         )
         self.assertEqual(status, "verified")
         self.assertIn("reachable", reason)
+
+    def test_a_dirty_worktree_cannot_produce_a_credited_record(self):
+        # #136: `record_platform` pairs the committed revision with a digest
+        # taken from the *working tree*, so before this fix a worktree carrying
+        # pinned inputs its revision does not (e.g. the untracked script that
+        # postdates the pre-#116 HEAD) could be recorded and later credited.
+        # Reproduce that situation in a throwaway repository and assert the
+        # incoherent pair is refused rather than verified.
+        root = Path(tempfile.mkdtemp(prefix="jev-release-dirty-"))
+        try:
+            scripts = root / "jev" / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "jev_diagnostics.py").write_text("x = 1\n", encoding="utf-8")
+            self._git(root, "init")
+            self._git(root, "add", "jev/scripts/jev_diagnostics.py")
+            self._git(
+                root,
+                "-c",
+                "user.email=t@example.com",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-m",
+                "base without the untracked script",
+            )
+            revision = self._git(root, "rev-parse", "HEAD").strip()
+            # The working tree now carries a pinned input HEAD does not.
+            (scripts / "untracked_pinned.py").write_text("y = 2\n", encoding="utf-8")
+            worktree = release_readiness.derive_pinned_inputs(root)["digest"]
+            committed = release_readiness.pinned_inputs_digest_at(root, revision)
+            self.assertIsNotNone(committed)
+            self.assertNotEqual(worktree, committed)
+            status, reason = release_readiness.classify_platform_record(
+                self.record(revision=revision, pinned_inputs_digest=worktree),
+                worktree,
+                True,
+                committed_inputs=committed,
+            )
+            self.assertEqual(status, "fail")
+            self.assertNotEqual(status, "verified")
+            self.assertIn("revision", reason)
+            # And the writer refuses to emit the incoherent pair at all.
+            binary = root / "codex-stub"
+            binary.write_text("#!/bin/sh\n", encoding="utf-8")
+            binary.chmod(0o755)
+            with self.assertRaises(release_readiness.ReadinessError):
+                release_readiness.record_platform(root, binary)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    @staticmethod
+    def _git(root, *args):
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
 
     @staticmethod
     def record(revision="a" * 40, pinned_inputs_digest="digest", ok=True):
