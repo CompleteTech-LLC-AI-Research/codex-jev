@@ -52,6 +52,13 @@ uninstalling is still safe: every path the binding wrote lives under
 
 ## After a bad build
 
+The environment records the binary path and its SHA-256 in `isolated-env.json`
+and `logs/invocations.jsonl`. If a rebuild changes the binary hash, `status`
+reports `binary_matches_plan: false` and the next launch refuses nothing - it
+records the new hash - so re-run
+`python3 jev/scripts/build_provenance.py record --out <artifact>` to refresh the
+provenance record before publishing results.
+
 ## Remove the native approval adapter
 
 Two independent steps, in increasing order of effort:
@@ -71,13 +78,6 @@ This is separate from the plaintext patch: removing the patch does not remove
 the module, and the validator reports the two states separately
 (`--patch-state` and `--native-adapter`). [`APPROVAL_PREFLIGHT.md`](APPROVAL_PREFLIGHT.md)
 records the guarded blobs and the exact declarations.
-
-The environment records the binary path and its SHA-256 in `isolated-env.json`
-and `logs/invocations.jsonl`. If a rebuild changes the binary hash, `status`
-reports `binary_matches_plan: false` and the next launch refuses nothing - it
-records the new hash - so re-run
-`python3 jev/scripts/build_provenance.py record --out <artifact>` to refresh the
-provenance record before publishing results.
 
 ## What is deliberately not reversible
 
