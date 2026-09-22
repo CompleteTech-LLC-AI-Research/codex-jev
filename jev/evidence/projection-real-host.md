@@ -96,6 +96,15 @@ checker then read the earlier run's recorded requests. The fix is in this
 change, and the failure it prevents (`host-exit` red while the byte comparisons
 stayed green) is why the checker asserts the host exit status at all.
 
+A *different* scratch root does move the absolute totals: the root leaks into
+the request preamble three times, so a root longer by N characters shifts both
+totals by exactly `3*N` while leaving the 575-byte reduction, the 35-item count,
+and the exact reset unchanged. The `9753 / 9178` in the results table is this
+run's own root (`/home/agent/jev/work/lead/verify/proj-final`); the
+`9705 / 9130` in [`release-phase-claim.md`](release-phase-claim.md) and the
+`9765 / 9190` in [`../VALIDATION.md`](../VALIDATION.md) are the same measurement
+at shorter roots, not a drifting measurement.
+
 ## What this does not show
 
 - **No live provider and no token metric.** The reduction is serialized request
