@@ -88,6 +88,17 @@ jev/smoke/run-projection-reset-smoke.sh --codex /path/to/codex
 This is the only tier that exercises a genuine parent→child turn and a real
 outgoing request; it is not a model-performance measurement.
 
+The absolute byte totals above are not intrinsic to the smoke: the host embeds
+the scratch root three times in the request preamble, so a `--workdir` whose
+path is longer by N characters shifts both totals by exactly `3*N`. This record
+used a 47-character root; the same binary, seed, and harness report
+`9705 / 9130` at a 27-character root. The path-independent claims are the
+575-byte reduction, the ratio, the unchanged 35-item count, and the
+byte-identical switch-off control, which is what
+[`check_projection_reset.py`](smoke/check_projection_reset.py) asserts.
+[`evidence/projection-read-tool-host-run.md`](evidence/projection-read-tool-host-run.md)
+states the same property from its own three-run spread.
+
 ## Live provider: not run
 
 No live inference was run, here or implicitly. The remote-inference switch keeps
