@@ -184,6 +184,12 @@ parent/child turn can be observed.
 - The pinned builds used an `openssl-sys` `vendored` adaptation because the
   container has no system OpenSSL development files. It is a build-environment
   adaptation in a throwaway worktree, not part of any pin.
-- Commits are pushed unsigned (no signing key on this machine) and the only
-  collaborator is the automation account, so reviews are recorded self-reviews
-  backed by reproducible checks.
+- The commits this lane pushed are unsigned: a fresh checkout carries no signing
+  configuration (`~/.gitconfig` has no `gpg` section), and the clone-local
+  `gpg.format=ssh` setup that signs with `/home/agent/.ssh/id_ed25519` is set per
+  clone rather than machine-wide. The machine does hold that key, and signatures
+  from it verify locally against the integration's `allowed_signers`; GitHub
+  reports `unknown_key` because it is not registered as a signing key on the
+  account - [`ORCHESTRATION.md`](../ORCHESTRATION.md) records that limitation and
+  its two resolutions. The only collaborator is the automation account, so reviews
+  are recorded self-reviews backed by reproducible checks.
