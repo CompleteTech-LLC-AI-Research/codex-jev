@@ -3,7 +3,7 @@
   "platforms": {
     "linux-x86_64": {
       "binary_kind": "debug",
-      "binary_sha256": "6d51fdc9278d1a2fbc1bb01e024ae12d5d9a3b233d7229a7f6e792eaf35c0c3b",
+      "binary_sha256": "f363d4e594a092be38dc5ba60ef49d85dc5b943d67d115fdf3340afd507aaf66",
       "harness": {
         "plaintext-collaboration": {
           "exit_code": 0,
@@ -16,10 +16,12 @@
           "tier": "real-host-binary"
         }
       },
-      "pinned_inputs_digest": "8bf426ff7f4c810bee5a31822af476a1dbe7a3f3a1985113be29f9f34e055fa2",
+      "host_worktree_dirty": false,
+      "pinned_inputs_digest": "11aec04b5ef93c72c695fa7faeaf2cb728001770518756782e9f71a4c75420f9",
       "platform": "linux-x86_64",
-      "recorded_at_unix_ms": 1790047961966,
-      "revision": "615b79249b0f20dd42b798f8f6ad0e017421fe19",
+      "recorded_at_unix_ms": 1790063640086,
+      "revision": "b58c7742f34c67a012d602821882c3d63273d4aa",
+      "revision_inputs_digest": "11aec04b5ef93c72c695fa7faeaf2cb728001770518756782e9f71a4c75420f9",
       "rust_toolchain": "1.95.0",
       "tier": "real-host-binary"
     }
