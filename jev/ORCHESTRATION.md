@@ -59,6 +59,7 @@ is incomplete, even when a concurrency slot is free.
 | #85 | Bind the approval gate to the frozen holdout it was measured on | #88 | merged; issue closed; filed from #23 |
 | #97 | The platform gate credits a record whose revision is unresolvable in the local clone | #99 | merged; issue closed - the gate now treats an unresolvable revision as a stale record |
 | #98 | `--skip-roundtrip` removes the round-trip gate instead of emitting it as `not-run`, so `release_ready: true` is possible with the round trip never proven | #106 | merged; issue closed - the skipped round trip is emitted as `not-run` and blocks readiness |
+| #111 | The platform gate emits evidence `not-run`, a value `GATE_EVIDENCE` does not declare | #113 | merged; issue closed - the evidence vocabulary now declares `not-run`, so a gate whose evidence does not exist yet is inside the vocabulary rather than outside it |
 
 State above is the GitHub state of each issue and PR, not a local plan.
 
@@ -67,7 +68,9 @@ State above is the GitHub state of each issue and PR, not a local plan.
 The reviewed commit is the head that passed review; the merge commit is what
 landed on `main`. Phases 3 to 6 are complete and merged: #24, #25, #26, and the
 phase-6 roll-up #101 all landed; the phase-6.3 follow-ups #97 and #98 were fixed
-by #99 and #106.
+by #99 and #106, the skipped-gate readiness control #98 named is pinned in the
+required-CI lane by #112, and the evidence vocabulary of the follow-up #111 is
+closed by #113.
 
 | Issue | PR | Reviewed commit | Merge commit |
 | --- | --- | --- | --- |
@@ -104,6 +107,8 @@ by #99 and #106.
 | #8 | #101 | `4bae92664b` | `e987070cea` |
 | #97 | #99 | `8e08df38f6` | `30f04eecba` |
 | #98 | #106 | `be9c7e8889` | `f5c36fba48` |
+| #98 | #112 | `7d3f75aeae` | `373eedc91a` |
+| #111 | #113 | `fe3bf9b200` | `3a33667ad0` |
 
 ## Pinned revisions
 
