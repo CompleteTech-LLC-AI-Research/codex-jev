@@ -93,9 +93,12 @@ the scratch root three times in the request preamble, so a `--workdir` whose
 path is longer by N characters shifts both totals by exactly `3*N`. This record
 used a 47-character root; the same binary, seed, and harness report
 `9705 / 9130` at a 27-character root. The path-independent claims are the
-575-byte reduction, the ratio, the unchanged 35-item count, and the
-byte-identical switch-off control, which is what
-[`check_projection_reset.py`](smoke/check_projection_reset.py) asserts.
+575-byte reduction, the unchanged 35-item count, and the byte-identical
+switch-off control, which is what
+[`check_projection_reset.py`](smoke/check_projection_reset.py) asserts. The
+ratio is quoted at the precision this record uses rather than being an
+invariant of its own: it is `0.941116` at this root and `0.940752` at the
+27-character one, and both print as the recorded `0.941`.
 [`evidence/projection-read-tool-host-run.md`](evidence/projection-read-tool-host-run.md)
 states the same property from its own three-run spread.
 
