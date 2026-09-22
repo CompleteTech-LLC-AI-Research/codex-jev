@@ -70,7 +70,7 @@ import sys
 import tarfile
 import tempfile
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -779,8 +779,68 @@ def revision_reachable(repo_root: Path, revision) -> bool | None:
     return ancestor.returncode == 0
 
 
+def pinned_inputs_digest_at(repo_root: Path, revision) -> str | None:
+    """Digest the pinned inputs exactly as ``revision`` carries them.
+
+    :func:`derive_pinned_inputs` reads the *working tree*, so a dirty worktree
+    can produce a digest the named revision does not carry - the incoherent
+    revision/digest pair from issue #136. This resolves each pinned path from
+    the object database instead, so the two can be compared and an incoherent
+    pair refused. ``None`` means the revision (or one of its pinned paths) is
+    not resolvable in this clone, and is therefore not evidence of anything.
+    """
+    if not revision:
+        return None
+    try:
+        listing = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "--full-tree",
+                revision,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if listing.returncode != 0:
+        return None
+    exact = {value for kind, value in PINNED_INPUT_RULES if kind == "file"}
+    globs = [value for kind, value in PINNED_INPUT_RULES if kind == "glob"]
+    selected = {
+        path
+        for path in listing.stdout.splitlines()
+        if path in exact or any(PurePosixPath(path).match(label) for label in globs)
+    }
+    entries = []
+    for relative in sorted(selected):
+        try:
+            blob = subprocess.run(
+                ["git", "-C", str(repo_root), "show", f"{revision}:{relative}"],
+                capture_output=True,
+                check=False,
+            )
+        except OSError:
+            return None
+        if blob.returncode != 0:
+            return None
+        entries.append({"path": relative, "sha256": sha256_bytes(blob.stdout)})
+    return sha256_bytes(
+        json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+
+
 def classify_platform_record(
-    record: dict, current_inputs: str, reachable: bool | None
+    record: dict,
+    current_inputs: str,
+    reachable: bool | None,
+    committed_inputs: str | None = None,
 ) -> tuple[str, str]:
     """Decide one platform record's row status from its evidence alone.
 
@@ -789,6 +849,12 @@ def classify_platform_record(
     record's revision, and anything other than ``True`` refuses the record: a
     revision that is not an ancestor of HEAD is ``stale``, and one that is not
     resolvable in this clone is ``unverifiable`` - which is not a pass.
+
+    ``committed_inputs`` is the pinned-input digest the record's revision
+    actually carries (see :func:`pinned_inputs_digest_at`). When it is present
+    and differs from the record's digest, the record pairs a revision with
+    inputs that revision does not carry, so it is refused rather than credited
+    (#136).
     """
     harness = record.get("harness") or {}
     claims_live = any(
@@ -797,6 +863,16 @@ def classify_platform_record(
     )
     if not harness or claims_live:
         return "fail", "claims a live-provider tier or records no harness result"
+    if (
+        committed_inputs is not None
+        and record.get("pinned_inputs_digest") != committed_inputs
+    ):
+        return (
+            "fail",
+            "the recorded pinned-input digest is not the digest the recorded "
+            "revision carries; the record was taken from a worktree whose "
+            "pinned inputs differ from its revision, so it cannot be credited",
+        )
     if record.get("pinned_inputs_digest") != current_inputs:
         return "stale", "the record predates the current pinned inputs"
     if reachable is False:
@@ -853,10 +929,12 @@ def evaluate_platform_gate(repo_root: Path, manifest: dict) -> dict:
             "revision": record.get("revision"),
             "binary_sha256": record.get("binary_sha256"),
         }
+        revision = record.get("revision")
         status, reason = classify_platform_record(
             record,
             current_inputs,
-            revision_reachable(repo_root, record.get("revision")),
+            revision_reachable(repo_root, revision),
+            pinned_inputs_digest_at(repo_root, revision),
         )
         rows.append({**row, "status": status, "reason": reason})
         if status == "verified":
@@ -931,6 +1009,16 @@ def record_platform(
     binary = Path(codex_binary).resolve()
     if not binary.is_file():
         raise ReadinessError(f"codex binary not found: {binary}")
+    revision = build_provenance.git_revision(repo_root)
+    worktree_digest = derive_pinned_inputs(repo_root)["digest"]
+    committed_digest = pinned_inputs_digest_at(repo_root, revision)
+    if committed_digest is not None and committed_digest != worktree_digest:
+        raise ReadinessError(
+            "refusing to record: the working tree's pinned inputs do not match "
+            f"the inputs carried by HEAD ({revision}); commit or stash them and "
+            "re-record from a clean worktree so the record names a revision "
+            "that actually carries the digest (#136)"
+        )
     scratch = (
         Path(scratch)
         if scratch
@@ -971,12 +1059,12 @@ def record_platform(
     return {
         "platform": current_platform(),
         "tier": TIER_REAL_HOST,
-        "revision": build_provenance.git_revision(repo_root),
+        "revision": revision,
         "rust_toolchain": load_manifest(repo_root)["host"]["rust_toolchain"],
         "binary_kind": "release" if "/release/" in binary_text else "debug",
         "binary_sha256": jev_manifest.sha256_file(binary),
         "harness": harness,
-        "pinned_inputs_digest": derive_pinned_inputs(repo_root)["digest"],
+        "pinned_inputs_digest": worktree_digest,
         "recorded_at_unix_ms": int(time.time() * 1000),
     }
 
