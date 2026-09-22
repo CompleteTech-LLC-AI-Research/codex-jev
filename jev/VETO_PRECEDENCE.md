@@ -249,7 +249,7 @@ observable property or named as a limit of the host.
 | `component-stub` | `.github/scripts/test_jev_veto.py` | 39 tests, ok: the stage mapping for every configured outcome, precedence and downgrade refusal, the latch's per-session and no-session behavior, the shadow and switch rules, every fail-closed path including a cancellation, the lock's exclusivity and a concurrent raise, the bounded replay, and the command line. |
 | `real-component` | `jev/tests/test_veto_precedence.py` | 8 tests, ok against the pinned checkout: the host's verdict equals the component's for the same event, the latch key equals the component's own `session_ref` and joins its audit row, a real `BLOCK` latches and denies the next read-only action, a `DEFER` after a veto is still denied, the latch survives a turn, shadow is observational, and clearing the host latch leaves the component's taint in force. |
 
-Required CI (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) is 433
+Required CI (`unittest discover -s .github/scripts -p 'test_jev_*.py'`) is 434
 tests, ok; `jev/tests` is 183 tests, ok. All offline: the stub tier runs a
 hermetic `launch.py`, and the real-component tier runs the pinned checkout with
 `backend=local`. No network or paid inference is involved.
