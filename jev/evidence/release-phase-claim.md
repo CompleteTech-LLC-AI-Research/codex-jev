@@ -174,3 +174,17 @@ python3 jev/scripts/release_readiness.py gates --scratch /tmp/rr --json /tmp/rea
 
 The mutation controls are run by editing `jev/scripts/release_readiness.py` as
 the table above describes; the file must be restored byte-identical afterwards.
+
+## Re-record for #136 (after this claim)
+
+The rows above are the claim as it was taken at the `#98` revision
+(`29aefffe`/`4bac04bdc0`). The `linux-x86_64` matrix has since been re-recorded
+for the `#136` mechanism fix at `e6fd719b21`, where `record_platform` began
+pairing each record with the digest its own revision carries. That re-record was
+taken from a **clean** worktree with a freshly built debug binary, sha256
+`f363d4e594a092be38dc5ba60ef49d85dc5b943d67d115fdf3340afd507aaf66`, because the
+earlier `6d51fdc9278d1a2fbc1bb01e024ae12d5d9a3b233d7229a7f6e792eaf35c0c3b` binary
+no longer exists on the recording host and could not be reproduced. The two hosts
+are the same source revision's build; only the digest of the recorded artifact
+differs. The current record and its `revision_inputs_digest` agree, both host
+smokes exit 0, and `gates` still reports `failed=0 not_run=1`.
