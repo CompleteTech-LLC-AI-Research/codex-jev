@@ -92,10 +92,15 @@ The absolute byte totals above are not intrinsic to the smoke: the host embeds
 the scratch root three times in the request preamble, so a `--workdir` whose
 path is longer by N characters shifts both totals by exactly `3*N`. This record
 used a 47-character root; the same binary, seed, and harness report
-`9705 / 9130` at a 27-character root. The path-independent claims are the
-575-byte reduction, the ratio, the unchanged 35-item count, and the
-byte-identical switch-off control, which is what
-[`check_projection_reset.py`](smoke/check_projection_reset.py) asserts.
+`9705 / 9130` at a 27-character root. The claims a different root does not move
+are the 575-byte reduction, the unchanged 35-item count, and the byte-identical
+switch-off control, which is what
+[`check_projection_reset.py`](smoke/check_projection_reset.py) asserts. The
+*ratio* is only approximately root-independent: both totals carry the same
+additive `3*N`, so it drifts in the fourth decimal - `0.941116` at this
+47-character root, `0.941044` at 43, `0.940752` at 27, all three printed alike
+as `0.941` - and a reader who recomputes it at another root should expect that
+spread rather than read it as drift.
 [`evidence/projection-read-tool-host-run.md`](evidence/projection-read-tool-host-run.md)
 states the same property from its own three-run spread.
 

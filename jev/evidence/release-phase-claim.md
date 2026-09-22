@@ -146,8 +146,11 @@ Editing `jev/scripts/release_readiness.py` moves the pinned-inputs digest, so th
 `6d51fdc9278d1a2fbc1bb01e024ae12d5d9a3b233d7229a7f6e792eaf35c0c3b` — both host
 smokes exit 0, and the projection-reset verdict keeps 35 input items and reduces
 the serialized input `9705 -> 9130` bytes with a byte-identical switch-off
-control (the absolute totals include the scratch root three times, so only the
-575-byte reduction is path-independent; [`VALIDATION.md`](../VALIDATION.md) and
+control (the absolute totals include the scratch root three times, so the
+root-independent claims are the 575-byte reduction, the unchanged 35-item count
+and the byte-identical switch-off control, while the *ratio* drifts in the
+fourth decimal - `0.940752` here against `0.941044` and `0.941116` at the two
+other recorded roots; [`VALIDATION.md`](../VALIDATION.md) and
 [`projection-real-host.md`](projection-real-host.md) quote the same measurement
 at other roots). The verdict is still `release_ready: false`, now blocking only on
 `macos-aarch64` and `windows-x86_64` (linux-x86_64 is `verified`), because those
