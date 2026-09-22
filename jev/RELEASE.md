@@ -239,7 +239,10 @@ outcome refuses it and is named in the gate detail:
 - `unverifiable` - the recorded revision does not resolve in this clone, so the
   binding cannot be checked; an unresolvable revision is **not** a pass;
 - `fail` - the record claims a `live-provider` tier, records no harness result,
-  or omits a revision or a successful harness verdict.
+  omits a revision or a successful harness verdict, or names pinned inputs the
+  recorded revision does not carry. `record_platform` refuses to *write* the
+  last kind, and `classify_platform_record` refuses to credit one, so a record
+  can no longer pair `HEAD` with the digest of an uncommitted tree.
 
 `release_ready` therefore stays `false` while any supported platform has no
 current, verifiable run - that is the intended outcome, not a bug.
