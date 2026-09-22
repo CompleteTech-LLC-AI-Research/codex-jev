@@ -67,8 +67,14 @@ is incomplete, even when a concurrency slot is free.
 | #124 | The post-close ledger rows claim digest and gate-detail identity across #114..#121 and call #116 documentation-only | #122 | merged; issue closed - the row now anchors a measurement revision, names #116 as the one non-documentation merge in the span, and scopes the invariant to the pinned-input digest rather than the whole gate detail |
 | #126 | Three projection-reset records quote the same byte totals at three different scratch roots without noting they are path-dependent | #128 | merged; issue closed - the totals are documented as varying with `3*len(workdir)` while the 575-byte reduction, the 35-item count and the exact reset stay the verified path-independent claims |
 | #127 | The same post-close identity claim as #124, filed independently by a second lane against this file | none | closed `not_planned` - a duplicate of #124, fixed by the same #122 (`c1474479bf`), so no second change was needed |
+| #129 | Two records disagree about whether the projection-reset ratio is path-independent, and the ledger sequence reads as exhaustive | #130 | merged; issue closed - the ratio is qualified with its measured fourth-decimal spread, the path-independent set is corrected, and the sequence row gained the scope marker "as of this merge" |
+| #132 | The delivered projection's tables and post-close sequence stop at #120/#121 and omit the merges that landed after | #133 | merged; issue closed - the two tables and the sync note were carried past #121; the follow-up that scoped the result instead of extending it again is [#134](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/134) |
+| #135 | The path-dependence wording says "at shorter roots" when one recorded root is longer, and the ledger row says "the tip" instead of naming a revision | #137 | merged; issue closed - the compared roots are named by length and the row names the revision it was written at rather than "the tip" |
 
-State above is the GitHub state of each issue and PR, not a local plan.
+State above is the GitHub state of each issue and PR, not a local plan. Rows here and in the
+merged-commits table below are complete through the merge that wrote this file, and neither table
+can list that merge itself, because the row does not exist while the file is being written: re-fetch
+`main` for the live tip rather than reading any list in this file as a pointer to it.
 
 ## Merged commits
 
@@ -77,7 +83,9 @@ landed on `main`. Phases 3 to 6 are complete and merged: #24, #25, #26, and the
 phase-6 roll-up #101 all landed; the phase-6.3 follow-ups #97 and #98 were fixed
 by #99 and #106, the skipped-gate readiness control #98 named is pinned in the
 required-CI lane by #112, and the evidence vocabulary of the follow-up #111 is
-closed by #113.
+closed by #113. The table is complete through the merge named in its last row - the revision this
+file was written from - and never contains this file's own merge; both tables share that boundary,
+stated under the Status table above.
 
 | Issue | PR | Reviewed commit | Merge commit |
 | --- | --- | --- | --- |
@@ -125,6 +133,9 @@ closed by #113.
 | #124 | #122 | `79ac7d9dd0` | `c1474479bf` |
 | #123 | #125 | `f11637146e` | `2e8f2a8927` |
 | #126 | #128 | `704d03b01c` | `615b79249b` |
+| #129 | #130 | `ea05b7d670` | `f678dda1b2` |
+| #132 | #133 | `ca3af9f7af` | `f005bc7fd85e` |
+| #135 | #137 | `13ff604371` | `fd195e8af0` |
 
 ## Pinned revisions
 
@@ -258,7 +269,7 @@ Recorded by the integration lane after the epic was closed.
 | Remote default branch | Anchored to a **measurement revision**, `6702953b7d` (merge of #120), confirmed by `git fetch github main` rather than by reading a PR page - deliberately not to the live tip, because the tip advances with every further merge and this ledger's own updates are such merges. The post-close sequence **as of this merge** is #114 `3906bf0766`, #116 `f93f824616`, #118 `d32ad758c3`, #120 `6702953b7d`, #121 `473983ae8b` - a list that is deliberately scoped to when it was written, since documentation-only merges keep landing after it. Four of the five are documentation-only - #114, #118, #120, #121 - and #116 is not: it landed the redacted diagnostics report (`jev/scripts/jev_diagnostics.py`, a pinned input) and re-recorded the `linux-x86_64` matrix in `jev/evidence/platform-matrix.json` against the new digest, so the pinned-input digest is `7ed77a96` (51 files) at #114 and `8bf426ff7f4c81` (52 files) at each of the other four. Identity holds from #116 onward, which is the span a reader needs: the gate outcomes are the same at all five (`gates=10 failed=0 not_run=1 release_ready=false blocking=macos-aarch64,platform.matrix,windows-x86_64`), the pinned-input digest does not move across #116-#121, and the counts in the next row were re-measured at both ends of it. The `candidate.exclusions` *detail* moves between any two revisions because the candidate bundle covers the whole `jev` tree - `f162b7569c3fec69` over 134 files at #114, `ccbec224b2b71875` over 136 files at #121 - so the invariant this row names is the pinned-input digest, not the bundle digest. Corrected in #122 ([#124](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/124)): the earlier wording called #116 documentation-only and claimed digest and gate-detail identity across the whole sequence, and neither survived measurement; the scope marker was added in [#129](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/129) once three further merges had landed past #121. |
 | Required lane at that revision | At `6702953b7d`: `repo-checks / build-test` **success** on the merge commit itself; `.github/scripts/test_jev_*.py` **433 OK**; `jev/tests` **183 OK**. The count was 424 at `3906bf0766` and 423 before #113; #116 added the nine diagnostics-lane tests, and `jev/SENTINEL_BOUNDARY.md` states the same 433. Re-measured at both ends of the span: 424 -> 433 on `.github/scripts/test_jev_*.py` and 183 -> 183 on `jev/tests` between #114 and #121, so the counts, like the digest, hold from #116 onward rather than from #114. |
 | Superseded work | #104 reopened and merged as additive (the executable composition) rather than as a replacement for the #101 roll-up; #107 and #109 closed as duplicates of #106; #110 closed once #112 and #113 covered its two gaps. No duplicate was force-merged over reviewed work. |
-| Post-close merges after #121 | Three more merges landed after the sequence above was written, all documentation-only: #122 `c1474479bf` (fixing [#124](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/124)), #125 `2e8f2a8927` (fixing [#123](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/123)) and #128 `615b79249b` (fixing [#126](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/126)), and further documentation-only merges have landed since. Across them the anchored measurement revision and the pinned-input digest are unchanged - `8bf426ff7f4c81` (52 files) at `473983ae8b`, at `615b79249b` and again at `f005bc7fd8`, the tip when this row was written - and the ten-gate result is identical at `615b79249b` and at `f005bc7fd8` (`release_ready=false gates=10 failed=0 not_run=1 blocking=macos-aarch64,platform.matrix,windows-x86_64`). The required lane holds as well: at `615b79249b`, `.github/scripts/test_jev_*.py` is **433 OK** and `jev/tests` is **183 OK**, and the relative-link sweep over all tracked markdown files still reports **0** broken links under `jev/**`. Revisions are named rather than left as "the tip" for the same reason the anchored row above names one. |
+| Merges recorded after #121 | Every merge this file records after #121 is documentation-only - none touches a path in `PINNED_INPUT_RULES` - so no pin, gate outcome or lane count here depends on which of them a reader fetches. Recorded in this file: #122 `c1474479bf` (fixing [#124](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/124)), #125 `2e8f2a8927` (fixing [#123](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/123)), #128 `615b79249b` (fixing [#126](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/126)), #130 `f678dda1b2` (fixing [#129](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/129)), #133 `f005bc7fd85e` (fixing [#132](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/132)), and #137 `fd195e8af0` (fixing [#135](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/135)). The anchored measurement revision and the pinned-input digest are unchanged - `8bf426ff7f4c81` (52 files) at `473983ae8b`, at `615b79249b`, at `f005bc7fd85e` and at `fd195e8af0`, the revision this file was written from - and the ten-gate result is identical at each (`release_ready=false gates=10 failed=0 not_run=1 blocking=macos-aarch64,platform.matrix,windows-x86_64`). The required lane holds as well: at `fd195e8af0`, `.github/scripts/test_jev_*.py` is **433 OK** and `jev/tests` is **183 OK**, and the relative-link sweep over all tracked markdown files still reports **0** broken links under `jev/**`. Revisions are named rather than left as "the tip" for the same reason the anchored row above names one, and the list stops where this file's own merge begins rather than at the tip, for the reason stated under the Status table. |
 | Remaining open issue | None. [#105](https://github.com/CompleteTech-LLC-AI-Research/codex-jev/issues/105) - the machine-readable redacted diagnostics report, the residual of the superseded #26 implementation (PR #100) - was the last one, and it was landed by #116 (`f93f824616`) and closed `completed` at 2026-09-22T00:47:14Z, so the epic's remaining-open count is zero. |
 | Documentation integrity | Broken relative links under `jev/**`: **0**. Two had 404'd on the row that names the `real-host-binary` evidence - `jev/SENTINEL_BOUNDARY.md` aimed at `../smoke/run-sentinel-hook-smoke.sh` and at a bare `sentinel-hook-real-host.md`, both resolving outside the file's own directory. Filed as #119 by the sweep that found them, fixed by #120 (`6702953b7d`), and the fix is itself verified by re-running that sweep: 5 broken links over 212 tracked markdown files before, 3 after, and the 2 that went away are exactly these. The 3 survivors are inherited upstream hits under `codex-rs/` and are deliberately out of scope for this integration. |
 | Release verdict | `release_ready: false` with `blocking=macos-aarch64,platform.matrix,windows-x86_64` - unchanged by the final merges and intended: readiness follows evidence, not closed issues. Re-run at `6702953b7d`: `release_ready=false gates=10 failed=0 not_run=1 revision=6702953b7d blocking=macos-aarch64,platform.matrix,windows-x86_64`, and `phase6_release.py run` gives `phase_validated=true trace=true tiers=true rollback=true readiness=true release_ready=false`. |
@@ -275,7 +286,10 @@ general. `main` moved under several lanes during the closeout (#103, #104, #106,
 fresh `git fetch github main`, and each merge commit above was confirmed on the
 remote branch rather than assumed from a successful push.
 
-After the closeout list above, `main` continued to `473983ae8b`, `c1474479bf`,
-`2e8f2a8927` and `615b79249b`. Each was re-fetched and confirmed on the remote
-branch, and the four are documentation-only, so no pin, gate outcome or lane
-count in this section depends on which of them a reader fetches.
+Past the closeout list above, every merge confirmed on the remote branch - `473983ae8b`,
+`c1474479bf`, `2e8f2a8927`, `615b79249b`, then the merges that landed while this file was being
+rewritten, `f678dda1b2` (#130), `f005bc7fd85e` (#133) and `fd195e8af0` (#137) - is
+documentation-only, so no pin, gate outcome or lane count in this section depends on which of them
+a reader fetches. Which merges exist past `fd195e8af0` is not asserted here: the tip advances with
+every merge, and that cutoff is the revision this file was written from rather than a claim about
+`main` now.
