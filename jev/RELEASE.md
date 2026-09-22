@@ -108,6 +108,39 @@ The readiness document also carries `revision`, `host_pin`, `rust_toolchain`,
 `python_requirement`, `pinned_inputs_digest`, per-platform rows, and the
 `isolated_roundtrip` plan so a reviewer can diff two evaluations.
 
+### The combined report
+
+The table above answers one question at a time. For a single document that
+answers all of them at once - and that a lane can capture and diff between two
+revisions - there is `jev_diagnostics.py`:
+
+```sh
+python3 jev/scripts/jev_diagnostics.py report --json <file> \
+  --components-root <checkouts> --binary <codex> --env-dir <isolated>
+```
+
+It assembles the host pin and the revision it was read from, the manifest and
+every profile's validation result, the ordered patch and adapter states, the
+resolved feature switches, the remote-inference state, the component pins, the
+binary digest, the fixture catalog, the ambient home, and the isolated
+environment. It is built from an **allow-list**: no file content, credential
+value, or captured payload is read into it, and the ambient home is described by
+path and existence only.
+
+Redaction is part of the document rather than a promise about it. The finished
+report is scanned with the same credential-shape rules the candidate gate
+refuses on (`CONTENT_RULES`), every match is replaced with
+`[redacted:<rule>]`, and `redaction.findings` lists each match by rule and JSON
+pointer - never by value. `--check` exits 1 on any finding, and also on a
+manifest or profile error, an inconsistent patch or adapter state, a patch whose
+file hash disagrees with its pin, a component pin mismatch, an isolated binary
+that does not match its plan, or a requested binary that is not on disk. So a
+caller does not have to take the author's word that the report is clean:
+
+```sh
+python3 jev/scripts/jev_diagnostics.py report --check
+```
+
 ## 5. Install and upgrade order
 
 Install (or reproduce) in this order; each step is independently verifiable.
